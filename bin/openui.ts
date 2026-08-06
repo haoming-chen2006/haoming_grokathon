@@ -289,7 +289,14 @@ async function autoUpdateFromGit() {
   const channelLabel = channel === "stable" ? "stable" : `${channel} (beta)`;
   console.log(`\x1b[38;5;245m[update]\x1b[0m Channel: ${channelLabel}`);
   try {
-    await $`git -C ${ROOT_DIR} fetch origin ${channel} --quiet`.timeout(5000);
+    // Bun's ShellPromise has no .timeout() — calling one threw a TypeError that the catch
+    // below swallowed, so this whole fetch/pull block never ran. Race a timer instead.
+    await Promise.race([
+      $`git -C ${ROOT_DIR} fetch origin ${channel} --quiet`,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("git fetch timed out")), 5000)
+      ),
+    ]);
 
     const behind = (await $`git -C ${ROOT_DIR} rev-list HEAD..origin/${channel} --count`.text()).trim();
     if (parseInt(behind) > 0) {

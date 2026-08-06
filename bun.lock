@@ -5,21 +5,39 @@
     "": {
       "name": "openui",
       "dependencies": {
+        "@xai-official/grok": "^0.2.118",
         "bun-pty": "^0.4.8",
         "hono": "^4.1.0",
       },
       "devDependencies": {
         "@types/bun": "latest",
         "concurrently": "^8.2.2",
+        "typescript": "^5.9.3",
       },
     },
   },
   "packages": {
     "@babel/runtime": ["@babel/runtime@7.28.6", "", {}, "sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA=="],
 
+    "@iarna/toml": ["@iarna/toml@3.0.0", "", {}, "sha512-td6ZUkz2oS3VeleBcN+m//Q6HlCFCPrnI0FZhrt/h4XqLEdOyYp2u21nd8MdsR+WJy5r9PTDaHTDDfhf4H4l6Q=="],
+
     "@types/bun": ["@types/bun@1.3.6", "", { "dependencies": { "bun-types": "1.3.6" } }, "sha512-uWCv6FO/8LcpREhenN1d1b6fcspAB+cefwD7uti8C8VffIv0Um08TKMn98FynpTiU38+y2dUO55T11NgDt8VAA=="],
 
     "@types/node": ["@types/node@25.0.9", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-/rpCXHlCWeqClNBwUhDcusJxXYDjZTyE8v5oTO7WbL8eij2nKhUeU89/6xgjU7N4/Vh3He0BtyhJdQbDyhiXAw=="],
+
+    "@xai-official/grok": ["@xai-official/grok@0.2.118", "", { "dependencies": { "@iarna/toml": "^3.0.0" }, "optionalDependencies": { "@xai-official/grok-darwin-arm64": "0.2.118", "@xai-official/grok-darwin-x64": "0.2.118", "@xai-official/grok-linux-arm64": "0.2.118", "@xai-official/grok-linux-x64": "0.2.118", "@xai-official/grok-win32-arm64": "0.2.118", "@xai-official/grok-win32-x64": "0.2.118" }, "os": [ "linux", "win32", "darwin", ], "cpu": [ "x64", "arm64", ], "bin": { "grok": "bin/grok" } }, "sha512-51BumA66Y9Xp1Qv2HCphEE/lTmMF4DPPueX945b3nH30/VN0T3QsbxBQLVrRtv0Q6FmDAR3bns4T9fRebpCBbg=="],
+
+    "@xai-official/grok-darwin-arm64": ["@xai-official/grok-darwin-arm64@0.2.118", "", { "os": "darwin", "cpu": "arm64" }, "sha512-BZJ3epm0zDGGYzpSR22DE+dC2fCPj+DZszkdQ4dSqtVIVWGHuTEOEYRr8rr7laj2EOvEVY5AdxY1aqk3s70ZCQ=="],
+
+    "@xai-official/grok-darwin-x64": ["@xai-official/grok-darwin-x64@0.2.118", "", { "os": "darwin", "cpu": "x64" }, "sha512-M7H96ze2TAJGnpchjpud61SnGR/X1mm2C0srCZNoUgyygBd6nX+ZQHHQPJ56bXRI4HtxHXcKsPTQkMR1wuoOyw=="],
+
+    "@xai-official/grok-linux-arm64": ["@xai-official/grok-linux-arm64@0.2.118", "", { "os": "linux", "cpu": "arm64" }, "sha512-wlCvk0EkJ8+YJ9hEAAxVtXWAWfAJ+Bzvq6MMqPtNY1VEPVyzVeOAghygPzyxOYnhsA++36PbdjdttdfLmWBZgQ=="],
+
+    "@xai-official/grok-linux-x64": ["@xai-official/grok-linux-x64@0.2.118", "", { "os": "linux", "cpu": "x64" }, "sha512-BAVfgcjnuIp1f5koHW1UCYCHouXlbXIDRSDDnK7GyixTAyrfN72f1i8sgxN6saEF9yVsEETFJukXY9fT00jXaw=="],
+
+    "@xai-official/grok-win32-arm64": ["@xai-official/grok-win32-arm64@0.2.118", "", { "os": "win32", "cpu": "arm64" }, "sha512-si3jzA3DTe11mqeJfnR8jIO3kiSZQXcrQbLX8FbKmn2LyDXOg64UQZKs3qd2l1o9tZwnQnhDBE4uT773T+GjnQ=="],
+
+    "@xai-official/grok-win32-x64": ["@xai-official/grok-win32-x64@0.2.118", "", { "os": "win32", "cpu": "x64" }, "sha512-3WsG3/jnYbptxcY4HL0GeG1QP/a7nvQbYaxOKgBK/7inw6r5oeKkCyNb9RrLi52BX+tPAC/yGr+3viqNjdU/OQ=="],
 
     "ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 
@@ -72,6 +90,8 @@
     "tree-kill": ["tree-kill@1.2.2", "", { "bin": { "tree-kill": "cli.js" } }, "sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A=="],
 
     "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici-types": ["undici-types@7.16.0", "", {}, "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw=="],
 

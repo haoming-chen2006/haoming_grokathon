@@ -250,14 +250,15 @@ export function saveState(sessions: Map<string, Session>) {
   const savedState = loadState();
 
   // Preserve categories and canvases from existing state
+  const canvases = savedState.canvases || [];
   const state: PersistedState = {
     nodes: [],
-    canvases: savedState.canvases || [],
+    canvases,
     categories: savedState.categories || [],
   };
 
   // Get default canvas ID for fallback
-  const defaultCanvas = state.canvases.find(c => c.isDefault) || state.canvases[0];
+  const defaultCanvas = canvases.find(c => c.isDefault) || canvases[0];
   const defaultCanvasId = defaultCanvas?.id || "canvas-default";
 
   // Add active sessions from sessions Map (skip shell sessions — they're ephemeral)

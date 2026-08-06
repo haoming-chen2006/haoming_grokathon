@@ -4,6 +4,12 @@ import { sessions, createSession, deleteSession, createShellSession, injectPlugi
 import { loadState, saveState, savePositions, getDataDir, loadCanvases, saveCanvases, migrateCategoriesToCanvases, atomicWriteJson, loadBuffer } from "../services/persistence";
 import { signalSessionReady, getQueueProgress } from "../services/sessionStartQueue";
 import { getTokensForSession, getContextTokens, invalidateContextCache, getTotalTokensForNode } from "../services/costCache";
+import { getGrokDetection } from "../services/grokDetect";
+import { ACP_ARGS } from "../services/acpClient";
+import { projectRoutes } from "./projects";
+import { repositoryRoutes } from "./repository";
+import { agentRoutes } from "./agents";
+import { libraryRoutes } from "./library";
 import { spawnSync } from "bun";
 import { join, dirname } from "path";
 import { homedir } from "os";
@@ -15,6 +21,15 @@ const log = QUIET ? () => {} : console.log.bind(console);
 const logError = QUIET ? () => {} : console.error.bind(console);
 
 export const apiRoutes = new Hono();
+
+// Control-room project model: design document, requirements, suggestions (loopdesign.md §8).
+apiRoutes.route("/projects", projectRoutes);
+// Repository, per-agent worktrees, diffs and gated merges (loopdesign.md §10 steps 5, 8, 11).
+apiRoutes.route("/repository", repositoryRoutes);
+// Coding agents: roles, status, activity, templates, cost and budget (loopdesign.md §8, §12, §16).
+apiRoutes.route("/coding-agents", agentRoutes);
+// Reusable skills, prompt templates and workflows (loopdesign.md §14).
+apiRoutes.route("/library", libraryRoutes);
 
 const IS_REMOTE = !!process.env.SSH_CONNECTION;
 
@@ -116,6 +131,22 @@ apiRoutes.get("/agents", (c) => {
 
 apiRoutes.get("/cli-info", (c) => {
   return c.json({ hasIsaac: DEFAULT_CLAUDE_COMMAND.startsWith("isaac") });
+});
+
+// V-004: report whether Grok Build is available, its version, and setup guidance when missing.
+apiRoutes.get("/grok/status", (c) => {
+  const detection = getGrokDetection(c.req.query("refresh") === "true");
+  return c.json({
+    installed: detection.installed,
+    version: detection.version,
+    commit: detection.commit,
+    binaryPath: detection.binaryPath,
+    source: detection.source,
+    raw: detection.raw,
+    error: detection.error,
+    setupMessage: detection.setupMessage,
+    acpCommand: detection.installed ? `${detection.binaryPath} ${ACP_ARGS.join(" ")}` : null,
+  });
 });
 
 apiRoutes.get("/sessions", (c) => {
@@ -1258,7 +1289,8 @@ apiRoutes.post("/canvases/reorder", async (c) => {
   if (!state.canvases) return c.json({ error: "No canvases" }, 400);
 
   // Only update order for canvases in the list — don't drop missing ones
-  const orderMap = new Map(canvasIds.map((id: string, i: number) => [id, i]));
+  const orderMap = new Map<string, number>();
+  (canvasIds as string[]).forEach((id, i) => orderMap.set(id, i));
   for (const canvas of state.canvases!) {
     if (orderMap.has(canvas.id)) {
       canvas.order = orderMap.get(canvas.id)!;

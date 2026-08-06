@@ -1,0 +1,3 @@
+[test]
+# Register a DOM before UI tests run, so control-room components render for real.
+preload = ["./client/happydom.ts"]

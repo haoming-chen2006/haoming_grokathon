@@ -36,3 +36,6 @@ yarn-error.log*
 # Temp
 *.tmp
 .cache/
+
+# Reference repos cloned from loopdesign.md §5 (read-only, not part of this project)
+.refs/

@@ -35,16 +35,21 @@
     "start": "bun run server/index.ts",
     "dev": "concurrently \"bun run --watch server/index.ts\" \"bun run --cwd client dev\"",
     "build": "bun run --cwd client build",
+    "test": "bun test server/ client/src",
+    "typecheck": "tsc --noEmit && bun run --cwd client tsc --noEmit",
+    "verify": "bun run typecheck && bun run test && bun run build",
     "prepublishOnly": "bun run build",
     "install:client": "cd client && bun install"
   },
   "dependencies": {
+    "@xai-official/grok": "^0.2.118",
     "bun-pty": "^0.4.8",
     "hono": "^4.1.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=18.0.0",

@@ -6,6 +6,7 @@ import { apiRoutes } from "./routes/api";
 import { sessions, restoreSessions, autoResumeSessions } from "./services/sessionManager";
 import { saveState, migrateStateToHome } from "./services/persistence";
 import { setAuthBroadcast } from "./services/sessionStartQueue";
+import { getControlRoomBus } from "./services/controlRoomEvents";
 import type { WebSocketData } from "./types";
 
 const app = new Hono();
@@ -60,11 +61,26 @@ if (migrationResult.migrated) {
 }
 restoreSessions();
 
+// Control-room subscribers, keyed by socket so each can be torn down on close.
+const controlRoomUnsubscribers = new WeakMap<object, () => void>();
+
 // WebSocket server
 Bun.serve<WebSocketData>({
   port: PORT,
   fetch(req, server) {
     const url = new URL(req.url);
+
+    // Control-room status channel: pushes agent/task/progress/cost events so the UI updates
+    // without a page refresh (V-019).
+    if (url.pathname === "/ws/control-room") {
+      const projectId = url.searchParams.get("projectId");
+      if (!projectId) return new Response("projectId required", { status: 400 });
+      const upgraded = server.upgrade(req, {
+        data: { sessionId: "", lastSeq: 0, channel: "control-room", projectId },
+      });
+      if (upgraded) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
 
     if (url.pathname === "/ws") {
       const sessionId = url.searchParams.get("sessionId");
@@ -83,6 +99,24 @@ Bun.serve<WebSocketData>({
   },
   websocket: {
     open(ws) {
+      if (ws.data.channel === "control-room") {
+        const projectId = ws.data.projectId!;
+        const unsubscribe = getControlRoomBus().subscribe(projectId, (published) => {
+          try {
+            if (ws.readyState === 1) ws.send(JSON.stringify(published));
+          } catch {}
+        });
+        controlRoomUnsubscribers.set(ws, unsubscribe);
+        log(`\x1b[38;5;245m[ws]\x1b[0m Control room connected to ${projectId}`);
+        // Replay recent events so a client that connects mid-flight is not blind.
+        for (const published of getControlRoomBus().history(projectId)) {
+          try {
+            ws.send(JSON.stringify(published));
+          } catch {}
+        }
+        return;
+      }
+
       const { sessionId, lastSeq } = ws.data;
       const session = sessions.get(sessionId);
 
@@ -167,6 +201,13 @@ Bun.serve<WebSocketData>({
       }
     },
     close(ws) {
+      if (ws.data.channel === "control-room") {
+        controlRoomUnsubscribers.get(ws)?.();
+        controlRoomUnsubscribers.delete(ws);
+        log(`\x1b[38;5;245m[ws]\x1b[0m Control room disconnected from ${ws.data.projectId}`);
+        return;
+      }
+
       const { sessionId } = ws.data;
       const session = sessions.get(sessionId);
       if (session) {

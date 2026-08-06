@@ -44,7 +44,7 @@ export async function fetchGitHubIssues(
     throw new Error(`GitHub API error: ${res.status}`);
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as any[];
 
   // Filter out pull requests (they come through the issues API too)
   const issues = data
@@ -84,7 +84,7 @@ export async function fetchGitHubIssue(
     throw new Error(`GitHub API error: ${res.status}`);
   }
 
-  const issue = await res.json();
+  const issue = (await res.json()) as any;
 
   return {
     id: issue.id,
@@ -118,7 +118,7 @@ export async function searchGitHubIssues(
     throw new Error(`GitHub API error: ${res.status}`);
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as { items: any[] };
 
   return data.items.map((issue: any) => ({
     id: issue.id,

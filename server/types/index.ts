@@ -118,4 +118,8 @@ export interface Agent {
 export interface WebSocketData {
   sessionId: string;
   lastSeq: number;
+  /** "terminal" (default) streams PTY output; "control-room" streams project status events. */
+  channel?: "terminal" | "control-room";
+  /** Set for control-room sockets. */
+  projectId?: string;
 }
