@@ -586,6 +586,9 @@ projectRoutes.get("/:id/messages", (c) => {
         agentId: c.req.query("agentId") ?? undefined,
         kind: (c.req.query("kind") as any) ?? undefined,
         unreadOnly: c.req.query("unread") === "true",
+        // Traceability: the conversations about a requirement, task, branch or artifact (§21).
+        linkKind: c.req.query("linkKind") ?? undefined,
+        linkId: c.req.query("linkId") ?? undefined,
         // Older messages live in an append-only sidecar. Off by default so the common listing
         // stays bounded; without this flag archived history would be unreachable from the app.
         includeArchived: c.req.query("includeArchived") === "true",

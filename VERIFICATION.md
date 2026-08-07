@@ -3483,6 +3483,71 @@ bun run verify → exit 0, 656 pass / 0 fail, four audits clean
 
 ---
 
+## §19-§21 conformance: the core value statement had a hole in it (iteration 57)
+
+The last unaudited sections. §20 is a non-goals list — checked for accidental violation, none
+found: main-branch editing is refused by the protected-branch guard, merging requires approval, and
+"enterprise access controls" being an explicit non-goal is what makes the unauthenticated loopback
+API defensible.
+
+§21 states the product's core value as a single testable sentence:
+
+> connects every approved requirement to the Grok agent, branch, code changes, tests,
+> **conversations**, cost, and review decisions responsible for implementing it.
+
+Taking that as seven traversals from a requirement and checking each:
+
+```text
+agent             requirement.ownerAgentId                       reachable
+branch            requirement.branch                             reachable
+code changes      requirement.affectedFiles, submission files    reachable
+tests             requirement.testsPassing / testsTotal          reachable
+review decisions  submissions carrying requirementIds            reachable
+conversations     —                                              NOT REACHABLE
+cost              —                                              not tracked per requirement (§16)
+```
+
+**Conversations were captured and unreachable.** V-025 *requires* every message to carry links, and
+messages about a requirement carry `{ kind: "requirement", id }` — the data was on every message
+from the start. `listMessages` filtered by thread, agent, kind and read-state, and by nothing else.
+There was no route, no MCP tool and no UI path from a requirement to the conversations about it.
+The same shape as the archived history in iteration 42: recorded, and no way to read it.
+
+**Fix, all three layers**, because an API nothing calls is the same defect:
+
+```text
+store   listMessages({ linkKind, linkId }) filters on the links every message already carries
+route   GET /:id/messages?linkKind=requirement&linkId=AUTH-01
+UI      the requirement detail panel lists the conversations referencing that requirement
+```
+
+Seven tests over HTTP and one through the assembled shell. The filter composes with the existing
+ones and with `includeArchived`, so a requirement's older conversations remain reachable after
+archival — checked explicitly, since that combination is exactly where the previous two bugs of
+this kind lived.
+
+```text
+control experiment — the shell's conversations prop removed:
+  (fail) selecting a requirement lists the messages that reference it
+  13 pass / 1 fail        restored: 14 pass / 0 fail
+
+a requirement with no conversations returns [] rather than every message
+```
+
+**Per-requirement cost is left as the §16 deviation recorded in iteration 52.** Cost is attributable
+through the agent and task that produced it; adding a per-requirement total would be new scope no
+checklist item requires, and unlike the conversations gap nothing in the product offers it. Stated
+here so the core-value sentence is not read as fully satisfied: six of its seven traversals are,
+and the seventh is a documented deviation.
+
+```text
+bun run verify → exit 0, 663 pass / 0 fail, four audits clean
+```
+
+All of §1-§21 have now been audited against the implementation.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3509,7 +3574,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 656 pass / 0 fail, 37 files;
+[x] Required tests pass.                    — 663 pass / 0 fail, 37 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -3517,7 +3582,8 @@ reader reaches last.)*
 [x] Placeholder and quality audit passes.   — automated as `bun run audit:quality`;
                                               0 unclassified, 0 dead controls;
                                               1 open finding (Q-2, awaiting the owner)
-[x] Design document matches the merged implementation. — audited iteration 32; citations
+[x] Design document matches the merged implementation. — §1-§21 all audited (iterations 32,
+                                              52-57); deviations recorded above; citations
                                               kept honest by `bun run audit:docs`
 [x] Costs and usage are recorded accurately. — estimated costs flagged estimated: true
 [x] Final Git status is known and documented.
@@ -3576,9 +3642,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 57 ahead of main
+commits 59 ahead of main
 build   bun run build exit 0
-tests   656 pass / 0 fail across 37 files
+tests   663 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller
 ```
 

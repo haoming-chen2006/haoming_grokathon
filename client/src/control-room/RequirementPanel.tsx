@@ -65,13 +65,22 @@ interface DetailProps {
   requirement: Requirement | null;
   /** The agent that owns this requirement, when one is assigned. */
   owner?: CodingAgent | null;
+  /**
+   * Messages that reference this requirement.
+   *
+   * §21 states the product's core value as connecting every requirement to the agent, branch,
+   * code changes, tests, **conversations**, cost and review decisions responsible for it. Every
+   * message is required to carry links (V-025), and until this was added nothing could retrieve
+   * them — the conversation half of that promise was captured and unreachable.
+   */
+  conversations?: Array<{ id: string; kind: string; fromAgentId: string; toAgentId?: string; body: string }>;
 }
 
 /**
  * Right panel of §11A: the implementation activity connected to the selected requirement
  * (V-013: "selecting a requirement reveals related implementation activity").
  */
-export function RequirementDetail({ requirement, owner }: DetailProps) {
+export function RequirementDetail({ requirement, owner, conversations }: DetailProps) {
   if (!requirement) {
     return (
       <div data-testid="requirement-detail-empty" className="p-4 text-sm text-white/50">
@@ -158,6 +167,31 @@ export function RequirementDetail({ requirement, owner }: DetailProps) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {conversations !== undefined && (
+        <div className="mt-3">
+          <div className="mb-1 text-[11px] text-white/40">
+            Conversations ({conversations.length})
+          </div>
+          {conversations.length === 0 ? (
+            <div data-testid="detail-conversations-empty" className="text-xs text-white/40">
+              No agent messages reference this requirement yet.
+            </div>
+          ) : (
+            <ul data-testid="detail-conversations" className="space-y-1">
+              {conversations.map((m) => (
+                <li key={m.id} className="rounded border border-white/5 px-2 py-1 text-xs text-white/70">
+                  <span className="text-white/40">{m.kind.replace(/_/g, " ")}</span>
+                  {" · "}
+                  <span className="font-mono">{m.fromAgentId}</span>
+                  {m.toAgentId ? <> → <span className="font-mono">{m.toAgentId}</span></> : " → user"}
+                  <div className="text-white/80">{m.body}</div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

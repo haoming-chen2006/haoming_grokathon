@@ -1043,6 +1043,15 @@ export class ProjectStore {
       agentId?: string;
       kind?: MessageKind;
       unreadOnly?: boolean;
+      /**
+       * Messages referencing a given project object, e.g. { linkKind: "requirement", linkId: "AUTH-01" }.
+       *
+       * Every message is required to carry links (V-025) and nothing could query them, so the
+       * product's stated core value — connecting a requirement to the conversations responsible
+       * for it (§21) — was not reachable even though the data was captured on every message.
+       */
+      linkKind?: string;
+      linkId?: string;
       /** Include archived history. Off by default so the common case stays cheap. */
       includeArchived?: boolean;
     } = {},
@@ -1051,6 +1060,15 @@ export class ProjectStore {
     let messages = filter.includeArchived
       ? [...this.archivedMessages(projectId), ...current]
       : current;
+    if (filter.linkKind || filter.linkId) {
+      messages = messages.filter((m) =>
+        m.links.some(
+          (l) =>
+            (filter.linkKind === undefined || l.kind === filter.linkKind) &&
+            (filter.linkId === undefined || l.id === filter.linkId),
+        ),
+      );
+    }
     if (filter.threadId) messages = messages.filter((m) => m.threadId === filter.threadId);
     if (filter.kind) messages = messages.filter((m) => m.kind === filter.kind);
     if (filter.agentId) {

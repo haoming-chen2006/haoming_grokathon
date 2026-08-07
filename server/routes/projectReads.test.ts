@@ -276,3 +276,77 @@ describe("repository diff", () => {
     }
   });
 });
+
+describe("requirement-to-conversation traceability (§21)", () => {
+  const links = (reqId: string) => [{ kind: "requirement" as const, id: reqId }];
+
+  beforeEach(() => {
+    store.addRequirement(projectId, { id: "R-1", description: "one" }, USER);
+    store.addRequirement(projectId, { id: "R-2", description: "two" }, USER);
+    store.sendMessage(projectId, {
+      kind: "question", fromAgentId: "a", toAgentId: "b", body: "about one", links: links("R-1"),
+    });
+    store.sendMessage(projectId, {
+      kind: "answer", fromAgentId: "b", toAgentId: "a", body: "also one", links: links("R-1"),
+    });
+    store.sendMessage(projectId, {
+      kind: "question", fromAgentId: "a", toAgentId: "b", body: "about two", links: links("R-2"),
+    });
+  });
+
+  test("messages can be retrieved by the requirement they reference", async () => {
+    // V-025 requires every message to carry links, and nothing could query them — so the core
+    // value statement's "requirement to conversations" was captured and unreachable.
+    const { status, json } = await req(
+      "GET", `/api/projects/${projectId}/messages?linkKind=requirement&linkId=R-1`,
+    );
+    expect(status).toBe(200);
+    expect(json).toHaveLength(2);
+    expect(json.map((m: any) => m.body).sort()).toEqual(["about one", "also one"]);
+  });
+
+  test("a different requirement returns only its own conversations", async () => {
+    const { json } = await req(
+      "GET", `/api/projects/${projectId}/messages?linkKind=requirement&linkId=R-2`,
+    );
+    expect(json).toHaveLength(1);
+    expect(json[0].body).toBe("about two");
+  });
+
+  test("a requirement with no conversations returns an empty list, not everything", async () => {
+    // A filter that silently matches nothing must not fall back to returning all messages.
+    const { json } = await req(
+      "GET", `/api/projects/${projectId}/messages?linkKind=requirement&linkId=R-none`,
+    );
+    expect(json).toEqual([]);
+  });
+
+  test("the filter composes with the other filters", async () => {
+    const { json } = await req(
+      "GET", `/api/projects/${projectId}/messages?linkKind=requirement&linkId=R-1&kind=answer`,
+    );
+    expect(json).toHaveLength(1);
+    expect(json[0].kind).toBe("answer");
+  });
+
+  test("linkKind alone matches every message referencing that kind of object", async () => {
+    const { json } = await req("GET", `/api/projects/${projectId}/messages?linkKind=requirement`);
+    expect(json).toHaveLength(3);
+  });
+
+  test("archived conversations are reachable for a requirement too", async () => {
+    for (let i = 0; i < 700; i++) {
+      store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "x", toAgentId: "y",
+        body: `noise${i}`, links: [{ kind: "task", id: "t1" }], threadId: `n-${i}`,
+      });
+    }
+    const live = await req("GET", `/api/projects/${projectId}/messages?linkKind=requirement&linkId=R-1`);
+    expect(live.json).toHaveLength(0); // pushed out of the retention window
+
+    const all = await req(
+      "GET", `/api/projects/${projectId}/messages?linkKind=requirement&linkId=R-1&includeArchived=true`,
+    );
+    expect(all.json).toHaveLength(2);
+  });
+});

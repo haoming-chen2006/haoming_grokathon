@@ -207,7 +207,10 @@ export function ControlRoomApp() {
             <div className="border-b border-white/10 px-3 py-2 text-[11px] uppercase tracking-wide text-white/30">
               Implementation
             </div>
-            <RequirementDetail requirement={requirement} owner={owner} />
+            <RequirementDetail
+                conversations={room.messages.filter((m) =>
+                  m.links?.some((l) => l.kind === "requirement" && l.id === selectedRequirement),
+                )} requirement={requirement} owner={owner} />
           </aside>
         )}
       </div>

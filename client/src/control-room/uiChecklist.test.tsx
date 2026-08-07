@@ -43,6 +43,8 @@ const PROJECT = {
   messages: [
     { id: "m1", kind: "handoff", fromAgentId: "a1", toAgentId: "a2", body: "ready",
       links: [{ kind: "branch", id: "agent/greet" }], threadId: "t1", createdAt: "" },
+    { id: "m2", kind: "question", fromAgentId: "a2", toAgentId: "a1", body: "what shape is the greeting?",
+      links: [{ kind: "requirement", id: "GREET-01" }], threadId: "t2", createdAt: "" },
   ],
   tasks: [{ id: "t1", objective: "Implement greet", assignedAgentId: "a1", status: "working", dependsOn: [] }],
 };
@@ -246,5 +248,20 @@ describe("Pause All actually pauses (§11)", () => {
     expect(paused.some((c) => c.url.includes("a1"))).toBe(true);
     expect(paused.some((c) => c.url.includes("a2"))).toBe(false);
     expect(paused.every((c) => c.method === "POST")).toBe(true);
+  });
+});
+
+describe("a requirement shows the conversations about it (§21)", () => {
+  test("selecting a requirement lists the messages that reference it", async () => {
+    await openApp();
+    await openTab("document");
+    await waitFor(() => expect(screen.getByTestId("requirement-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("GREET-01"));
+
+    await waitFor(() => expect(screen.getByTestId("requirement-detail")).toBeTruthy());
+    const list = screen.getByTestId("detail-conversations");
+    expect(list.textContent).toContain("what shape is the greeting?");
+    // The other message links to the branch, not this requirement — it must not appear here.
+    expect(list.textContent).not.toContain("ready");
   });
 });
