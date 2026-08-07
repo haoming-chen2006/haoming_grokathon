@@ -10,6 +10,7 @@ import { MissingRecipientError, UnlinkedMessageError } from "../services/messagi
 import { getControlRoomBus } from "../services/controlRoomEvents";
 import { CompletionGateError, IncompleteSubmissionError } from "../services/codeReview";
 import { getAcpSessionManager } from "../services/acpSessionManager";
+import { getAgentRegistry } from "../services/agentRegistry";
 import { detectTestCommand, runTests } from "../services/testRunner";
 import { runPlanner, uncoveredRequirements } from "../services/planner";
 import { reviewSubmission } from "../services/designReview";
@@ -20,20 +21,27 @@ export const projectRoutes = new Hono();
 /**
  * Resolve the acting identity from request headers.
  *
- * Defaults to the user, because the browser UI is the only unauthenticated caller. Agent traffic
- * arrives through the Project MCP server, which sets these headers explicitly. An agent can never
- * escalate itself by claiming `kind=user`: the header is only trusted to *narrow* privilege, so
- * anything presenting an agent id is treated as an agent.
+ * Defaults to the user, because the browser UI is the only unauthenticated caller. Headers are
+ * trusted only to *narrow* privilege: anything presenting an agent id is treated as an agent, and
+ * an agent can never claim `kind=user`.
+ *
+ * The agent's document-write permission is read from the registry, never from a header. A header
+ * previously supplied it, which was not exploitable — omitting all headers yields `user`, which is
+ * strictly more privileged — but it meant one permission had two sources of truth, and it would
+ * have become a real escalation the moment this API gained authentication. See S-1.
  */
 function actorFrom(c: any): Actor {
   const id = c.req.header("x-openui-actor-id");
   const kind = c.req.header("x-openui-actor-kind");
   if (!id || kind !== "agent") return { kind: "user", id: "user" };
-  return {
-    kind: "agent",
-    id,
-    canWriteDocument: c.req.header("x-openui-actor-doc-write") === "true",
-  };
+
+  let canWriteDocument = false;
+  try {
+    canWriteDocument = getAgentRegistry().get(id).permissions.canWriteDocument === true;
+  } catch {
+    // Unknown agent: the safe default is read-only.
+  }
+  return { kind: "agent", id, canWriteDocument };
 }
 
 /** Map domain errors onto HTTP status codes so the backend visibly rejects bad operations. */

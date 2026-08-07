@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 39
+**Last iteration:** 40
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -2369,6 +2369,22 @@ The server exposes repository and agent control with no authentication, so bindi
 put those on the network. Remote use is now an explicit opt-in via OPENUI_HOST, which suits the
 SSH port-forwarding setup the README already documents.
 ```
+
+### S-1b: the same header was trusted by the REST API — **FIXED** (iteration 40)
+
+`actorFrom()` in `server/routes/projects.ts` also derived `canWriteDocument` from the header.
+
+**Severity, stated precisely: not exploitable.** Sending no headers at all yields `kind: "user"`,
+which is strictly *more* privileged than any agent — so claiming agent-plus-write is a downgrade,
+not an escalation. Verified by reading the store's checks: `resolveSuggestion`, `approvePlan` and
+`recordMerge` all require `kind === "user"`.
+
+Fixed anyway, for two reasons: one permission had two sources of truth, and it would have become a
+genuine escalation the moment this API gained authentication — at which point "user" stops being
+the free default. Agent permission now comes from the registry in both places.
+
+Asserted: an agent claiming the header is refused 403 and the document is unchanged; an agent whose
+**stored** permission grants write still succeeds with 200.
 
 **Remaining known limitation, recorded rather than fixed:** the API and MCP endpoints have no
 authentication. That is defensible for a loopback-bound single-user tool and is why S-3 matters,

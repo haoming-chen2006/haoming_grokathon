@@ -152,3 +152,47 @@ describe("S-3: the server binds loopback by default", () => {
     expect(source).toContain('hostname: process.env.OPENUI_HOST || "127.0.0.1"');
   });
 });
+
+describe("S-1b: agent permission has a single source of truth", () => {
+  test("the REST API also ignores the doc-write header", async () => {
+    const agent = getAgentRegistry().create({ projectId, name: "B", role: "Backend Engineer" });
+    const projects = new Hono();
+    projects.route("/api/projects", (await import("./projects")).projectRoutes);
+
+    // Claiming agent identity plus doc-write must not permit a document rewrite.
+    const res = await projects.request(`/api/projects/${projectId}/document`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-openui-actor-kind": "agent",
+        "x-openui-actor-id": agent.id,
+        "x-openui-actor-doc-write": "true",
+      },
+      body: JSON.stringify({ content: "rewritten by an unauthorised agent" }),
+    });
+    expect(res.status).toBe(403);
+
+    // And the document is untouched.
+    const store = new ProjectStore(join(dataDir, "projects"));
+    expect(store.getDocument(projectId).content).toContain("Original");
+  });
+
+  test("an agent granted write in the registry is still permitted", async () => {
+    const granted = getAgentRegistry().create({
+      projectId, name: "Planner", role: "Planner", permissions: { canWriteDocument: true },
+    });
+    const projects = new Hono();
+    projects.route("/api/projects", (await import("./projects")).projectRoutes);
+
+    const res = await projects.request(`/api/projects/${projectId}/document`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-openui-actor-kind": "agent",
+        "x-openui-actor-id": granted.id,
+      },
+      body: JSON.stringify({ content: "written by a granted agent" }),
+    });
+    expect(res.status).toBe(200);
+  });
+});
