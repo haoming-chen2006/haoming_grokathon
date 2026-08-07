@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 30
+**Last iteration:** 31
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -1924,7 +1924,8 @@ Tests passed:           1/1   (the fixture began at 0 pass / 1 fail)
 Design suggestions:     1 submitted, 1 accepted (document v1 → v2)
 Code reviews:           1 submission, 1 revision requested, 1 revised submission approved
 Merge commit:           9e2c0801e54d596167c90d740fbf90d07404de57
-Total cost:             recorded from real token usage (see V-045, iteration 30)
+Total cost:             $0.0527 of $10.00 (39,771 tokens, Backend Engineer)
+                        — re-verified in iteration 31 after cost wiring; survives restart
 Persistence result:     after restart — document v2, requirement complete, task complete,
                         plan approved, 1 accepted suggestion, 2 submissions, 2 messages,
                         1 artifact, agent retains acpSessionId and currentTaskId
