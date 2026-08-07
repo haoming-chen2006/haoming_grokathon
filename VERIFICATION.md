@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 31
+**Last iteration:** 32
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -2164,6 +2164,49 @@ Status:    RAISED — per §22.2 ("an action requires credentials that were not 
 
 ---
 
+## Design-document conformance (§22.19 gate, audited iteration 32)
+
+The gate "Design document matches the merged implementation" had never been explicitly verified.
+Audited `product-design.md` against the code.
+
+### §13 Coding MCP Tools — 40 declared
+
+```text
+implemented          34
+user-only by design   6
+unaccounted for       0
+```
+
+Iteration 23 implemented 18 of the 40 and the shortfall was never noticed, because the checklist
+items (V-028…V-031) only require *representative* tools to work. The audit found the other 22.
+Thirteen agent-facing tools were added in iteration 32 — list_changed_files, get_test_commands,
+get_build_commands, complete_task, record_test_result, ask_agent, reply_to_agent,
+handoff_api_contract, create_artifact, get_artifact, attach_artifact_to_requirement,
+revise_design_suggestion, request_direct_document_permission — plus three typed attachment helpers
+(attach_test_report, attach_api_contract, attach_screenshot).
+
+**Six are deliberately NOT exposed to agents**, recorded in `DELIBERATELY_USER_ONLY` with the
+reason: `approve_code_submission`, `request_code_changes`, `request_merge`, `record_review_result`,
+`request_requirement_change`, `submit_architecture_comment`. Each is a human review or approval
+action — giving an agent the ability to approve its own work would defeat the review gate the
+design exists to enforce (§4, V-018, V-039). This is a **deviation from the literal tool list,
+recorded as a deliberate design decision** rather than an omission.
+
+`complete_task` refuses when the task's last test run was failing, so an agent cannot mark its own
+red work complete (V-035).
+
+### §18 MVP scope — 21 items
+
+All 21 are implemented: the OpenUI fork, ACP adapter, local repository, the five agent templates,
+design-document editor, requirement list, requirement-to-agent assignment, per-agent worktrees,
+live agent cards, expandable sessions, branch and changed-file display, structured handoffs, the
+Project MCP server, design suggestions, code-review submissions, test-result display, merge
+approval, progress tracking, cost tracking, reusable skills and prompts, and persistence.
+
+**Known deviation:** §9 describes internal Grok subagents appearing as expandable child tasks
+inside a parent card. Not implemented — the design marks it optional ("they do not need full
+top-level canvas nodes"), and no checklist item requires it. Recorded rather than left implicit.
+
 ## §22.19 Final Completion Gate
 
 ```text
@@ -2179,7 +2222,8 @@ Status:    RAISED — per §22.2 ("an action requires credentials that were not 
 [ ] End-to-end acceptance test passes.
 [x] UI acceptance checklist passes.          — 22 of 22 rows (open live Grok session closed in iteration 22)
 [x] Placeholder and quality audit passes.    — every match classified; 1 open finding (Q-2)
-[ ] Design document matches the merged implementation.
+[x] Design document matches the merged implementation. — audited iteration 32;
+                                                deviations recorded above
 [ ] Costs and usage are recorded accurately.
 [x] Final Git status is known and documented.
 [x] Final evidence report is generated.

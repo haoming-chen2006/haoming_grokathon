@@ -5,6 +5,7 @@ import { join } from "path";
 import { Hono } from "hono";
 import { mcpRoutes, projectMcpUrl } from "./mcp";
 import { ProjectStore } from "./../services/projectStore";
+import { PROJECT_MCP_TOOLS } from "./../services/projectMcpServer";
 
 let dataDir: string;
 let app: Hono;
@@ -70,15 +71,15 @@ describe("V-028: the MCP server is reachable over HTTP", () => {
     const names = (json?.result?.tools ?? []).map((t: any) => t.name);
     expect(names).toContain("get_project");
     expect(names).toContain("escalate_to_user");
-    expect(names.length).toBe(18);
+    expect(names.length).toBe(PROJECT_MCP_TOOLS.length);
   });
 
   test("the agent identity comes from the URL, not the request body", async () => {
     // Two URLs, two identities — nothing in the payload can change which agent a tool sees.
     const a = await rpc(`/mcp/${projectId}/agent-a`, { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} });
     const b = await rpc(`/mcp/${projectId}/agent-b`, { jsonrpc: "2.0", id: 4, method: "tools/list", params: {} });
-    expect(a.json?.result?.tools?.length).toBe(18);
-    expect(b.json?.result?.tools?.length).toBe(18);
+    expect(a.json?.result?.tools?.length).toBe(PROJECT_MCP_TOOLS.length);
+    expect(b.json?.result?.tools?.length).toBe(PROJECT_MCP_TOOLS.length);
   });
 
   test("projectMcpUrl builds the address handed to an agent", () => {

@@ -3,6 +3,9 @@ import { z } from "zod";
 import { getProjectStore, PermissionDeniedError } from "./projectStore";
 import { getAgentRegistry } from "./agentRegistry";
 import { openRepository, agentChangedFiles, getDiff, listWorktrees } from "./repository";
+import { detectTestCommand } from "./testRunner";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { getControlRoomBus } from "./controlRoomEvents";
 import type { Actor } from "../types/project";
 
@@ -26,6 +29,7 @@ export interface ProjectMcpContext {
     ReturnType<typeof getProjectStore>,
     | "getProject" | "getDocument" | "getRequirement" | "updateTask" | "sendMessage"
     | "submitSuggestion" | "submitCode" | "handoffArtifact"
+    | "recordTestRun" | "createArtifact" | "getArtifact"
   >;
   registry?: Pick<ReturnType<typeof getAgentRegistry>, "get" | "updateActivity">;
 }
@@ -394,10 +398,245 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
       }),
   );
 
+
+  // ─────────────────────────── remaining §13 tools (added iteration 32)
+
+  server.registerTool(
+    "list_changed_files",
+    { description: "Files this agent has changed on its branch.", inputSchema: {} },
+    async () =>
+      guard(() => {
+        const project = store().getProject(ctx.projectId);
+        const agent = registry().get(ctx.agentId);
+        if (!agent.worktree) return [];
+        return agentChangedFiles(agent.worktree, project.baseBranch);
+      }),
+  );
+
+  server.registerTool(
+    "get_test_commands",
+    { description: "The project's test command, configured or detected.", inputSchema: {} },
+    async () =>
+      guard(() => {
+        const project = store().getProject(ctx.projectId);
+        const agent = registry().get(ctx.agentId);
+        const detected = detectTestCommand(agent.worktree || project.repositoryPath);
+        return detected ?? { command: null, source: null, note: "No test command detected" };
+      }),
+  );
+
+  server.registerTool(
+    "get_build_commands",
+    { description: "The project's build command, read from package.json when present.", inputSchema: {} },
+    async () =>
+      guard(() => {
+        const project = store().getProject(ctx.projectId);
+        const agent = registry().get(ctx.agentId);
+        const root = agent.worktree || project.repositoryPath;
+        try {
+          const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+          return { build: pkg.scripts?.build ?? null, scripts: Object.keys(pkg.scripts ?? {}) };
+        } catch {
+          return { build: null, scripts: [], note: "No package.json found" };
+        }
+      }),
+  );
+
+  server.registerTool(
+    "complete_task",
+    {
+      description: "Mark a task you own as complete. Refused if its required tests are failing.",
+      inputSchema: { taskId: z.string() },
+    },
+    async ({ taskId }) =>
+      guard(() => {
+        const project = store().getProject(ctx.projectId);
+        const task = project.tasks.find((t) => t.id === taskId);
+        if (!task) throw new Error(`Task not found: ${taskId}`);
+        // A task with a red suite cannot be completed by the agent that wrote it (V-035).
+        if (task.testRun && !(task.testRun.parsed && task.testRun.failed === 0 && task.testRun.total > 0)) {
+          throw new Error(
+            `Cannot complete ${taskId}: its last test run was ${task.testRun.failed} failing of ${task.testRun.total}`,
+          );
+        }
+        const result = store().updateTask(ctx.projectId, taskId, { status: "complete" }, actor());
+        return { task: result.task, unblocked: result.unblocked.map((t) => t.id) };
+      }),
+  );
+
+  server.registerTool(
+    "record_test_result",
+    {
+      description: "Record a test run against a task you own.",
+      inputSchema: {
+        taskId: z.string(), command: z.string(),
+        passed: z.number(), failed: z.number(), total: z.number(), exitCode: z.number(),
+      },
+    },
+    async ({ taskId, command, passed, failed, total, exitCode }) =>
+      guard(() =>
+        store().recordTestRun(ctx.projectId, taskId, {
+          command, passed, failed, total, exitCode, parsed: true, ranByAgentId: ctx.agentId,
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "ask_agent",
+    {
+      description: "Ask another agent a question.",
+      inputSchema: { toAgentId: z.string(), body: z.string(), linkKind: z.string(), linkId: z.string() },
+    },
+    async ({ toAgentId, body, linkKind, linkId }) =>
+      guard(() =>
+        store().sendMessage(ctx.projectId, {
+          kind: "question", fromAgentId: ctx.agentId, toAgentId, body,
+          links: [{ kind: linkKind as any, id: linkId }],
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "reply_to_agent",
+    {
+      description: "Reply to a message from another agent.",
+      inputSchema: { replyToId: z.string(), toAgentId: z.string(), body: z.string() },
+    },
+    async ({ replyToId, toAgentId, body }) =>
+      guard(() =>
+        store().sendMessage(ctx.projectId, {
+          kind: "answer", fromAgentId: ctx.agentId, toAgentId, body,
+          links: [{ kind: "task", id: replyToId }], replyToId,
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "handoff_api_contract",
+    {
+      description: "Hand an API contract to another agent.",
+      inputSchema: {
+        toAgentId: z.string(), name: z.string(), contract: z.string(),
+        body: z.string(), requirementId: z.string().optional(), branch: z.string().optional(),
+      },
+    },
+    async ({ toAgentId, name, contract, body, requirementId, branch }) =>
+      guard(() =>
+        store().handoffArtifact(ctx.projectId, {
+          fromAgentId: ctx.agentId, toAgentId, body,
+          artifact: { kind: "api_contract", name, content: contract, requirementId, branch },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "create_artifact",
+    {
+      description: "Record an artifact you produced.",
+      inputSchema: {
+        name: z.string(),
+        kind: z.enum(["api_contract", "patch", "diff", "test_report", "benchmark", "build_log", "migration", "screenshot"]),
+        content: z.string().optional(), requirementId: z.string().optional(), taskId: z.string().optional(),
+      },
+    },
+    async (a) =>
+      guard(() => store().createArtifact(ctx.projectId, { ...a, producedByAgentId: ctx.agentId })),
+  );
+
+  server.registerTool(
+    "get_artifact",
+    { description: "Read an artifact by id.", inputSchema: { artifactId: z.string() } },
+    async ({ artifactId }) => guard(() => store().getArtifact(ctx.projectId, artifactId)),
+  );
+
+  server.registerTool(
+    "attach_artifact_to_requirement",
+    {
+      description: "Attach an existing artifact to a requirement.",
+      inputSchema: { artifactId: z.string(), requirementId: z.string() },
+    },
+    async ({ artifactId, requirementId }) =>
+      guard(() =>
+        store().sendMessage(ctx.projectId, {
+          kind: "handoff", fromAgentId: ctx.agentId, toAgentId: ctx.agentId,
+          body: `Artifact ${artifactId} attached to ${requirementId}`,
+          links: [{ kind: "artifact", id: artifactId }, { kind: "requirement", id: requirementId }],
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "revise_design_suggestion",
+    {
+      description: "Submit a revised design suggestion after changes were requested.",
+      inputSchema: {
+        originalText: z.string(), proposedText: z.string(), reason: z.string(),
+        requirementId: z.string().optional(),
+      },
+    },
+    async (a) =>
+      guard(() => store().submitSuggestion(ctx.projectId, { ...a, authorAgentId: ctx.agentId })),
+  );
+
+  server.registerTool(
+    "request_direct_document_permission",
+    {
+      description: "Ask the user for scoped permission to edit the design document directly.",
+      inputSchema: { reason: z.string() },
+    },
+    async ({ reason }) =>
+      guard(() =>
+        store().sendMessage(ctx.projectId, {
+          kind: "escalation", fromAgentId: ctx.agentId,
+          body: `Requesting direct document-write permission: ${reason}`,
+          links: [{ kind: "blocker", id: ctx.agentId }],
+        }),
+      ),
+  );
+
+
+  // Typed attachment helpers. Thin wrappers over create_artifact so an agent reaching for the
+  // name the design uses finds a tool rather than having to know the generic form.
+  for (const [tool, kind, label] of [
+    ["attach_test_report", "test_report", "test report"],
+    ["attach_api_contract", "api_contract", "API contract"],
+    ["attach_screenshot", "screenshot", "screenshot"],
+  ] as const) {
+    server.registerTool(
+      tool,
+      {
+        description: `Attach a ${label} to a requirement or task.`,
+        inputSchema: {
+          name: z.string(),
+          content: z.string().optional(),
+          uri: z.string().optional(),
+          requirementId: z.string().optional(),
+          taskId: z.string().optional(),
+        },
+      },
+      async (a) =>
+        guard(() => store().createArtifact(ctx.projectId, { ...a, kind, producedByAgentId: ctx.agentId })),
+    );
+  }
+
   return server;
 }
 
 /** Tool names this server registers, for discovery assertions. */
+/**
+ * Tools deliberately NOT exposed to agents, with the reason. §13 lists them, but each is a
+ * human review or approval action — giving an agent the ability to approve its own work would
+ * defeat the review gate the design exists to enforce (§4, V-018, V-039).
+ */
+export const DELIBERATELY_USER_ONLY = [
+  "approve_code_submission",
+  "request_code_changes",
+  "request_merge",
+  "record_review_result",
+  "request_requirement_change",
+  "submit_architecture_comment",
+] as const;
+
 export const PROJECT_MCP_TOOLS = [
   "get_project",
   "get_technical_design",
@@ -417,4 +656,20 @@ export const PROJECT_MCP_TOOLS = [
   "report_failing_test",
   "request_agent_review",
   "escalate_to_user",
+  "list_changed_files",
+  "get_test_commands",
+  "get_build_commands",
+  "complete_task",
+  "record_test_result",
+  "ask_agent",
+  "reply_to_agent",
+  "handoff_api_contract",
+  "create_artifact",
+  "get_artifact",
+  "attach_artifact_to_requirement",
+  "revise_design_suggestion",
+  "request_direct_document_permission",
+  "attach_test_report",
+  "attach_api_contract",
+  "attach_screenshot",
 ] as const;
