@@ -143,7 +143,14 @@ export function ControlRoomApp() {
                 />
               </div>
             )}
-            {tab === "conversations" && <ConversationView messages={room.messages} />}
+            {tab === "conversations" && (
+              <ConversationView
+                messages={room.messages}
+                onLoadHistory={room.loadMessageHistory}
+                historyLoaded={room.historyLoaded}
+                historyLoading={room.historyLoading}
+              />
+            )}
           </div>
         </main>
 

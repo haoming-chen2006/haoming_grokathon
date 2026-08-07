@@ -31,6 +31,10 @@ export function messageKindLabel(kind: MessageView["kind"]): string {
 interface Props {
   messages: MessageView[];
   onOpenLink?: (link: { kind: string; id: string }) => void;
+  /** Pull archived history. Absent when the caller does not support it. */
+  onLoadHistory?: () => void;
+  historyLoaded?: boolean;
+  historyLoading?: boolean;
 }
 
 /**
@@ -38,7 +42,9 @@ interface Props {
  * conversation rather than a flat log, and every message shows what it is linked to — the
  * traceability V-025 requires is only useful if the user can see it.
  */
-export function ConversationView({ messages, onOpenLink }: Props) {
+export function ConversationView({
+  messages, onOpenLink, onLoadHistory, historyLoaded, historyLoading,
+}: Props) {
   if (messages.length === 0) {
     return (
       <div data-testid="conversations-empty" className="p-4 text-sm text-white/50">
@@ -54,6 +60,22 @@ export function ConversationView({ messages, onOpenLink }: Props) {
 
   return (
     <div data-testid="conversation-view" className="text-white">
+      {onLoadHistory && !historyLoaded && (
+        <button
+          type="button"
+          data-testid="load-message-history"
+          onClick={onLoadHistory}
+          disabled={historyLoading}
+          className="w-full border-b border-white/5 p-2 text-[11px] uppercase tracking-wide text-white/40 hover:text-white/70 disabled:opacity-50"
+        >
+          {historyLoading ? "Loading earlier messages…" : "Load earlier messages"}
+        </button>
+      )}
+      {onLoadHistory && historyLoaded && (
+        <div data-testid="message-history-loaded" className="border-b border-white/5 p-2 text-[11px] uppercase tracking-wide text-white/25">
+          Showing full history
+        </div>
+      )}
       {[...threads.entries()].map(([threadId, thread]) => (
         <section key={threadId} data-testid={`thread-${threadId}`} className="border-b border-white/5 p-3">
           <div className="mb-2 text-[11px] uppercase tracking-wide text-white/30">

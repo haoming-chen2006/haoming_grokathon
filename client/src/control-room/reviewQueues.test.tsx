@@ -295,3 +295,55 @@ describe("§22.17: agent conversations", () => {
     expect(screen.getByTestId("conversations-empty").textContent).toContain("No agent messages");
   });
 });
+
+describe("archived conversation history is reachable from the panel", () => {
+  const msg = (id: string, body: string): MessageView => ({
+    id, kind: "question", fromAgentId: "a", toAgentId: "b", body,
+    links: [{ kind: "task", id: "t1" }], threadId: `thread-${id}`, createdAt: "2026-01-01T00:00:00Z",
+  });
+
+  test("no control is offered when the caller cannot load history", () => {
+    // The panel must not promise something the caller has not wired up.
+    render(<ConversationView messages={[msg("1", "hello")]} />);
+    expect(screen.queryByTestId("load-message-history")).toBeNull();
+  });
+
+  test("the control is offered and invokes the loader", () => {
+    let called = 0;
+    render(<ConversationView messages={[msg("1", "hello")]} onLoadHistory={() => { called += 1; }} />);
+    const button = screen.getByTestId("load-message-history");
+    expect(button.textContent).toContain("Load earlier messages");
+    fireEvent.click(button);
+    expect(called).toBe(1);
+  });
+
+  test("the control reports progress and cannot be double-fired", () => {
+    let called = 0;
+    render(
+      <ConversationView messages={[msg("1", "hello")]} onLoadHistory={() => { called += 1; }} historyLoading />,
+    );
+    const button = screen.getByTestId("load-message-history") as HTMLButtonElement;
+    expect(button.textContent).toContain("Loading earlier messages");
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(called).toBe(0);
+  });
+
+  test("once loaded the panel says so instead of offering the control again", () => {
+    render(<ConversationView messages={[msg("1", "hello")]} onLoadHistory={() => {}} historyLoaded />);
+    expect(screen.queryByTestId("load-message-history")).toBeNull();
+    expect(screen.getByTestId("message-history-loaded").textContent).toContain("Showing full history");
+  });
+
+  test("archived messages render as real threads once supplied", () => {
+    render(
+      <ConversationView
+        messages={[msg("old", "the oldest exchange"), msg("new", "the newest exchange")]}
+        onLoadHistory={() => {}}
+        historyLoaded
+      />,
+    );
+    expect(screen.getByTestId("thread-thread-old")).toBeTruthy();
+    expect(screen.getByText("the oldest exchange")).toBeTruthy();
+  });
+});

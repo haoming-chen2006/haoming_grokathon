@@ -2466,6 +2466,73 @@ history had an id been reused.
 
 ---
 
+## Reachability of archived history (iteration 42)
+
+The iteration-41 archival change added `ProjectStore.archivedMessages()` and a
+`listMessages({includeArchived})` option, both fully unit-tested. The loop document's own rule —
+*a passing test proves a unit works, not that anything calls it* — applied directly, so the
+reachability audit was re-run against the new surface.
+
+**It was unreachable, and that was a live regression.**
+
+```text
+$ grep -rn "includeArchived\|archivedMessages" server/routes/ \
+      server/services/projectMcpServer.ts client/src/
+NOT REACHABLE from routes, MCP tools, or the client
+```
+
+The consequence was not cosmetic: the UI renders `full.messages` from `GET /api/projects/:id`,
+which now returns only the retained window. Past 500 messages a project's older conversations were
+still on disk and **no longer visible anywhere in the running application**. V-049 requires
+messages survive a restart; bytes nobody can read do not satisfy that.
+
+Reproduced through the production HTTP path before fixing (`server/routes/messageHistory.test.ts`,
+700 messages sent, oldest archived):
+
+```text
+GET /api/projects/:id/messages                        → 500 of 700   (200 missing)
+GET /api/projects/:id/messages?threadId=thread-3      → 0 results    (archived thread invisible)
+```
+
+**Fix.** Three layers, because the gap ran through all three:
+
+```text
+server/routes/projects.ts            ?includeArchived=true on GET /:id/messages
+useControlRoom.ts                    loadMessageHistory(), historyLoaded, historyLoading
+ConversationView / ControlRoomApp    "Load earlier messages" control, wired through the shell
+```
+
+After:
+
+```text
+GET /api/projects/:id/messages?includeArchived=true   → 700 of 700, json[0].body === "msg-0"
+GET …?threadId=thread-3&includeArchived=true          → 1 result, body "msg-3"
+```
+
+**Control experiment.** Deleting only the three props in `ControlRoomApp.tsx` — leaving the hook,
+the route and the component untouched — turns the two app-level tests red and nothing else:
+
+```text
+wiring removed:  8 pass / 2 fail   (both archived-history tests)
+wiring restored: 10 pass / 0 fail
+```
+
+So the tests detect the wiring itself, not merely the component. This is the same failure mode as
+iteration 33, where control-room components were tested but never imported; the audit is worth
+re-running after every change that adds a module.
+
+Twelve tests cover this: 5 over real HTTP, 5 on the rendered component, 2 on the assembled shell.
+
+**Checked and found sound:** the MCP surface exposes only `send_agent_message` and no message-read
+tool, so agents never read history and archiving cannot regress them. `listProjects()` filters on
+`.json`, which does not match `.messages.jsonl`, so the sidecar is not parsed as a project.
+
+```text
+bun run verify → exit 0, 536 pass / 0 fail across 31 files
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -2492,8 +2559,8 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 524 pass / 0 fail, 1443 expect() calls,
-                                              30 files; see the flake note above
+[x] Required tests pass.                    — 536 pass / 0 fail, 31 files;
+                                              see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, code reached main
 [x] UI acceptance checklist passes.         — 22 of 22 rows
 [x] Placeholder and quality audit passes.   — 1 open finding (Q-2, awaiting the owner)
@@ -2547,9 +2614,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 28 ahead of main
+commits 30 ahead of main
 build   bun run build exit 0
-tests   524 pass / 0 fail across 30 files
+tests   536 pass / 0 fail across 31 files
 ```
 
 ---

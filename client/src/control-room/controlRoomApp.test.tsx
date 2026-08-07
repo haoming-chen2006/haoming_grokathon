@@ -66,6 +66,13 @@ function stubFetch() {
     if (String(url).includes("/coding-agents?projectId")) return send(AGENTS);
     if (String(url).includes("/progress")) return send({ percent: 50, completed: 1, total: 2 });
     if (String(url).includes("/costs/")) return send({ projectCostUsd: 0.05, projectBudgetUsd: 10 });
+    if (String(url).includes("/messages?includeArchived=true")) {
+      return send([
+        { id: "m0", kind: "question", fromAgentId: "a1", toAgentId: "a2", body: "the archived exchange",
+          links: [{ kind: "task", id: "t1" }], threadId: "t0", createdAt: "" },
+        ...PROJECT.messages,
+      ]);
+    }
     if (String(url).includes("/session")) return send({ agentId: "a1", projectId: "p1", acpSessionId: "sess-1", state: "ready", transcript: [] });
     return send({});
   };
@@ -177,5 +184,35 @@ describe("Control Room shell", () => {
     const labels = screen.getAllByTestId("agent-status-label").map((n) => n.textContent);
     expect(labels).toContain("Working");
     expect(labels).toContain("Idle");
+  });
+});
+
+describe("the shell can reach archived conversation history", () => {
+  async function openConversations() {
+    render(<ControlRoomApp />);
+    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("tab-conversations"));
+    await waitFor(() => expect(screen.getByTestId("conversation-view")).toBeTruthy());
+  }
+
+  test("the panel offers the control, so history is not stranded on disk", async () => {
+    // The store archives messages past a window. If the shell never wires the loader, those
+    // messages exist in the sidecar and nothing in the running app can display them.
+    await openConversations();
+    expect(screen.getByTestId("load-message-history")).toBeTruthy();
+  });
+
+  test("clicking it fetches history and renders the archived thread", async () => {
+    await openConversations();
+    expect(screen.queryByText("the archived exchange")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("load-message-history"));
+
+    await waitFor(() => expect(screen.getByText("the archived exchange")).toBeTruthy());
+    // It asked the API for archived messages, not just a plain refetch.
+    expect(calls.some((c) => c.url.includes("/messages?includeArchived=true"))).toBe(true);
+    // And the control is replaced rather than left inviting a second load.
+    expect(screen.queryByTestId("load-message-history")).toBeNull();
+    expect(screen.getByTestId("message-history-loaded")).toBeTruthy();
   });
 });

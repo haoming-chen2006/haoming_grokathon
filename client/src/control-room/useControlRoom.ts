@@ -66,6 +66,9 @@ export function useControlRoom() {
   const [sessionState, setSessionState] = useState<LiveSessionStateView>("stopped");
   const socketRef = useRef<WebSocket | null>(null);
 
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   const loadProjects = useCallback(async () => {
     try {
       const projects = await json<ProjectSummary[]>("/api/projects");
@@ -203,6 +206,26 @@ export function useControlRoom() {
     }
   }, []);
 
+  /**
+   * Pull the full conversation history, including messages moved to the archive.
+   *
+   * The project payload carries only the retained window, so on a busy project the oldest
+   * exchanges are on disk but absent from the panel. This is how the user reaches them.
+   */
+  const loadMessageHistory = useCallback(async () => {
+    if (!state.projectId) return;
+    setHistoryLoading(true);
+    try {
+      const all = await json<any[]>(`/api/projects/${state.projectId}/messages?includeArchived=true`);
+      setState((s) => ({ ...s, messages: all }));
+      setHistoryLoaded(true);
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [state.projectId]);
+
   const refresh = useCallback(() => {
     if (state.projectId) void loadProject(state.projectId);
   }, [state.projectId, loadProject]);
@@ -210,6 +233,9 @@ export function useControlRoom() {
   return {
     ...state,
     drawerAgentId,
+    historyLoaded,
+    historyLoading,
+    loadMessageHistory,
     transcript,
     sessionState,
     selectProject: (id: string) => setState((s) => ({ ...s, projectId: id, loading: true })),
