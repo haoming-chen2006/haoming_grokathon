@@ -9,6 +9,7 @@ import { DependencyCycleError, PlanNotApprovedError, TaskBlockedError } from "..
 import { MissingRecipientError, UnlinkedMessageError } from "../services/messaging";
 import { getControlRoomBus } from "../services/controlRoomEvents";
 import { CompletionGateError, IncompleteSubmissionError } from "../services/codeReview";
+import { getAcpSessionManager } from "../services/acpSessionManager";
 import type { Actor } from "../types/project";
 
 export const projectRoutes = new Hono();
@@ -308,6 +309,30 @@ projectRoutes.patch("/:id/tasks/:taskId", async (c) => {
     });
 
     return c.json(result);
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/**
+ * V-018: launch a Grok session for a task. The approval gate is enforced here — this is the only
+ * path that starts an agent, so a draft plan cannot produce a running session.
+ */
+projectRoutes.post("/:id/tasks/:taskId/launch", async (c) => {
+  try {
+    const projectId = c.req.param("id");
+    const taskId = c.req.param("taskId");
+    const store = getProjectStore();
+
+    // Throws PlanNotApprovedError or TaskBlockedError, mapped to 409 by fail().
+    const task = store.assertTaskLaunchable(projectId, taskId);
+    if (!task.assignedAgentId) {
+      return c.json({ error: `Task ${taskId} has no assigned agent to launch`, code: "NO_AGENT" }, 400);
+    }
+
+    const session = await getAcpSessionManager().open(task.assignedAgentId);
+    store.updateTask(projectId, taskId, { status: "working" }, { kind: "user", id: "user" });
+    return c.json({ taskId, agentId: task.assignedAgentId, session }, 201);
   } catch (err) {
     return fail(c, err);
   }

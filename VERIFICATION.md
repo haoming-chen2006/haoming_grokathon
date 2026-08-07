@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 26
+**Last iteration:** 27
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (47/52 PASS; Stage D complete)
-**Tally:** 47 PASS · 0 FAIL · 0 BLOCKED · 5 NOT TESTED
+**Overall result:** FAIL (49/52 PASS; only V-042, V-050, V-052 remain)
+**Tally:** 49 PASS · 0 FAIL · 0 BLOCKED · 3 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -906,7 +906,62 @@ cannot grow without limit.
 
 | Item | Status | Reason |
 |---|---|---|
-| V-017 Planner generates plan | NOT TESTED | The plan *structure* exists (milestones, tasks, dependencies, owners, required tests) and is editable before execution. What is missing is the Planner actually reading the design and repository to generate it — that needs a live Grok session (B-3). |
+### V-017: Planner generates an implementation plan — **PASS** (iteration 27)
+
+`server/services/planner.ts`. Tests: `planner.test.ts` → **11 pass**, plus a live run.
+
+The Planner is a Grok agent handed the Project MCP server, so it reads the design document and
+repository through the same tools every other agent uses rather than being fed a summary.
+
+```text
+Plan ID:                a draft plan created from the generated structure
+Tasks generated:        3
+Dependencies generated: 2
+
+  t1   Backend Engineer   req=AUTH-01  deps=[]        Implement Google OAuth sign-in
+  t2   Backend Engineer   req=AUTH-02  deps=[t1]      Ensure sessions persist across page reloads
+  t3   Backend Engineer   req=AUTH-03  deps=[t1,t2]   Implement account deletion
+
+  uncovered requirements: []   (every requirement is covered by a task)
+```
+
+The dependency chain was produced by the Planner from the design, not supplied by the harness.
+
+**Parsing is defensive because model output is not a contract.** Bare JSON, fenced JSON and JSON
+surrounded by prose all parse. A reply containing no JSON is an **error**, never an empty plan —
+returning an empty plan would read as "the Planner found nothing to do". A plan with no tasks, or
+a task with no objective, is rejected. Dependencies on tasks that do not exist are **dropped**
+rather than persisted, since keeping one produces a permanently blocked graph that surfaces later
+as a stuck agent. Raw output is retained so a bad parse can be diagnosed.
+
+### V-018: User approval gates execution — **PASS** (iteration 27)
+
+The gate was already enforced in iteration 4; what was missing was the "Agents launched" evidence,
+which required a live session. `POST /api/projects/:id/tasks/:taskId/launch` is now the only path
+that starts an agent, so a draft plan cannot produce a running session.
+
+```text
+Plan state before approval: draft
+
+Launch attempt while draft:
+  POST /tasks/t1/launch
+  → 409 {"error":"Implementation plan is still a draft — the user must approve it before
+          Grok sessions launch","code":"PLAN_NOT_APPROVED"}
+
+User edits assignments and budgets before approving:
+  PATCH /tasks/t1 {"budgetUsd":3} → budgetUsd: 3
+
+Approval event:
+  POST /plan/approve → state: approved, approvedBy: user
+
+Agents launched:
+  POST /tasks/t1/launch
+  → agentId: agent_msimshz61m5nz
+    session state: ready, acpSessionId: 019fdb26-eaa5-7de2-8459-5e710a87ae91
+    task t1 → working
+```
+
+
 ### V-020: Progress uses objective milestones — **PASS**
 
 ```text
