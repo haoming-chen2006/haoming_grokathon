@@ -3425,6 +3425,64 @@ bun run verify → exit 0, 656 pass / 0 fail, four audits clean
 
 ---
 
+## A flake finally caught in the act (iteration 56)
+
+The gate came up **red**: 655 pass, 1 fail. Per the loop document a red gate outranks everything,
+so the §19-§21 audit was set aside.
+
+```text
+(fail) V-032: agent can modify code in its worktree > an agent can read existing repository files
+Expected to contain: "8317"
+Received: "The file `app.ts` does not contain a line where a numeric value is assigned to x.
+           If you suspect it might be assigned differently, please provide more context…"
+```
+
+The fixture was correct — `app.ts` holds `export const x = 8317;` and the agent's cwd is the
+worktree containing it. The model simply answered wrongly, in fluent prose. It then passed three
+re-runs.
+
+**The defect is in the test.** It asked the agent to *say* a value, so the assertion was against a
+sentence. The capability under test — can an agent read a file in its worktree — has an observable
+effect available instead: the agent is now asked to write the value into `found.txt`, and the test
+reads that file. It can only produce 8317 by having read `app.ts`, and the comparison is against
+file contents rather than phrasing.
+
+The same conversion applied to the failing-command test, which asked the agent to report an
+observed exit code; it now writes the code to `code.txt`.
+
+```text
+reworked: 4 consecutive runs green, then 3 consecutive runs of the whole suite green
+```
+
+Four runs is not proof — the *old* test also passed three times after failing. The argument for
+the change is structural, not statistical: the assertion no longer depends on how the model
+phrases an answer.
+
+### What was deliberately not converted
+
+Five assertions still read `reply.text`, and they are a different kind. Each tests something whose
+observable *is* the reply:
+
+```text
+acpClient       distinct arithmetic per concurrent session   session isolation
+acpClient       "42" from a survivor after a sibling is killed  the session still works
+acpClient       recall of 4242 after reattachment            session/load restored context
+skillsAndRecovery  a codename supplied only via rules        skills reach the session (V-042)
+skillsAndRecovery  recall of TICKET_5150 after recovery      recovered session kept its history
+```
+
+There is no disk effect to assert for "the model still remembers what it was told". Converting
+them would mean inventing a file-write step whose failure could not be distinguished from the
+memory failure being tested. They are recorded as irreducibly model-dependent rather than churned,
+and the rule that separates the two groups is: **if the behaviour has an effect, assert the effect;
+if the reply is the behaviour, the reply is the right assertion.**
+
+```text
+bun run verify → exit 0, 656 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3518,7 +3576,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 55 ahead of main
+commits 57 ahead of main
 build   bun run build exit 0
 tests   656 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller

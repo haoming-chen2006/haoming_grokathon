@@ -80,13 +80,23 @@ describe("V-032: agent can modify code in its worktree", () => {
     const wt = createAgentWorktree(repo, { agentId: "reader", branch: "agent/reader", baseBranch: "main" });
     const conn = await agentIn(wt.path, "reader");
     try {
-      const reply = await conn.prompt(
-        "Read the file app.ts in the current directory and reply with only the numeric value assigned to x.",
+      // Assert an effect on disk, not the wording of a reply.
+      //
+      // This asked the agent to *say* the value, and once got back "The file app.ts does not
+      // contain a line where a numeric value is assigned to x" — a wrong answer in fluent prose,
+      // which passed on three re-runs. Prose is not a stable interface. Writing the value to a
+      // file is: the agent can only produce 8317 by having read app.ts, and the check is then a
+      // string comparison against a real file rather than against a sentence.
+      await conn.prompt(
+        "Read the file app.ts in the current directory. Create a file named found.txt in the same " +
+          "directory containing only the numeric value assigned to x, and nothing else. " +
+          "Reply with only DONE when finished.",
         { timeoutMs: 240_000 },
       );
-      // 8317 appears nowhere but that file, so answering it IS the proof of a read. Asserting a
-      // tool call fired was flaky — the model does not always surface one in session updates.
-      expect(reply.text).toContain("8317");
+
+      const found = join(wt.path, "found.txt");
+      expect(existsSync(found), "the agent did not create found.txt").toBe(true);
+      expect(readFileSync(found, "utf8")).toContain("8317");
     } finally {
       conn.stop();
     }
@@ -121,13 +131,19 @@ describe("V-033: agent can run repository commands", () => {
     const wt = createAgentWorktree(repo, { agentId: "failer", branch: "agent/failer", baseBranch: "main" });
     const conn = await agentIn(wt.path, "failer");
     try {
-      // A distinctive code: "3" would match almost any reply by chance, so the assertion could
-      // pass without the agent having observed the failure at all.
-      const reply = await conn.prompt(
-        "Run the shell command `exit 37` in the current directory. Then reply with only the numeric exit code you observed.",
+      // The observed exit code is written to a file rather than spoken, for the same reason as
+      // the read test above: a reply is prose and prose is not a stable interface. 37 is chosen
+      // because "3" would match most replies by chance.
+      await conn.prompt(
+        "Run the shell command `exit 37` in the current directory. Then create a file named " +
+          "code.txt containing only the numeric exit code you observed, and nothing else. " +
+          "Reply with only DONE when finished.",
         { timeoutMs: 240_000 },
       );
-      expect(reply.text).toContain("37");
+
+      const codeFile = join(wt.path, "code.txt");
+      expect(existsSync(codeFile), "the agent did not record the exit code").toBe(true);
+      expect(readFileSync(codeFile, "utf8")).toContain("37");
     } finally {
       conn.stop();
     }

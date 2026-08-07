@@ -37,6 +37,7 @@ const CLASSIFIED = new Map([
   ["scratchpad/v052.mjs", "the pre-iteration-43 location, cited in the narrative that describes moving it"],
   ["Cargo.toml", "in the cloned grok-build reference repo under .refs/, which is gitignored"],
   ["rust-toolchain.toml", "in the cloned grok-build reference repo under .refs/, which is gitignored"],
+  ["app.ts", "a file inside the agentExecution test fixture, written at run time"],
 ]);
 
 function tracked() {
