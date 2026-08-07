@@ -2458,9 +2458,11 @@ the realistic shape stays flat at 1 ms. The bound is *retained = 500-message win
 history of every thread with a message in that window*, which is unbounded only if threads are.
 Correctness was preferred to the tighter bound: splitting a thread would silently disable V-027.
 
-Ten tests cover this in `messaging.test.ts`, including that a thread is never split across the
-boundary, that a long thread still escalates once archiving is active, and that replying into a
-fully archived thread still counts that thread's history.
+Thirteen tests cover this in `messaging.test.ts`, including that a thread is never split across
+the boundary, that a long thread still escalates once archiving is active, that replying into a
+fully archived thread still counts that thread's history, and that deleting a project deletes its
+archive — the sidecar was initially orphaned on delete, which would have resurfaced as stale
+history had an id been reused.
 
 ---
 
@@ -2490,7 +2492,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 521 pass / 0 fail, 1436 expect() calls,
+[x] Required tests pass.                    — 524 pass / 0 fail, 1443 expect() calls,
                                               30 files; see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, code reached main
 [x] UI acceptance checklist passes.         — 22 of 22 rows
@@ -2545,9 +2547,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 26 ahead of main
+commits 28 ahead of main
 build   bun run build exit 0
-tests   521 pass / 0 fail across 30 files
+tests   524 pass / 0 fail across 30 files
 ```
 
 ---
