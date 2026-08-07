@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 35
+**Last iteration:** 36
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -2289,6 +2289,22 @@ process.
 That is untestable **and wrong**: a configuration change would not be picked up. All three now
 rebuild when the configured directory changes. The tests pass because the design improved, not
 because the tests were bent around it.
+
+## UI ↔ API contract (iteration 36)
+
+The shell tests stub `fetch` with assumed response shapes. Both sides were written from the same
+assumption, so a mismatch between the stub and the real handler would break the UI with every unit
+test still green.
+
+`server/routes/uiContract.test.ts` asserts that every field `useControlRoom` dereferences is really
+produced by the real handlers — **10 pass, 88 expect() calls**. Covered: the project list, the full
+project payload (document, requirements, suggestions, submissions, messages, tasks and their nested
+shapes), the document, progress, the agent list, the cost summary, position persistence, suggestion
+resolution, submission approval, and that a failing call returns an `error` **string** — the UI
+renders `body.error`, so anything else would display "undefined".
+
+**Result: no mismatch found.** The stubs were accurate. The value is that drift is now caught: a
+handler that drops a field the UI reads will fail this suite instead of failing in the browser.
 
 ## §22.19 Final Completion Gate
 
