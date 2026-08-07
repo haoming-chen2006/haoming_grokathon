@@ -4,9 +4,9 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 23
+**Last iteration:** 24
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (42/52 PASS; Stage C tool layer complete)
+**Overall result:** FAIL (42/52 PASS; Stage C complete — MCP verified end to end)
 **Tally:** 42 PASS · 0 FAIL · 0 BLOCKED · 10 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
@@ -1167,7 +1167,41 @@ layer is exercised, not bypassed.
 construction, so an agent cannot address another project or impersonate another agent by passing
 different arguments. This is the property the whole permission model rests on.
 
-### V-028: Project MCP server connects — **PASS** (tool surface)
+### V-028: Project MCP server connects — **PASS** (fully verified, iteration 24)
+
+Iteration 23 recorded this on the tool surface alone and flagged that Grok discovering the server
+had not been demonstrated. Iteration 24 closed that clause before starting new work.
+
+The server is mounted on the orchestration process over HTTP (`server/routes/mcp.ts`) rather than
+spawned as a subprocess — Grok advertises `mcpCapabilities: {http: true}`, and mounting in-process
+keeps tools on the same project store with no second copy of state and no IPC.
+
+```text
+Reachable over HTTP:
+  POST /mcp/:projectId/:agentId  initialize  → HTTP 200, serverInfo.name "openui-project"
+  POST /mcp/:projectId/:agentId  tools/list  → 18 tools
+
+Discovered and CALLED by Grok:
+  session/new mcpServers: [{type:"http", name:"openui-project", url:"http://127.0.0.1:6968/mcp/…"}]
+  → session 019fdad2-b35b-7da1-92fd-358b9a536409
+  prompt: "Call get_project and reply with ONLY the value of its `goal` field."
+  → stopReason : end_turn
+  → tool calls : search_tool, use_tool
+  → agent reply: "Ship passwordless auth by Friday"
+```
+
+The goal string exists **only** in the MCP server's project store, so a correct answer cannot come
+from anywhere else — it proves discovery, invocation, and use of the result, not merely that a
+connection was accepted.
+
+**Identity is bound by the URL.** The project and agent come from the path, so the identity a tool
+sees is fixed by the address handed over at `session/new` and cannot be altered by anything the
+agent sends. Ids are URL-encoded, so an id containing a slash cannot escape its path segment.
+
+Transport is stateless — a fresh server/transport pair per request — so concurrent agents cannot
+collide on a shared session and a failed request cannot poison later ones.
+
+#### Tool surface (iteration 23)
 
 ```text
 Server name:       openui-project 1.0.0

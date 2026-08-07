@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import type { ServerWebSocket } from "bun";
 import { apiRoutes } from "./routes/api";
+import { mcpRoutes } from "./routes/mcp";
 import { sessions, restoreSessions, autoResumeSessions } from "./services/sessionManager";
 import { saveState, migrateStateToHome } from "./services/persistence";
 import { setAuthBroadcast } from "./services/sessionStartQueue";
@@ -43,6 +44,8 @@ app.use("*", cors({ origin: ["http://localhost:6968", "http://localhost:6969"] }
 
 // API Routes
 app.route("/api", apiRoutes);
+// Project MCP server over HTTP, reachable by Grok agents (V-028).
+app.route("/mcp", mcpRoutes);
 
 // Serve static files (no-cache on index.html so browser always gets fresh asset references)
 app.use("/*", serveStatic({

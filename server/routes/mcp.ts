@@ -1,0 +1,56 @@
+import { Hono } from "hono";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { createProjectMcpServer } from "../services/projectMcpServer";
+
+export const mcpRoutes = new Hono();
+
+/**
+ * Project MCP server over HTTP (V-028).
+ *
+ * Grok advertises `mcpCapabilities: {http: true, sse: true}`, so the server is mounted on the
+ * orchestration process rather than spawned as a subprocess. That keeps tools in-process with the
+ * project store — no second copy of state, no IPC — and means the agent reaches it at a URL that
+ * is already running.
+ *
+ * The project and agent are taken from the PATH, so the identity a tool sees is fixed by the URL
+ * the agent was given at session/new and cannot be altered by anything the agent sends.
+ */
+mcpRoutes.all("/:projectId/:agentId", async (c) => {
+  const projectId = c.req.param("projectId");
+  const agentId = c.req.param("agentId");
+
+  const server = createProjectMcpServer({
+    projectId,
+    agentId,
+    canWriteDocument: c.req.header("x-openui-actor-doc-write") === "true",
+  });
+
+  // Stateless mode: each request carries its own transport, so concurrent agents cannot collide
+  // on a shared session and a crashed request cannot poison later ones.
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+
+  try {
+    await server.connect(transport);
+    return await transport.handleRequest(c.req.raw);
+  } catch (err) {
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+        id: null,
+      },
+      500,
+    );
+  } finally {
+    // Never leak the per-request server/transport pair.
+    void server.close().catch(() => {});
+  }
+});
+
+/** The URL an agent should be handed for this project/agent pair. */
+export function projectMcpUrl(port: number, projectId: string, agentId: string): string {
+  return `http://127.0.0.1:${port}/mcp/${encodeURIComponent(projectId)}/${encodeURIComponent(agentId)}`;
+}
