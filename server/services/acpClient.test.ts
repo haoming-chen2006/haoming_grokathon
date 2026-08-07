@@ -235,6 +235,83 @@ describe("V-006: multiple visible Grok agents can run", () => {
   });
 });
 
+describe("V-007: Grok session persistence", () => {
+  test("a session survives process death and retains its conversation", async () => {
+    if (!grokBinaryPath()) throw new Error("grok binary unavailable");
+
+    // --- first process: establish a fact only this session knows -------------------------
+    const first = makeConn(undefined, "persist-agent");
+    let sessionId: string;
+    try {
+      first.start();
+      await first.initialize();
+      expect(first.supportsLoadSession).toBe(true);
+
+      sessionId = await first.newSession();
+      await first.prompt(
+        "Remember this build number for later: 4242. Reply with only: noted",
+        { timeoutMs: 180_000 },
+      );
+    } finally {
+      first.stop();
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(first.isRunning).toBe(false);
+
+    // --- second process: reattach to the same session id --------------------------------
+    const events: AcpEvent[] = [];
+    const second = makeConn((e) => events.push(e), "persist-agent");
+    try {
+      second.start();
+      await second.initialize();
+
+      const loaded = await second.loadSession(sessionId);
+      expect(loaded).toBe(sessionId);
+      expect(second.sessionId).toBe(sessionId);
+      expect(events.some((e) => e.type === "session_loaded")).toBe(true);
+
+      // The conversation must have come back with it — this is what distinguishes reopening a
+      // session from silently starting a fresh one under the same id.
+      const recall = await second.prompt(
+        "What build number did I ask you to remember? Reply with only the number.",
+        { timeoutMs: 180_000 },
+      );
+      expect(recall.text).toContain("4242");
+    } finally {
+      second.stop();
+    }
+  }, 420_000);
+
+  test("reopening an unknown session fails loudly rather than starting a fresh one", async () => {
+    if (!grokBinaryPath()) throw new Error("grok binary unavailable");
+
+    const events: AcpEvent[] = [];
+    const conn = makeConn((e) => events.push(e), "bad-load");
+    try {
+      conn.start();
+      await conn.initialize();
+
+      await expect(
+        conn.loadSession("019fdead-0000-0000-0000-000000000000"),
+      ).rejects.toThrow();
+
+      // Silently substituting a new session would lose history the user expects to find.
+      expect(conn.sessionId).toBeNull();
+      expect(events.some((e) => e.type === "failed")).toBe(true);
+      expect(events.some((e) => e.type === "session_loaded")).toBe(false);
+    } finally {
+      conn.stop();
+    }
+  }, 180_000);
+
+  test("loadSession is refused when the capability is not advertised", async () => {
+    const conn = makeConn(undefined, "no-cap");
+    // Never initialized, so the capability is false — the guard must fire before any request.
+    expect(conn.supportsLoadSession).toBe(false);
+    await expect(conn.loadSession("whatever")).rejects.toThrow(/does not advertise the loadSession/);
+  });
+});
+
 describe("Concurrent agents — transport isolation", () => {
   test("four independent agents initialize concurrently with distinct identities", async () => {
     if (!grokBinaryPath()) throw new Error("grok binary unavailable");

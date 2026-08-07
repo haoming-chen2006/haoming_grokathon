@@ -365,6 +365,47 @@ describe("V-021: canvas layout persists across restart", () => {
     }
   });
 
+  test("V-007: a session id survives restart and the agent stays reconnectable", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openui-acpsession-"));
+    try {
+      const first = new AgentRegistry({ persistDir: dir });
+      const agent = first.create({ projectId: PROJECT, name: "Backend", role: "Backend Engineer" });
+      first.setAcpSession(agent.id, "019fda77-47ea-7d52-a874-8c94679d2e14");
+      first.setStatus(agent.id, "working", "Implementing endpoints");
+
+      // The process dies. The session id must be kept — it is what makes reopening possible.
+      first.markDisconnected(agent.id, "Grok process exited");
+
+      const second = new AgentRegistry({ persistDir: dir });
+      const restored = second.get(agent.id);
+
+      expect(restored.acpSessionId).toBe("019fda77-47ea-7d52-a874-8c94679d2e14");
+      // Visibly marked, with the reason and a hint that it can be reopened.
+      expect(restored.status).toBe("idle");
+      expect(restored.statusDetail).toContain("Grok process exited");
+      expect(restored.statusDetail).toContain("reconnectable");
+      // And it is offered as a reconnection candidate rather than reconnected automatically.
+      expect(second.reconnectableAgents(PROJECT).map((a) => a.id)).toContain(agent.id);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an agent with no session is not offered as reconnectable", () => {
+    const agent = makeAgent();
+    expect(registry.reconnectableAgents(PROJECT)).toHaveLength(0);
+    registry.setAcpSession(agent.id, "sess-1");
+    expect(registry.reconnectableAgents(PROJECT)).toHaveLength(1);
+  });
+
+  test("a working agent is not offered for reconnection", () => {
+    // Reconnecting a live agent would duplicate its work.
+    const agent = makeAgent();
+    registry.setAcpSession(agent.id, "sess-1");
+    registry.setStatus(agent.id, "working");
+    expect(registry.reconnectableAgents(PROJECT)).toHaveLength(0);
+  });
+
   test("permissions default to read-only on the document", () => {
     expect(makeAgent().permissions.canWriteDocument).toBe(false);
   });

@@ -298,6 +298,43 @@ export class AgentRegistry {
     return agent;
   }
 
+  /**
+   * Record the live ACP session id so the agent can be reopened after a restart (V-007).
+   * Persisted with the rest of the agent record.
+   */
+  setAcpSession(agentId: string, acpSessionId: string): CodingAgent {
+    const agent = this.get(agentId);
+    agent.acpSessionId = acpSessionId;
+    agent.updatedAt = nowIso();
+    this.touched();
+    return agent;
+  }
+
+  /**
+   * Mark an agent whose process is gone. The session id is deliberately RETAINED — it is what
+   * makes the agent reconnectable — but the status makes the disconnection visible rather than
+   * leaving a card that looks alive.
+   */
+  markDisconnected(agentId: string, reason = "Session disconnected"): CodingAgent {
+    const agent = this.get(agentId);
+    agent.status = "idle";
+    agent.statusDetail = agent.acpSessionId
+      ? `${reason} — reconnectable (session ${agent.acpSessionId.slice(0, 8)}…)`
+      : reason;
+    agent.updatedAt = nowIso();
+    this.touched();
+    return agent;
+  }
+
+  /**
+   * Agents that hold a persisted session id and are not currently working — the set a user could
+   * choose to reopen. Reconnection is never automatic: §17 requires that expensive work not
+   * restart without approval, so this returns candidates rather than acting on them.
+   */
+  reconnectableAgents(projectId?: string): CodingAgent[] {
+    return this.list(projectId).filter((a) => !!a.acpSessionId && a.status !== "working");
+  }
+
   setPosition(agentId: string, position: { x: number; y: number }): CodingAgent {
     const agent = this.get(agentId);
     agent.position = position;

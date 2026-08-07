@@ -46,6 +46,7 @@ export type AcpEvent =
   | { type: "initialized"; agentId: string; protocolVersion: number; agentVersion: string | null; authMethods: string[]; meta: Record<string, unknown> }
   | { type: "auth_required"; agentId: string; authMethods: string[] }
   | { type: "session_created"; agentId: string; sessionId: string }
+  | { type: "session_loaded"; agentId: string; sessionId: string }
   | { type: "update"; agentId: string; sessionId: string; update: AcpSessionUpdate }
   | { type: "notification"; agentId: string; method: string; params: unknown }
   | { type: "stderr"; agentId: string; text: string }
@@ -105,6 +106,8 @@ export class AcpConnection {
   agentVersion: string | null = null;
   authMethods: string[] = [];
   sessionId: string | null = null;
+  /** Whether the agent advertises `session/load` (ACP loadSession capability). */
+  supportsLoadSession = false;
 
   constructor(private readonly options: AcpConnectionOptions) {
     this.agentId = options.agentId;
@@ -299,6 +302,7 @@ export class AcpConnection {
     });
 
     this.protocolVersion = result?.protocolVersion ?? null;
+    this.supportsLoadSession = result?.agentCapabilities?.loadSession === true;
     const meta = (result?._meta ?? {}) as Record<string, unknown>;
     this.agentVersion = (meta.agentVersion as string) ?? null;
     this.authMethods = (result?.authMethods ?? []).map((m: any) => m?.id ?? String(m));
@@ -340,6 +344,38 @@ export class AcpConnection {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      throw err;
+    }
+  }
+
+  /**
+   * Reattach to a session Grok already persisted to disk (V-007). Only valid when the agent
+   * advertises `loadSession` in its initialize capabilities — checked rather than assumed, so an
+   * agent build without it fails with a clear message instead of a protocol error.
+   *
+   * Loading replays the conversation, so the reattached session retains its history. It does not
+   * resume any work that was in flight: the design requires that expensive work not restart
+   * automatically, so the caller decides what to prompt next.
+   */
+  async loadSession(sessionId: string, mcpServers: unknown[] = []): Promise<string> {
+    if (!this.supportsLoadSession) {
+      throw new Error(
+        `Agent ${this.agentId} does not advertise the loadSession capability; a session cannot be reopened`,
+      );
+    }
+    try {
+      await this.request("session/load", { sessionId, cwd: this.cwd, mcpServers }, 120_000);
+      this.sessionId = sessionId;
+      this.emit({ type: "session_loaded", agentId: this.agentId, sessionId });
+      return sessionId;
+    } catch (err) {
+      // A session that cannot be reopened must be reported as such, not silently replaced with a
+      // fresh one — that would lose the history the user expects to find.
+      this.emit({
+        type: "failed",
+        agentId: this.agentId,
+        error: `Could not reopen session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`,
+      });
       throw err;
     }
   }
