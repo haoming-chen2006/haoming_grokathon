@@ -3,6 +3,8 @@ import { getAgentRegistry } from "./agentRegistry";
 import { getControlRoomBus } from "./controlRoomEvents";
 import { estimateCost } from "./usageAccounting";
 import { getProjectStore } from "./projectStore";
+import { composeAgentInstructions, getPromptLibrary } from "./promptLibrary";
+import { projectMcpUrl } from "../routes/mcp";
 
 const QUIET = !!process.env.OPENUI_QUIET;
 const log = QUIET ? () => {} : console.log.bind(console);
@@ -62,7 +64,57 @@ const MAX_TRANSCRIPT = 500;
 export class AcpSessionManager {
   private entries = new Map<string, Entry>();
 
-  constructor(private readonly cwdFor: (agentId: string) => string) {}
+  /**
+   * `createConnection` is injectable so a test can assert what `session/new` is actually handed.
+   * Testing the argument builders alone proved nothing: reverting the call site left every such
+   * test green, which is the exact failure this class of bug keeps taking.
+   */
+  constructor(
+    private readonly cwdFor: (agentId: string) => string,
+    private readonly createConnection: (opts: ConstructorParameters<typeof AcpConnection>[0]) => AcpConnection =
+      (opts) => new AcpConnection(opts),
+  ) {}
+
+  /**
+   * The Project MCP server this agent should be handed at session/new.
+   *
+   * Without this an agent has none of the project tools — it cannot read the design document,
+   * report progress, message another agent or submit work. Only the planner passed `mcpServers`;
+   * every agent launched for a task got an empty list, so V-028…V-031 held for the endpoint and
+   * not for any agent that actually ran.
+   */
+  private mcpServersFor(agentId: string, projectId: string): unknown[] {
+    const port = Number(process.env.PORT) || 6968;
+    return [
+      { type: "http", name: "openui-project", url: projectMcpUrl(port, projectId, agentId), headers: [] },
+    ];
+  }
+
+  /**
+   * The persona and assigned skills, composed into the text appended to the system prompt (V-042).
+   *
+   * `rules` was passed by nothing, so an agent's configured persona and skills were stored,
+   * editable and inert. An unknown skill id must not stop the session — the agent runs with what
+   * resolves, and the omission is visible in the transcript.
+   */
+  private rulesFor(agentId: string): string | undefined {
+    let agent;
+    try {
+      agent = getAgentRegistry().get(agentId);
+    } catch {
+      return undefined;
+    }
+    const skills = [];
+    for (const id of agent.skills ?? []) {
+      try {
+        skills.push(getPromptLibrary().getSkill(id));
+      } catch {
+        // Recorded rather than fatal; a missing skill should not block the agent from starting.
+      }
+    }
+    const composed = composeAgentInstructions({ persona: agent.persona, skills });
+    return composed.trim() ? composed : undefined;
+  }
 
   private push(entry: Entry, kind: TranscriptEntry["kind"], text: string, status?: string): void {
     if (!text) return;
@@ -108,7 +160,7 @@ export class AcpSessionManager {
     };
     const entry: Entry = { connection: null as any, session, seq: 0 };
 
-    const connection = new AcpConnection({
+    const connection = this.createConnection({
       agentId,
       cwd: this.cwdFor(agentId),
       requestTimeoutMs: 120_000,
@@ -126,7 +178,9 @@ export class AcpSessionManager {
         await connection.loadSession(agent.acpSessionId);
         this.push(entry, "system", `Reopened session ${agent.acpSessionId}`);
       } else {
-        await connection.newSession();
+        await connection.newSession(this.cwdFor(agentId), this.mcpServersFor(agentId, agent.projectId), {
+          rules: this.rulesFor(agentId),
+        });
       }
 
       session.acpSessionId = connection.sessionId;

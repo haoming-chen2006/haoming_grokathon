@@ -3237,6 +3237,79 @@ bun run verify → exit 0, 643 pass / 0 fail, four audits clean
 
 ---
 
+## The biggest gap yet: launched agents had no tools and no persona (iteration 53)
+
+Continuing the semantic §22.19 audit into §14, and following the sorting rule from iteration 52 —
+*things the product offers but does not do are defects*.
+
+**Two defects, both in the same line of code.** `AcpSessionManager.open()` is the only production
+path that starts an agent: every task launch and every session opened from the drawer goes through
+it. It called:
+
+```ts
+await connection.newSession();
+```
+
+with no arguments. `newSession(cwd, mcpServers, opts)` defaults `mcpServers` to `[]` and `rules` to
+absent, so every agent this product has ever launched received:
+
+```text
+mcpServers   []          — none of the 31 Project MCP tools
+rules        undefined   — no persona, none of its assigned skills
+```
+
+### 1. Agents could not use the Project MCP server
+
+An agent could not read the design document, report progress, message another agent, record a test
+result or submit work — the entire §13 tool surface was absent from the session. `planner.ts` does
+pass `mcpServers`, so **the planner had tools and no agent that did the actual work did.**
+
+V-028…V-031 passed because every test drove the MCP endpoint over HTTP directly, which is a real
+and correct test of the server — and says nothing about whether an agent is given its address.
+Iteration 47 then invoked all 31 tools, also over HTTP. The surface was tested exhaustively at one
+end of a wire that was never connected.
+
+### 2. Personas and assigned skills reached nothing
+
+`rules` is documented in `acpClient.ts` as "how an agent's persona and assigned skill instructions
+actually reach the session (V-042)". **Nothing passed it.** `composeAgentInstructions` was called
+only by `/api/library/skills/compose`, an endpoint that returns the text to the caller.
+
+So personas and skills were storable on agents and on templates, editable, persisted, covered by
+tests, rendered in the library — and inert. V-042 was verified through the composer and that
+endpoint, never through a launched agent.
+
+### The fix, and the test that nearly did not test anything
+
+`open()` now passes the agent's own MCP URL and its composed persona-plus-skills. An unknown skill
+id is skipped rather than fatal, since a deleted skill should not strand an agent.
+
+The first version of the test asserted the two argument builders in isolation. **Reverting the
+call site left all eight tests green** — the same mistake as the bug being fixed, one level up. The
+manager now takes an injectable connection factory so a test can read what `session/new` actually
+receives:
+
+```text
+call site reverted, builder tests only:      8 pass / 0 fail   <- proves nothing
+call site reverted, with call-site tests:    8 pass / 2 fail
+restored:                                   10 pass / 0 fail
+```
+
+```text
+bun run verify     → exit 0, 653 pass / 0 fail, four audits clean
+bun run acceptance → all 18 steps, merge 5c58bd1e89de, verified on main
+```
+
+### Why the whole loop missed this
+
+Every check was applied to one end: the MCP server was tested over HTTP, the composer was unit
+tested, the endpoint that renders instructions was tested, the reachability audit confirmed both
+modules were imported — by the route that returns text and by the planner. Nothing asked what
+*arguments the launch path actually passes*. Reachability is not the same question as
+configuration, and a module can be imported by the wrong caller.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3263,7 +3336,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 643 pass / 0 fail, 36 files;
+[x] Required tests pass.                    — 653 pass / 0 fail, 37 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -3330,9 +3403,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 49 ahead of main
+commits 51 ahead of main
 build   bun run build exit 0
-tests   643 pass / 0 fail across 36 files
+tests   653 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller
 ```
 
