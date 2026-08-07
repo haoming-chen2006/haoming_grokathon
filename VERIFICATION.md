@@ -2533,6 +2533,53 @@ bun run verify → exit 0, 536 pass / 0 fail across 31 files
 
 ---
 
+## Running-system smoke check (iteration 42)
+
+The interface had been verified by tests but never actually opened. Booted and exercised:
+
+```text
+bun run dev
+GET  http://localhost:6969/?view=control-room   → HTTP 200, serves /src/main.tsx
+GET  http://localhost:6969/api/projects         → HTTP 200 (Vite proxy → 6968)
+GET  http://localhost:6968/api/projects         → HTTP 200 (API direct)
+```
+
+README's ports are accurate: Vite serves the UI on 6969 and proxies `/api` and the WebSocket to
+the server on 6968 (`client/vite.config.ts`, `server/index.ts:14`).
+
+**Suspected test pollution — investigated and disproved.** The live project list contained four
+projects in the real `~/.openui`, one named "Sec", which is the fixture name used by
+`server/routes/security.test.ts`. That looked like the suite writing into the user's home data
+directory. It is not: checksumming every file under `~/.openui` before and after a full run shows
+them byte-identical, and a deliberately planted file proves the comparison detects real changes.
+
+```text
+before: 6 files    tests exit=0    after: 6 files
+~/.openui byte-identical before and after the suite — no pollution
+positive control: check detects changes correctly
+```
+
+The four projects are residue from manual probes in earlier iterations, not a live defect. Left in
+place — they are the owner's data, not mine to delete (§22.2).
+
+**Graceful degradation on a missing repository.** One residue project points at `/path/to/repo`,
+which does not exist — the exact state a user reaches by moving or deleting a repository:
+
+```text
+GET /api/projects/:id                      → 200   (project still loads)
+GET /api/projects/:id/document             → 200
+GET /api/projects/:id/progress             → 200
+GET /api/coding-agents?projectId=:id       → 200
+GET /api/repository/info?path=/path/to/repo → 400 {"error":"Not a git repository: /path/to/repo",
+                                                   "code":"NOT_A_REPOSITORY"}
+```
+
+The failure is named and specific rather than a crash or a fabricated value, which is what §22.18
+requires. Note the ordering is right too: the path belongs to a managed project, so the S-2
+confinement check passes it through and the git check is what rejects it.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

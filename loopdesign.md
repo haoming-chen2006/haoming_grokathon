@@ -53,11 +53,18 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 37
+## 2. State as of iteration 42
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 500 tests across 29 suites, both typechecks and the production build clean.
+Gate: 536 tests across 31 suites, both typechecks and the production build clean.
+```
+
+Two items are open but neither is a checklist failure:
+
+```text
+Q-2    the dead Express stack — awaiting the owner's decision (§3 below)
+FLAKE  one unreproduced test failure in 14 runs, recorded in VERIFICATION.md
 ```
 
 Every checklist item V-001…V-052 passes with recorded evidence, including V-052, the §22.16
@@ -93,7 +100,9 @@ The checklist is complete. Useful work still available, in rough order of value:
 3. **Flakiness.** Live-agent tests depend on model behaviour. A test that passes on re-run is a
    defect in the test, not a pass — make it deterministic.
 4. **Documentation drift.** This file and `README.md` describe how to run the system; both go
-   stale as the code moves.
+   stale as the code moves. Update the tally in §2 whenever the gate count changes — a stale
+   summary is worse than none, which is how the §22.19 gate came to read "BLOCKED / 34 of 52"
+   for twenty-three iterations after the blocker cleared.
 
 ## 4. Loop procedure
 
