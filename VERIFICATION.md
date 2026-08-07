@@ -2659,6 +2659,64 @@ bun run verify → exit 0, 541 pass / 0 fail across 31 files
 
 ---
 
+## The reachability audit is now a tracked gate (iteration 44)
+
+Same gap as V-052 in the previous iteration: the loop document names the reachability audit as its
+first standing check, credited with finding real bugs across four iterations — and it existed only
+as shell re-typed by hand each time. No copy survived. It is now `scripts/audit/reachability.mjs`,
+run with **`bun run audit`**, and part of `bun run verify`, so a new orphan fails the gate.
+
+It walks the import graph from every real entry point and reports what it cannot reach. Entry
+points are read from the manifest as well as hardcoded, because `package.json` `bin`/`main`/
+`module` are entry points too.
+
+**Writing it exposed two bugs in the audit itself before it could be trusted.**
+
+1. *Multi-line imports were invisible.* The first regex required `import` and `from` on one line,
+   so `import {\n a,\n b\n} from "./x"` never matched. It reported `server/services/github.ts`
+   and `server/services/conversationIndex.ts` as orphans; both are plainly imported by
+   `server/routes/api.ts`. Had those been believed, deleting them would have broken the server.
+2. *Its own documentation was walked as code.* Example specifiers in comments (`"./x"`) were
+   scanned as real imports. Comments are now stripped first.
+
+This is the rule about a suspiciously clean result being a bug in the check, applied to a dirty
+result: three named orphans were mostly the checker being wrong.
+
+**Positive controls**, because "0 orphans" is worthless without proof the audit can fail:
+
+```text
+add an unreferenced module      → ORPHANS (1) server/services/__probe_orphan.ts, exit 1
+remove it                       → exit 0
+wire up a file listed as dead   → Misclassified (1) client/src/components/Terminal.tsx, exit 1
+restore                         → exit 0
+```
+
+**Result.** 82 modules, 6 entry points, 79 reached, **0 orphans**:
+
+```text
+entry  server/index.ts                    the server process
+entry  client/src/main.tsx                the browser bundle
+entry  server/hooks/shellSafetyHook.ts    invoked by ~/.grok/hooks/openui-shell-safety.json
+entry  scripts/acceptance/v052.mjs        bun run acceptance
+entry  scripts/audit/reachability.mjs     bun run audit
+entry  bin/openui.ts                      package.json bin "openui"
+```
+
+**One new dead file found**, and it changes what Q-2 covers:
+`client/src/components/Terminal.tsx`, 491 lines of xterm view from the original OpenUI shell,
+imported by nothing. Like the other two it predates this project, so it is listed rather than
+deleted (§22.2) and folded into Q-2 above.
+
+The audit distinguishes *dead* from *invisibly reachable* rather than lumping both into one
+allowlist — a list that suppresses both would let a genuinely dead file masquerade as wired up.
+Anything listed as dead that the graph later reaches is reported as a misclassification and fails.
+
+**A correction to Q-2 that matters:** `bin/openui.ts` is *not* dead — `package.json`'s `bin` field
+points at it, so it is the live CLI. Only the `.js` duplicate is dead. Earlier wording implied the
+whole `bin/` directory was legacy.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -2715,10 +2773,18 @@ each verdict names the command that produced it.
 **Open items:**
 
 ```text
-Q-2  bin/openui.js and server/index.js are a dead Express stack, tracked since the initial
-     commit, importing express/ws/node-pty/cors — none of which are dependencies. Running
-     `node bin/openui.js` fails with a module-resolution error. They predate this project and
-     are not part of it; deleting tracked files is the repository owner's call, not mine.
+Q-2  Three tracked files predating this project are reachable from nothing (`bun run audit`):
+
+       bin/openui.js                       dead Express entry point. The LIVE cli is
+                                           bin/openui.ts, which package.json's "bin" field
+                                           points at — so the .js is a stale duplicate.
+       server/index.js                     dead Express server; the live one is server/index.ts.
+       client/src/components/Terminal.tsx  491-line xterm view from the original OpenUI shell,
+                                           never imported (found in iteration 44).
+
+     The .js pair imports express/ws/node-pty/cors, none of which are dependencies, so
+     `node bin/openui.js` fails with a module-resolution error while reading like a supported
+     entry point. Deleting tracked files is the repository owner's call, not mine.
      Resolution needed: delete, or keep and document as legacy.
 
 FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" above).

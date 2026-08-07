@@ -23,7 +23,7 @@ Confirm the environment is intact. If either check fails, fix that before anythi
 
 ```bash
 ./node_modules/.bin/grok --version        # expect: grok 0.2.118
-bun run verify                            # expect: exit 0, 540+ tests pass
+bun run verify                            # expect: exit 0, 540+ tests, 0 orphans
 bun run acceptance                        # expect: all 18 steps pass (the §22.16 flow)
 ```
 
@@ -54,11 +54,12 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 43
+## 2. State as of iteration 44
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 541 tests across 31 suites, both typechecks and the production build clean.
+Gate: 541 tests across 31 suites, both typechecks, the production build, and the
+      reachability audit (82 modules, 0 orphans) all clean.
 ```
 
 Two items are open but neither is a checklist failure:
@@ -94,8 +95,9 @@ Do **not** delete them unilaterally (see §6). Do not spend iterations restating
 The checklist is complete. Useful work still available, in rough order of value:
 
 1. **Composition checks.** Four iterations of these each found real bugs: unreachable modules,
-   untested wiring, UI↔API contract drift. Re-run the reachability audit after any change that
-   adds a module or endpoint.
+   untested wiring, UI↔API contract drift. The reachability audit is now `bun run audit` and runs
+   as part of `bun run verify`, so a new orphan fails the gate rather than waiting to be noticed.
+   Contract and wiring checks are still worth re-running by hand after adding an endpoint.
 2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system.
    It caught a case where all 18 steps reported success and no code reached `main`, and on being
    made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
