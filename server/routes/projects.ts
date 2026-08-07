@@ -11,6 +11,8 @@ import { getControlRoomBus } from "../services/controlRoomEvents";
 import { CompletionGateError, IncompleteSubmissionError } from "../services/codeReview";
 import { getAcpSessionManager } from "../services/acpSessionManager";
 import { detectTestCommand, runTests } from "../services/testRunner";
+import { runPlanner, uncoveredRequirements } from "../services/planner";
+import { reviewSubmission } from "../services/designReview";
 import type { Actor } from "../types/project";
 
 export const projectRoutes = new Hono();
@@ -251,6 +253,69 @@ projectRoutes.patch("/:id/plan", async (c) => {
   try {
     const body = await c.req.json();
     return c.json(getProjectStore().updatePlan(c.req.param("id"), { milestones: body?.milestones }, actorFrom(c)));
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/** V-017: run the Planner against the live project and return a draft plan. */
+projectRoutes.post("/:id/plan/generate", async (c) => {
+  try {
+    const projectId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const store = getProjectStore();
+    const project = store.getProject(projectId);
+
+    const generated = await runPlanner({
+      projectId,
+      cwd: project.repositoryPath,
+      port: Number(process.env.PORT) || 6968,
+      agentId: body?.agentId ?? "planner",
+    });
+
+    // The generated plan is persisted as a DRAFT and its tasks created, so the user can edit
+    // assignments and budgets before anything launches (V-018).
+    const plan = store.createPlan(
+      projectId,
+      { milestones: generated.milestones.map((m) => ({ id: m.id, name: m.name, ownerAgentId: undefined })), authorAgentId: body?.agentId ?? "planner" },
+      { kind: "user", id: "user" },
+    );
+    for (const task of generated.tasks) {
+      try {
+        store.addTask(
+          projectId,
+          {
+            id: task.id, objective: task.objective, requirementId: task.requirementId,
+            dependsOn: task.dependsOn, expectedFiles: task.expectedFiles, requiredTests: task.requiredTests,
+          },
+          { kind: "user", id: "user" },
+        );
+      } catch {
+        // A duplicate id from a re-run is not fatal; the existing task stands.
+      }
+    }
+
+    return c.json({
+      plan,
+      tasks: generated.tasks,
+      uncoveredRequirements: uncoveredRequirements(generated, project.requirements.map((r) => r.id)),
+    }, 201);
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/** V-036: run the design-compliance review over a submission. */
+projectRoutes.post("/:id/submissions/:submissionId/design-review", (c) => {
+  try {
+    const projectId = c.req.param("id");
+    const store = getProjectStore();
+    const project = store.getProject(projectId);
+    const submission = store.getSubmission(projectId, c.req.param("submissionId"));
+
+    const agent = submission.worktree ? undefined : undefined;
+    const diff = submission.diff;
+    return c.json(reviewSubmission({ project, submission, diff }));
   } catch (err) {
     return fail(c, err);
   }

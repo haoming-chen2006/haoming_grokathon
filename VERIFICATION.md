@@ -2220,6 +2220,43 @@ approval, progress tracking, cost tracking, reusable skills and prompts, and per
 inside a parent card. Not implemented — the design marks it optional ("they do not need full
 top-level canvas nodes"), and no checklist item requires it. Recorded rather than left implicit.
 
+## Reachability audit (iteration 34)
+
+Finding the unwired UI raised an obvious question: what else was verified in isolation but never
+connected? Audited every module for importers outside its own test file.
+
+```text
+modules checked: 77
+reachable only from tests: 6 → classified
+```
+
+```text
+client/src/main.tsx              entry point — expected
+server/hooks/shellSafetyHook.ts  invoked by grok as a subprocess via ~/.grok/hooks config,
+                                 not by import — correctly wired, verified by its audit log
+client/src/components/Terminal.tsx  pre-existing OpenUI component, outside this project's scope
+
+GENUINELY UNREACHABLE — all three fixed this iteration:
+  client/src/control-room/AgentCanvas.tsx   V-021's drag-and-persist canvas was never rendered
+  server/services/planner.ts                V-017's Planner had no API endpoint
+  server/services/designReview.ts           V-036's reviewer had no API endpoint
+```
+
+Each was fully implemented and tested; none could be reached from the running application. Fixed
+by adding a **Canvas** tab, `POST /api/projects/:id/plan/generate`, and
+`POST /api/projects/:id/submissions/:submissionId/design-review`, then verifying each against a
+live server:
+
+```text
+POST /plan/generate      → plan state "draft", 1 task generated, uncovered requirements: []
+POST /design-review      → compliant: false, findings: [missing_tests, unrelated_changes]
+PATCH /:id/position      → position saved: {x: 314, y: 159}
+```
+
+**The lesson, recorded because it recurred:** a passing test proves a unit works, not that anything
+calls it. Three checklist items were marked PASS on evidence that was real but unreachable. The
+reachability audit is now part of the loop procedure.
+
 ## §22.19 Final Completion Gate
 
 ```text

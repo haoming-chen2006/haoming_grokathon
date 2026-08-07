@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ProjectHeader } from "./ProjectHeader";
 import { CommandCenter } from "./CommandCenter";
+import { AgentCanvas } from "./AgentCanvas";
 import { DesignDocumentPanel } from "./DesignDocumentPanel";
 import { RequirementDetail, RequirementList } from "./RequirementPanel";
 import { ReviewQueue, SuggestionQueue } from "./ReviewQueues";
@@ -8,10 +9,11 @@ import { ConversationView } from "./ConversationView";
 import { SessionDrawer } from "./SessionDrawer";
 import { useControlRoom } from "./useControlRoom";
 
-type Tab = "agents" | "document" | "reviews" | "conversations";
+type Tab = "agents" | "canvas" | "document" | "reviews" | "conversations";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "agents", label: "Agents" },
+  { id: "canvas", label: "Canvas" },
   { id: "document", label: "Design Document" },
   { id: "reviews", label: "Reviews" },
   { id: "conversations", label: "Conversations" },
@@ -105,6 +107,17 @@ export function ControlRoomApp() {
                 onPause={(id) => room.sessionAction(id, "pause")}
                 onStop={(id) => room.sessionAction(id, "stop")}
               />
+            )}
+            {tab === "canvas" && (
+              <div className="h-full min-h-[24rem]">
+                <AgentCanvas
+                  agents={room.agents}
+                  onMoveAgent={room.moveAgent}
+                  onOpenSession={room.openDrawer}
+                  onPause={(id) => room.sessionAction(id, "pause")}
+                  onStop={(id) => room.sessionAction(id, "stop")}
+                />
+              </div>
             )}
             {tab === "document" && (
               <DesignDocumentPanel document={room.document} onSave={room.saveDocument} onImport={room.saveDocument} />

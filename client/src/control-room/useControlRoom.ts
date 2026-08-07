@@ -190,6 +190,19 @@ export function useControlRoom() {
     }
   }, []);
 
+  /** Persist a dragged agent position so canvas layout survives a restart (V-021). */
+  const moveAgent = useCallback(async (agentId: string, position: { x: number; y: number }) => {
+    setState((s) => ({
+      ...s,
+      agents: s.agents.map((a) => (a.id === agentId ? { ...a, position } : a)),
+    }));
+    try {
+      await json(`/api/coding-agents/${agentId}/position`, { method: "PATCH", body: JSON.stringify(position) });
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }, []);
+
   const refresh = useCallback(() => {
     if (state.projectId) void loadProject(state.projectId);
   }, [state.projectId, loadProject]);
@@ -201,6 +214,7 @@ export function useControlRoom() {
     sessionState,
     selectProject: (id: string) => setState((s) => ({ ...s, projectId: id, loading: true })),
     openDrawer,
+    moveAgent,
     closeDrawer: () => setDrawerAgentId(null),
     sessionAction,
     sendMessage,

@@ -122,6 +122,9 @@ least once:
 - **Never fabricate a value in the UI.** An absent field is omitted, never defaulted to something
   plausible (`verifiables.md` §22.18).
 - **Adding a check can invalidate an earlier PASS.** Re-run the whole gate every iteration.
+- **A passing test proves a unit works, not that anything calls it.** Before marking an item PASS,
+  confirm the code is reachable from the running application — mounted route, imported component,
+  wired endpoint. Three items were once marked PASS on evidence that was real but unreachable.
 
 ---
 
