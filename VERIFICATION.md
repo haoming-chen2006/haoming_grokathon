@@ -2058,6 +2058,12 @@ tested; the eighth needs B-3. This gate does **not** pass yet.
 
 ## §22.18 Placeholder and Quality Audit — **PASS with one open finding**
 
+> **Now automated (iteration 50).** This audit was a one-off manual search. `bun run audit:quality`
+> runs it on every `verify`: it scans the code this project added for the indicators §22.18 names,
+> classifies the legitimate forms with a stated reason, and fails on anything unclassified. It also
+> checks "no empty buttons; no controls that do nothing" statically across the control-room
+> components. Current result: 80 files, 60 classified, **0 unclassified, 0 dead controls**.
+
 Full sweep run in iteration 16 over `server/`, `client/src/` and `bin/` (excluding `node_modules`,
 `.refs/` and build output).
 
@@ -3036,6 +3042,71 @@ bun run verify → exit 0, 638 pass / 0 fail, 0 orphans, every endpoint covered
 
 ---
 
+## §22.18 became a script, and its first version was wrong (iteration 50)
+
+The placeholder audit was run once by hand, around fifty iterations of new code ago. It is now
+`bun run audit:quality`, part of `verify`.
+
+**Scope.** The code this project added — files already on `main` are pre-existing OpenUI and are
+not this project's to classify (Q-2). A raw scan of everything returns 158 matches, almost all of
+them `placeholder=` HTML attributes and CLI `console.log` in files that predate this work; scoping
+first is what makes the result mean anything.
+
+**Result: 0 unclassified indicators.** 60 matches classified, each with a stated reason:
+
+```text
+  46  the project's logging idiom (console.log bound behind QUIET), or a CLI script
+   6  prose in a comment or a test name, not a marker
+   5  the JSX placeholder attribute, the Tailwind placeholder- class, or the template-variable regex
+   3  the acceptance fixture's deliberate stub, or a JSON-RPC method-not-found reply
+```
+
+Each classifier is deliberately narrow. A broad rule would hide the thing the audit exists to find,
+so `console.log` is only excused when it matches the `QUIET ? () => {} : console.log` idiom or sits
+in a CLI script, and `not implemented` only in the acceptance fixture or a protocol reply.
+
+**The check flagged itself** — it necessarily contains every indicator it searches for — which is
+the same shape as the reachability audit walking its own comments. Excluded, with the reason
+recorded in the source.
+
+### The button checker's first version was silently broken
+
+§22.18 also asks for "no empty buttons; no controls that do nothing", which a text scan cannot see,
+so the audit parses the control-room components. The first version used a regex:
+
+```js
+/<button\b([\s\S]*?)>([\s\S]*?)<\/button>/g
+```
+
+**`onClick={() => {}}` contains a `>` inside the arrow.** The non-greedy match ended the opening
+tag in the middle of an attribute, so the "children" it examined were the remains of the handler
+rather than the label. A planted unlabelled button passed:
+
+```text
+probe <button onClick={() => {}}></button>   findings=0  exit=0     <- wrong
+```
+
+Only the *second* positive control caught it; the first (a button with no handler) passed for
+accidental reasons. Replaced with a brace- and quote-aware scan for the `>` at depth zero. All
+three probes now behave:
+
+```text
+<button className="x">Dead</button>                     findings=1 exit=1
+<button onClick={() => {}}></button>                    findings=1 exit=1
+<button onClick={() => {}} aria-label="ok"></button>    findings=0 exit=0
+```
+
+Worth stating plainly: had I run only the first probe, I would have shipped a checker whose clean
+result meant nothing, and recorded "0 dead controls" as evidence. That is the third audit in three
+iterations to have a bug in the checker itself.
+
+```text
+bun run verify → exit 0, 638 pass / 0 fail, 0 orphans, every endpoint covered,
+                 0 unclassified indicators, 0 dead controls (11 components)
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3067,7 +3138,9 @@ reader reaches last.)*
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
 [x] UI acceptance checklist passes.         — 22 of 22 rows, guarded by uiChecklist.test.tsx
-[x] Placeholder and quality audit passes.   — 1 open finding (Q-2, awaiting the owner)
+[x] Placeholder and quality audit passes.   — automated as `bun run audit:quality`;
+                                              0 unclassified, 0 dead controls;
+                                              1 open finding (Q-2, awaiting the owner)
 [x] Design document matches the merged implementation.
 [x] Costs and usage are recorded accurately. — estimated costs flagged estimated: true
 [x] Final Git status is known and documented.
@@ -3126,7 +3199,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 43 ahead of main
+commits 45 ahead of main
 build   bun run build exit 0
 tests   638 pass / 0 fail across 36 files
 audits  0 orphans; every endpoint has a caller
