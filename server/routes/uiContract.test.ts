@@ -151,7 +151,7 @@ describe("UI contract: the shapes useControlRoom reads", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ x: 12, y: 34 }),
     });
-    const json = await res.json();
+    const json = (await res.json()) as { position: { x: number; y: number } };
     expect(json.position).toEqual({ x: 12, y: 34 });
   });
 
