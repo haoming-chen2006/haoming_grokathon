@@ -72,13 +72,30 @@ const AWAITING_OWNER = new Map([
 const SOURCE_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 const isTest = (f) => /\.(test|spec)\.[a-z]+$/.test(f);
 
-/** Source files tracked in git — the audit describes the repository, not the working directory. */
-function sourceFiles() {
-  return execSync("git ls-files", { cwd: ROOT }).toString().split("\n")
+/**
+ * Tracked files plus new ones not yet staged, honouring .gitignore.
+ *
+ * Using only `git ls-files` meant a module you had just written was invisible, so the audit could
+ * report zero orphans while an orphan sat in the working tree — precisely when you most want to
+ * hear about it. `--others --exclude-standard` adds untracked files without dragging in
+ * node_modules, dist or .refs.
+ */
+function trackedFiles() {
+  const tracked = execSync("git ls-files", { cwd: ROOT }).toString();
+  const untracked = execSync("git ls-files --others --exclude-standard", { cwd: ROOT }).toString();
+  return (tracked + untracked).split("\n")
     .filter(Boolean)
     .filter((f) => ["server/", "client/src/", "scripts/", "bin/"].some((d) => f.startsWith(d)))
-    .filter((f) => SOURCE_EXT.has(extname(f)))
-    .filter((f) => !isTest(f));
+    .filter((f) => SOURCE_EXT.has(extname(f)));
+}
+
+/** Source files tracked in git — the audit describes the repository, not the working directory. */
+function sourceFiles() {
+  return trackedFiles().filter((f) => !isTest(f));
+}
+
+function testFiles() {
+  return trackedFiles().filter((f) => isTest(f));
 }
 
 /**
@@ -150,24 +167,41 @@ for (const [entry] of ENTRY_POINTS) {
   reached.add(entry);
 }
 
-while (queue.length) {
-  const file = queue.shift();
-  for (const spec of importsOf(file)) {
-    const target = resolveSpec(file, spec);
-    if (!target) {
-      unresolved.push(`${file} → ${spec}`);
-      continue;
-    }
-    if (!reached.has(target)) {
-      reached.add(target);
-      queue.push(target);
+function walk(seeds, seen) {
+  const q = [...seeds];
+  for (const s of seeds) seen.add(s);
+  while (q.length) {
+    const file = q.shift();
+    for (const spec of importsOf(file)) {
+      const target = resolveSpec(file, spec);
+      if (!target) {
+        unresolved.push(`${file} → ${spec}`);
+        continue;
+      }
+      if (!seen.has(target)) {
+        seen.add(target);
+        q.push(target);
+      }
     }
   }
+  return seen;
 }
+
+walk(queue, reached);
+
+/**
+ * A second graph rooted at the test files. A helper used only by tests is legitimately absent from
+ * the production graph — reporting it as dead would be wrong, and padding the allowlist to hide it
+ * would be worse. It is reported as test-only instead, so it still has to be accounted for.
+ */
+const testReached = walk(testFiles(), new Set());
 
 // ────────────────────────────────────────────────────────────────────────── report
 
-const orphans = all.filter((f) => !reached.has(f) && !KNOWN.has(f) && !AWAITING_OWNER.has(f));
+const testOnly = all.filter((f) => !reached.has(f) && testReached.has(f));
+const orphans = all.filter(
+  (f) => !reached.has(f) && !testReached.has(f) && !KNOWN.has(f) && !AWAITING_OWNER.has(f),
+);
 const knownPresent = all.filter((f) => KNOWN.has(f));
 const ownerPresent = all.filter((f) => AWAITING_OWNER.has(f));
 
@@ -180,6 +214,8 @@ for (const [entry, why] of ENTRY_POINTS) console.log(`    entry  ${entry.padEnd(
 console.log(`\n    reached from an entry point: ${[...reached].filter((f) => all.includes(f)).length}`);
 console.log(`    known and classified:        ${knownPresent.length}`);
 for (const f of knownPresent) console.log(`      ${f.padEnd(38)} ${KNOWN.get(f)}`);
+console.log(`    test-only helpers:           ${testOnly.length}`);
+for (const f of testOnly) console.log(`      ${f}`);
 console.log(`    dead, awaiting owner (Q-2):  ${ownerPresent.length}`);
 for (const f of ownerPresent) console.log(`      ${f.padEnd(38)} ${AWAITING_OWNER.get(f)}`);
 

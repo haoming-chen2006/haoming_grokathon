@@ -6,6 +6,7 @@ import { AcpConnection } from "./acpClient";
 import { grokBinaryPath } from "./grokDetect";
 import { AgentRegistry } from "./agentRegistry";
 import { PromptLibrary, composeAgentInstructions } from "./promptLibrary";
+import { waitFor } from "./testSupport";
 
 let dir: string;
 
@@ -118,7 +119,7 @@ describe("V-050: failed agent sessions can recover", () => {
 
     // Simulate a crash rather than a clean stop.
     first.stop();
-    await new Promise((r) => setTimeout(r, 1000));
+    await waitFor("the crashed process to exit", () => !first.isRunning);
 
     // --- the failure is visibly marked ----------------------------------------------------
     registry.markDisconnected(agent.id, "Agent process exited");

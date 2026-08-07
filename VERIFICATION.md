@@ -2717,6 +2717,70 @@ whole `bin/` directory was legacy.
 
 ---
 
+## Removing timing dependence from the suite (iteration 45)
+
+The unreproduced failure recorded below had been deferred for three iterations on the grounds that
+it would not reproduce. That is the wrong way round: the loop document's rule is *a test that
+passes on re-run is a defect in the test, not a pass*. Rather than re-running and hoping, the suite
+was audited for nondeterminism by construction.
+
+**Fixed sleeps — five of them, all the same shape.** A connection was stopped and the test then
+slept a flat 1000–1500ms before asserting the process had exited:
+
+```text
+server/services/acpClient.test.ts        4 sites (1000ms x3, 1500ms x1)
+server/services/skillsAndRecovery.test.ts 1 site (1000ms)
+```
+
+That is a guess about scheduling. On a loaded machine the wait is too short and the test fails for
+reasons unrelated to the code; on an idle one it burns the full interval every run. All five now
+poll the actual condition via `waitFor` in `server/services/testSupport.ts`, which fails with the
+name of what it was waiting for rather than a bare `expected true, got false`. No fixed sleep
+remains in any test:
+
+```text
+$ grep -rn "setTimeout(r," server/**/*.test.ts
+none
+```
+
+**A weak assertion, found while looking.** The test proving a failing command surfaces its failure
+ran `exit 3` and asserted `reply.text` contained `"3"` — a digit that matches most replies by
+chance, so it could pass without the agent ever having observed the failure. Now `exit 37` and
+`"37"`. This was a false-pass risk, not a flake, but it was in the same code.
+
+Live-agent assertions were reviewed and left alone: they key on distinctive tokens
+(`MARKER_9137`, `8317`, `4242`, and the distinct arithmetic results from iteration 20), which do
+not collide by chance.
+
+```text
+three consecutive runs of the three live-agent suites after the change: 26 pass / 0 fail each
+bun run verify → exit 0, 541 pass / 0 fail, 0 orphans
+```
+
+The original failure still has not reproduced and is still recorded as open below. What changed is
+that the mechanism most likely to have caused it no longer exists.
+
+### Two gaps this exposed in the reachability audit
+
+Adding a test-only helper broke the audit, which is worth recording because both fixes make it
+stricter rather than more permissive.
+
+1. *Test-only modules looked dead.* `testSupport.ts` is imported by tests and by nothing else, so
+   the production graph could not reach it. Padding the allowlist would have hidden it. The audit
+   now walks a second graph rooted at the test files and reports **test-only** as its own category,
+   so such a helper is accounted for rather than excused.
+2. *Unstaged files were invisible.* The audit read `git ls-files`, so a module written but not yet
+   staged could not be seen — it would report zero orphans while an orphan sat in the working tree,
+   exactly when you most want to know. It now also reads `git ls-files --others --exclude-standard`,
+   which picks up new files while still honouring `.gitignore`.
+
+```text
+positive control, unstaged orphan: ORPHANS (1) server/services/__probe2.ts, exit 1
+removed: exit 0
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

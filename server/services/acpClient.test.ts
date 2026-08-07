@@ -8,6 +8,7 @@ import {
   type AcpEvent,
 } from "./acpClient";
 import { grokBinaryPath } from "./grokDetect";
+import { waitFor } from "./testSupport";
 
 const REPO = new URL("../..", import.meta.url).pathname;
 
@@ -108,9 +109,9 @@ describe("AcpConnection integration — V-005", () => {
     await conn.initialize();
     conn.stop();
 
-    // Give the exit watcher a moment to observe the process ending.
-    await new Promise((r) => setTimeout(r, 1500));
-    expect(events.some((e) => e.type === "disconnected")).toBe(true);
+    // Wait for the exit watcher to observe the process ending, rather than guessing how long
+    // that takes — the guess is what made this test timing-dependent.
+    await waitFor("a disconnected event after stop()", () => events.some((e) => e.type === "disconnected"));
     expect(conn.isRunning).toBe(false);
   }, 60_000);
 
@@ -215,8 +216,7 @@ describe("V-006: multiple visible Grok agents can run", () => {
       await Promise.all(conns.map((c) => c.newSession()));
 
       conns[0].stop();
-      await new Promise((r) => setTimeout(r, 1000));
-      expect(conns[0].isRunning).toBe(false);
+      await waitFor("the stopped connection to report not running", () => !conns[0].isRunning);
 
       // The survivors must still be able to complete a real turn, not merely report isRunning.
       const survivor = await conns[1].prompt("What is 6 * 7? Reply with only the number.", {
@@ -255,8 +255,7 @@ describe("V-007: Grok session persistence", () => {
     } finally {
       first.stop();
     }
-    await new Promise((r) => setTimeout(r, 1000));
-    expect(first.isRunning).toBe(false);
+    await waitFor("the first process to exit", () => !first.isRunning);
 
     // --- second process: reattach to the same session id --------------------------------
     const events: AcpEvent[] = [];
@@ -331,8 +330,7 @@ describe("Concurrent agents — transport isolation", () => {
 
       // Stopping one must not stop the others (isolation).
       conns[0].stop();
-      await new Promise((r) => setTimeout(r, 1000));
-      expect(conns[0].isRunning).toBe(false);
+      await waitFor("the stopped connection to report not running", () => !conns[0].isRunning);
       expect(conns.slice(1).every((c) => c.isRunning)).toBe(true);
     } finally {
       conns.forEach((c) => c.stop());

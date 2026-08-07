@@ -121,11 +121,13 @@ describe("V-033: agent can run repository commands", () => {
     const wt = createAgentWorktree(repo, { agentId: "failer", branch: "agent/failer", baseBranch: "main" });
     const conn = await agentIn(wt.path, "failer");
     try {
+      // A distinctive code: "3" would match almost any reply by chance, so the assertion could
+      // pass without the agent having observed the failure at all.
       const reply = await conn.prompt(
-        "Run the shell command `exit 3` in the current directory. Then reply with only the numeric exit code you observed.",
+        "Run the shell command `exit 37` in the current directory. Then reply with only the numeric exit code you observed.",
         { timeoutMs: 240_000 },
       );
-      expect(reply.text).toContain("3");
+      expect(reply.text).toContain("37");
     } finally {
       conn.stop();
     }
