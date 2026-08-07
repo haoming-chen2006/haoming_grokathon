@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 32
+**Last iteration:** 33
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -1967,7 +1967,20 @@ Both are covered by regression tests.
 
 
 
-## §22.17 UI Acceptance Checklist — **21 of 22 rendered; 1 blocked by B-3**
+## §22.17 UI Acceptance Checklist — **22 of 22 rendered and reachable in the running app**
+
+> **Correction (iteration 33).** Iterations 8–22 recorded these rows as "rendered", which was true
+> only *in tests*. The components existed and were asserted against real DOM, but **nothing
+> imported them** — they were absent from the production bundle, and opening the app showed the
+> original OpenUI canvas. The rows were verified in isolation and never wired together.
+>
+> Fixed by adding `ControlRoomApp.tsx` (the §11 three-panel layout), `useControlRoom.ts` (REST
+> reads plus the live WebSocket), and mounting both at `?view=control-room` with a persistent
+> toggle. Verified in the running server: `GET /?view=control-room` → 200, and the built bundle
+> contains the control-room components.
+>
+> This is the gap a "does it build?" check cannot catch — every test passed while the feature was
+> unreachable.
 
 Iteration 17 added `ProjectHeader.tsx`, `ReviewQueues.tsx` (SuggestionQueue + ReviewQueue) and
 `ConversationView.tsx`. Tests: `reviewQueues.test.tsx` → **26 pass, 0 fail, 58 expect() calls**.
