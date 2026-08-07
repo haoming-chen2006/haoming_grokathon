@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { AcpSessionManager } from "./acpSessionManager";
-import { ProjectStore } from "./projectStore";
+import { ProjectStore, getProjectStore } from "./projectStore";
 import { getAgentRegistry } from "./agentRegistry";
 import { getPromptLibrary } from "./promptLibrary";
 
@@ -226,5 +226,101 @@ describe("a resumed session keeps its tools", () => {
     expect(loads).toHaveLength(0);
     expect(news).toHaveLength(1);
     expect((news[0].mcpServers[0] as any).name).toBe("openui-project");
+  });
+});
+
+describe("live turns record cost against the task (§16)", () => {
+  /**
+   * A connection whose prompt reports a fixed token usage, so cost accounting can be observed.
+   *
+   * `modelId` matters: estimateCost returns an honest zero for an unknown model rather than
+   * guessing a price, so a usage object without one produces no cost at all.
+   */
+  function managerReporting(totalTokens: number) {
+    return new AcpSessionManager(
+      () => "/tmp/wt",
+      () =>
+        ({
+          start() {}, stop() {},
+          async initialize() {},
+          get supportsLoadSession() { return false; },
+          get sessionId() { return "sess-1"; },
+          get isRunning() { return true; },
+          async newSession() { return "sess-1"; },
+          async prompt() {
+            return {
+              text: "done", thoughts: [], toolCalls: [], stopReason: "end_turn",
+              usage: {
+                inputTokens: totalTokens / 2,
+                outputTokens: totalTokens / 2,
+                totalTokens,
+                cachedReadTokens: 0,
+                reasoningTokens: 0,
+                modelId: "gpt-4o",
+              },
+            };
+          },
+        }) as any,
+    );
+  }
+
+  function projectWithTask(budgetUsd?: number) {
+    const store = getProjectStore();
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "t-live", objective: "o", budgetUsd }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    return store;
+  }
+
+  test("a live turn accumulates cost onto the agent's task", async () => {
+    // recordTaskCost has two call sites: the /usage route, which is tested, and this one, which
+    // was wired in iteration 52 and never exercised — the same shape as the loadSession branch.
+    const store = projectWithTask();
+    const agent = getAgentRegistry().create({ projectId, name: "Backend", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "t-live");
+
+    const mgr = managerReporting(100_000);
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "do the thing");
+
+    const task = store.getProject(projectId).tasks.find((t) => t.id === "t-live")!;
+    expect(task.costUsd).toBeGreaterThan(0);
+    // The agent's own total must move too, and by the same amount.
+    expect(getAgentRegistry().get(agent.id).costUsd).toBeCloseTo(task.costUsd, 10);
+  });
+
+  test("a live turn that passes the task cap pauses the session and surfaces the error", async () => {
+    // The catch around this deliberately re-throws: a budget stop must not be swallowed by the
+    // message path, or work would continue past the cap in silence.
+    const store = projectWithTask(0.000001);
+    const agent = getAgentRegistry().create({ projectId, name: "Spender", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "t-live");
+
+    const mgr = managerReporting(500_000);
+    await mgr.open(agent.id);
+
+    let thrown: unknown = null;
+    try {
+      await mgr.send(agent.id, "expensive turn");
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown, "the budget stop was swallowed instead of surfaced").not.toBeNull();
+    expect(String((thrown as Error).message)).toContain("budget");
+    // The cost is still recorded — the tokens were spent — and the session is paused.
+    expect(store.getProject(projectId).tasks.find((t) => t.id === "t-live")!.costUsd).toBeGreaterThan(0);
+  });
+
+  test("an agent with no task records no task cost but still records its own", async () => {
+    const store = projectWithTask();
+    const agent = getAgentRegistry().create({ projectId, name: "Free", role: "Reviewer" });
+
+    const mgr = managerReporting(50_000);
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "think about it");
+
+    expect(store.getProject(projectId).tasks.find((t) => t.id === "t-live")!.costUsd).toBe(0);
+    expect(getAgentRegistry().get(agent.id).costUsd).toBeGreaterThan(0);
   });
 });

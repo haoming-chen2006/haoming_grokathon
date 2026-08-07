@@ -3677,6 +3677,50 @@ bun run acceptance → all 20 steps, merge 8386ffcbd8ff, verified on main
 
 ---
 
+## The untested sibling call site (iteration 60)
+
+`recordTaskCost`, added in iteration 52 to make the per-task cap real, has two call sites:
+
+```text
+server/routes/agents.ts:173          the /usage endpoint      5 tests
+server/services/acpSessionManager.ts:292   a live agent turn   none
+```
+
+The second is the one that matters more — it is what stops a *running* agent, rather than one whose
+spending is reported after the fact — and it was wired and never exercised. The same shape as the
+`loadSession` branch in iteration 54: a fix applied to two places and verified in one.
+
+Three tests now cover it, using the connection factory injected in iteration 53 so a turn can
+report token usage without a live model:
+
+```text
+a live turn accumulates cost onto the agent's task, and the agent's own total moves with it
+a live turn that passes the task cap throws rather than being swallowed, and pauses the session
+an agent with no current task records no task cost but still records its own
+```
+
+The middle one is the point of the whole mechanism. The `catch` around this deliberately re-throws
+after pausing — a budget stop that the message path swallowed would let work continue past the cap
+in silence — and nothing had checked that it does.
+
+```text
+control experiment — the live recordTaskCost call removed:
+  (fail) a live turn accumulates cost onto the agent's task
+  (fail) a live turn that passes the task cap pauses the session and surfaces the error
+  13 pass / 2 fail        restored: 15 pass / 0 fail
+```
+
+**A deliberate behaviour the test first got wrong.** The stand-in reported token usage with no
+`modelId`, and the cost came out zero. That is correct: `estimateCost` returns an honest zero with
+`rateKey: null` for an unknown model rather than guessing a price. The test was wrong, not the
+code; it now supplies a complete `TokenUsage`.
+
+```text
+bun run verify → exit 0, 666 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3703,7 +3747,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 663 pass / 0 fail, 37 files;
+[x] Required tests pass.                    — 666 pass / 0 fail, 37 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -3773,9 +3817,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 61 ahead of main
+commits 65 ahead of main
 build   bun run build exit 0
-tests   663 pass / 0 fail across 37 files
+tests   666 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller
 ```
 
