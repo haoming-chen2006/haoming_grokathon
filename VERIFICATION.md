@@ -2852,6 +2852,76 @@ bun run verify → exit 0, 590 pass / 0 fail, 0 orphans, every endpoint covered
 
 ---
 
+## MCP tools: two real bugs in the surface agents depend on (iteration 47)
+
+The endpoint audit covered HTTP. The MCP tools are the *other* interface — the one agents use for
+everything they do — and the existing tests only asserted `tools/list` and agent identity. That is
+coverage of what the server *advertises*. **No tool had ever been invoked.**
+
+```text
+31 tools registered
+16 named in no test at all
+ 0 exercised through tools/call (one appeared indirectly in security.test.ts)
+```
+
+`server/routes/mcpTools.test.ts` now drives 30 tests through real `tools/call` round trips over
+the mounted endpoint. Two of the first six failures were my own wrong argument names; **two were
+real bugs**, both of the kind that only invocation can find.
+
+### 1. `reply_to_agent` fabricated a link
+
+```ts
+links: [{ kind: "task", id: replyToId }]
+```
+
+`replyToId` is a **message** id. Every reply an agent sent therefore carried a link asserting a
+*task* existed with that id — one that never does. V-025 requires messages to reference real
+project objects, and this manufactured a dangling reference on every reply; following it in the UI
+resolves to nothing. Replies now inherit the links of the message they answer, which is what the
+reply is actually about.
+
+### 2. `attach_artifact_to_requirement` attached nothing
+
+The tool sent a message *saying* the artifact had been attached and never performed the
+attachment. `listArtifacts` filters on `artifact.requirementId`, so the artifact stayed unfindable
+from its requirement while the agent received a success response. The store had no method to do it
+at all; `attachArtifactToRequirement` was added, and the tool now attaches, validates that the
+requirement exists, and refuses cleanly when it does not.
+
+```text
+control experiment — both fixes reverted:
+  (fail) reply_to_agent joins the thread it answers
+  (fail) attach_artifact_to_requirement actually attaches it
+  (fail) attaching to an unknown requirement is refused and changes nothing
+  27 pass / 3 fail        restored: 30 pass / 0 fail
+```
+
+### What else the suite establishes
+
+Every one of the 31 tools is invoked at least once and none crashes the handler (a JSON-RPC
+`-32603` would mean an unhandled throw; schema refusals are fine). Beyond that the tests assert
+behaviour rather than reachability:
+
+```text
+task ownership          an agent cannot move a task assigned to another agent
+completion gating       complete_task refused while required tests fail
+document protection     submit_design_suggestion leaves the document at its current version
+                        request_direct_document_permission escalates and does NOT self-grant
+message discipline      an unlinked message is refused; escalations carry no recipient agent
+evidence discipline     submit_code_for_review refused without evidence
+artifacts               create → get round-trips content; handoffs carry requirement context
+```
+
+Also corrected in my own assumptions: `report_failing_test` takes `testPath`/`details`,
+`handoff_api_contract` takes `contract`, and `revise_design_suggestion` takes the replacement text
+rather than a suggestion id.
+
+```text
+bun run verify → exit 0, 620 pass / 0 fail, 0 orphans, every endpoint covered
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -2878,7 +2948,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 590 pass / 0 fail, 34 files;
+[x] Required tests pass.                    — 620 pass / 0 fail, 35 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -2942,9 +3012,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 37 ahead of main
+commits 39 ahead of main
 build   bun run build exit 0
-tests   590 pass / 0 fail across 34 files
+tests   620 pass / 0 fail across 35 files
 audits  0 orphans; every endpoint has a caller
 ```
 

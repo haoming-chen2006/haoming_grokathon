@@ -1107,6 +1107,40 @@ export class ProjectStore {
     return found;
   }
 
+  /**
+   * Associate an existing artifact with a requirement (and optionally a task).
+   *
+   * `listArtifacts` filters on `artifact.requirementId`, so an artifact that is not stamped with
+   * one is unfindable from its requirement. The MCP tool that claims to do this only sent a
+   * message saying it had happened, which reported success while attaching nothing.
+   */
+  attachArtifactToRequirement(
+    projectId: string,
+    artifactId: string,
+    requirementId: string,
+    taskId?: string,
+  ): CodeArtifact {
+    const project = this.getProject(projectId);
+    const artifact = project.artifacts.find((a) => a.id === artifactId);
+    if (!artifact) throw new NotFoundError(`Artifact not found: ${artifactId}`);
+    if (!project.requirements.some((r) => r.id === requirementId)) {
+      throw new NotFoundError(`Requirement not found: ${requirementId}`);
+    }
+    artifact.requirementId = requirementId;
+    if (taskId) artifact.taskId = taskId;
+    this.persist(project);
+    return artifact;
+  }
+
+  /** One message by id, including archived history. */
+  getMessage(projectId: string, messageId: string): AgentMessage {
+    const found =
+      this.getProject(projectId).messages.find((m) => m.id === messageId) ??
+      this.archivedMessages(projectId).find((m) => m.id === messageId);
+    if (!found) throw new NotFoundError(`Message not found: ${messageId}`);
+    return found;
+  }
+
   listArtifacts(projectId: string, filter: { requirementId?: string; taskId?: string } = {}): CodeArtifact[] {
     let artifacts = this.getProject(projectId).artifacts;
     if (filter.requirementId) artifacts = artifacts.filter((a) => a.requirementId === filter.requirementId);

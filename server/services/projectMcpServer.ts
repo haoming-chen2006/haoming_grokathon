@@ -28,6 +28,7 @@ export interface ProjectMcpContext {
   store?: Pick<
     ReturnType<typeof getProjectStore>,
     | "getProject" | "getDocument" | "getRequirement" | "updateTask" | "sendMessage"
+    | "getMessage" | "attachArtifactToRequirement"
     | "submitSuggestion" | "submitCode" | "handoffArtifact"
     | "recordTestRun" | "createArtifact" | "getArtifact"
   >;
@@ -503,12 +504,16 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
       inputSchema: { replyToId: z.string(), toAgentId: z.string(), body: z.string() },
     },
     async ({ replyToId, toAgentId, body }) =>
-      guard(() =>
-        store().sendMessage(ctx.projectId, {
+      guard(() => {
+        // Inherit the links of the message being answered. Previously this wrote
+        // `{ kind: "task", id: replyToId }` — labelling a *message* id as a *task* id, so every
+        // reply carried a link pointing at a task that does not exist.
+        const original = store().getMessage(ctx.projectId, replyToId);
+        return store().sendMessage(ctx.projectId, {
           kind: "answer", fromAgentId: ctx.agentId, toAgentId, body,
-          links: [{ kind: "task", id: replyToId }], replyToId,
-        }),
-      ),
+          links: original.links, replyToId,
+        });
+      }),
   );
 
   server.registerTool(
@@ -556,13 +561,17 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
       inputSchema: { artifactId: z.string(), requirementId: z.string() },
     },
     async ({ artifactId, requirementId }) =>
-      guard(() =>
+      guard(() => {
+        // Actually attach it. This used to send a message announcing the attachment without
+        // performing one, so the artifact stayed unfindable from its requirement.
+        const artifact = store().attachArtifactToRequirement(ctx.projectId, artifactId, requirementId);
         store().sendMessage(ctx.projectId, {
           kind: "handoff", fromAgentId: ctx.agentId, toAgentId: ctx.agentId,
           body: `Artifact ${artifactId} attached to ${requirementId}`,
           links: [{ kind: "artifact", id: artifactId }, { kind: "requirement", id: requirementId }],
-        }),
-      ),
+        });
+        return artifact;
+      }),
   );
 
   server.registerTool(
