@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { resolve, sep } from "path";
+import { getProjectStore } from "../services/projectStore";
 import {
   GitCommandError,
   MergeConflictError,
@@ -16,7 +18,42 @@ import {
 
 export const repositoryRoutes = new Hono();
 
+/**
+ * Restrict filesystem operations to repositories this server actually manages.
+ *
+ * These endpoints take paths from the request and hand them to git, including `commit`, which
+ * would `git add -A` in whatever directory it was given. Without this, any caller able to reach
+ * the server could operate on any repository on the machine.
+ */
+function assertManagedPath(candidate: string): string {
+  const resolved = resolve(candidate);
+  const roots = getProjectStore()
+    .listProjects()
+    .map((p) => resolve(p.repositoryPath));
+
+  // A path is allowed when it is a managed repository or lives inside one (e.g. a worktree
+  // under <repo>/.agents/). Compared with a trailing separator so "/repo-other" cannot match
+  // "/repo".
+  const ok = roots.some((root) => resolved === root || resolved.startsWith(root + sep));
+  if (!ok) {
+    throw new UnmanagedPathError(candidate);
+  }
+  return resolved;
+}
+
+export class UnmanagedPathError extends Error {
+  readonly code = "UNMANAGED_PATH";
+  constructor(path: string) {
+    super(
+      `Refusing to operate on "${path}": it is not inside a repository managed by this server. ` +
+        `Create a project for it first.`,
+    );
+    this.name = "UnmanagedPathError";
+  }
+}
+
 function fail(c: any, err: unknown) {
+  if (err instanceof UnmanagedPathError) return c.json({ error: err.message, code: err.code }, 403);
   if (err instanceof NotARepositoryError) return c.json({ error: err.message, code: err.code }, 400);
   if (err instanceof ProtectedBranchError) {
     return c.json({ error: err.message, code: err.code, branch: err.branch }, 403);
@@ -35,7 +72,7 @@ repositoryRoutes.get("/info", (c) => {
   try {
     const path = c.req.query("path");
     if (!path) return c.json({ error: "path is required" }, 400);
-    return c.json(openRepository(path));
+    return c.json(openRepository(assertManagedPath(path)));
   } catch (err) {
     return fail(c, err);
   }
@@ -45,7 +82,7 @@ repositoryRoutes.get("/worktrees", (c) => {
   try {
     const path = c.req.query("path");
     if (!path) return c.json({ error: "path is required" }, 400);
-    return c.json(listWorktrees(path));
+    return c.json(listWorktrees(assertManagedPath(path)));
   } catch (err) {
     return fail(c, err);
   }
@@ -59,7 +96,7 @@ repositoryRoutes.post("/worktrees", async (c) => {
     if (!body?.agentId) return c.json({ error: "agentId is required" }, 400);
     if (!body?.branch) return c.json({ error: "branch is required" }, 400);
     return c.json(
-      createAgentWorktree(body.repoPath, {
+      createAgentWorktree(assertManagedPath(body.repoPath), {
         agentId: body.agentId,
         branch: body.branch,
         baseBranch: body.baseBranch,
@@ -74,7 +111,7 @@ repositoryRoutes.post("/worktrees", async (c) => {
 repositoryRoutes.delete("/worktrees", async (c) => {
   try {
     const body = await c.req.json();
-    removeAgentWorktree(body.repoPath, body.worktreePath, body.force === true);
+    removeAgentWorktree(assertManagedPath(body.repoPath), assertManagedPath(body.worktreePath), body.force === true);
     return c.json({ success: true });
   } catch (err) {
     return fail(c, err);
@@ -87,7 +124,7 @@ repositoryRoutes.get("/changed-files", (c) => {
     const worktree = c.req.query("worktree");
     const base = c.req.query("base") ?? "main";
     if (!worktree) return c.json({ error: "worktree is required" }, 400);
-    return c.json(agentChangedFiles(worktree, base));
+    return c.json(agentChangedFiles(assertManagedPath(worktree), base));
   } catch (err) {
     return fail(c, err);
   }
@@ -98,7 +135,7 @@ repositoryRoutes.get("/diff", (c) => {
     const worktree = c.req.query("worktree");
     if (!worktree) return c.json({ error: "worktree is required" }, 400);
     return c.json({
-      diff: getDiff(worktree, { baseBranch: c.req.query("base") ?? undefined, file: c.req.query("file") ?? undefined }),
+      diff: getDiff(assertManagedPath(worktree), { baseBranch: c.req.query("base") ?? undefined, file: c.req.query("file") ?? undefined }),
     });
   } catch (err) {
     return fail(c, err);
@@ -111,7 +148,7 @@ repositoryRoutes.post("/commit", async (c) => {
     const body = await c.req.json();
     if (!body?.worktree) return c.json({ error: "worktree is required" }, 400);
     if (!body?.message) return c.json({ error: "message is required" }, 400);
-    return c.json(commitAgentWork(body.worktree, body.message, body.author));
+    return c.json(commitAgentWork(assertManagedPath(body.worktree), body.message, body.author));
   } catch (err) {
     return fail(c, err);
   }
@@ -123,7 +160,7 @@ repositoryRoutes.post("/merge", async (c) => {
     const body = await c.req.json();
     if (!body?.repoPath) return c.json({ error: "repoPath is required" }, 400);
     return c.json(
-      mergeAgentBranch(body.repoPath, {
+      mergeAgentBranch(assertManagedPath(body.repoPath), {
         branch: body.branch,
         target: body.target,
         approvedBy: body.approvedBy,

@@ -70,6 +70,10 @@ const controlRoomUnsubscribers = new WeakMap<object, () => void>();
 // WebSocket server
 Bun.serve<WebSocketData>({
   port: PORT,
+  // Loopback by default. The server exposes repository and agent control with no authentication,
+  // so binding every interface would put those on the network. Opt in explicitly for remote use
+  // (e.g. behind SSH port-forwarding) with OPENUI_HOST=0.0.0.0.
+  hostname: process.env.OPENUI_HOST || "127.0.0.1",
   fetch(req, server) {
     const url = new URL(req.url);
 

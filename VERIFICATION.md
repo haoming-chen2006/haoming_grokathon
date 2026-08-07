@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 38
+**Last iteration:** 39
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -2323,6 +2323,58 @@ V-052 re-run         all 18 steps green from a fixture at 0 pass / 1 fail:
 
 The V-052 re-run matters most: it is the only test that exercises the whole system, and it is the
 one that caught a case where all 18 steps reported success and no code reached `main`.
+
+## Security review of this implementation (iteration 39)
+
+§22.18 asks for "unresolved security concerns", but the audit had only ever been run over the
+*upstream* code. This project added a permission model, an approval gate and an HTTP-exposed MCP
+server, and none of it had been reviewed. Three findings, all fixed, all with regression tests
+that fail against the previous code.
+
+### S-1: a request header granted document-write — **FIXED**
+
+```text
+The MCP route read `x-openui-actor-doc-write: true` from the request and passed it straight to
+canWriteDocument. Any caller able to reach the endpoint could set that header and gain write
+access to the canonical document — defeating V-014 entirely, which is the single protection the
+"document is the implementation contract" principle rests on.
+
+Fix: privilege is read from the agent's STORED permissions in the registry. The header is ignored.
+An unknown agent gets the safe default (read-only) rather than an error that might be handled
+permissively.
+```
+
+This was introduced by me in iteration 24, and the V-014 tests did not catch it because they
+exercise the store directly and never went through the MCP route.
+
+### S-2: arbitrary filesystem paths reached git — **FIXED**
+
+```text
+repoPath, worktree and path came from the request and were handed to git. `POST /repository/commit`
+would `git add -A` and commit in whatever directory it was given, so any caller could operate on
+any repository on the machine.
+
+Fix: assertManagedPath() confines every path to a repository this server manages (or a worktree
+inside one), returning 403 UNMANAGED_PATH otherwise. Compared with a trailing separator, so
+"/repo-other" cannot match "/repo" — asserted by test.
+```
+
+### S-3: the server bound every interface — **FIXED**
+
+```text
+Before: *:6968     — reachable from the network
+After:  127.0.0.1:6968  (verified at runtime, not just in source)
+
+The server exposes repository and agent control with no authentication, so binding all interfaces
+put those on the network. Remote use is now an explicit opt-in via OPENUI_HOST, which suits the
+SSH port-forwarding setup the README already documents.
+```
+
+**Remaining known limitation, recorded rather than fixed:** the API and MCP endpoints have no
+authentication. That is defensible for a loopback-bound single-user tool and is why S-3 matters,
+but anyone binding it to a network with `OPENUI_HOST` is exposing unauthenticated repository and
+agent control. This is a deliberate scope boundary — §20 lists "enterprise access controls" as an
+explicit non-goal — not an oversight.
 
 ## §22.19 Final Completion Gate
 

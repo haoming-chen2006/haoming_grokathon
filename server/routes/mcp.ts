@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createProjectMcpServer } from "../services/projectMcpServer";
+import { getAgentRegistry } from "../services/agentRegistry";
 
 export const mcpRoutes = new Hono();
 
@@ -19,11 +20,17 @@ mcpRoutes.all("/:projectId/:agentId", async (c) => {
   const projectId = c.req.param("projectId");
   const agentId = c.req.param("agentId");
 
-  const server = createProjectMcpServer({
-    projectId,
-    agentId,
-    canWriteDocument: c.req.header("x-openui-actor-doc-write") === "true",
-  });
+  // Privilege is read from the agent's STORED permissions, never from a request header.
+  // Trusting `x-openui-actor-doc-write` let any caller grant itself write access to the canonical
+  // document, defeating V-014 entirely — the header is now ignored.
+  let canWriteDocument = false;
+  try {
+    canWriteDocument = getAgentRegistry().get(agentId).permissions.canWriteDocument === true;
+  } catch {
+    // An unknown agent gets the safe default: read-only.
+  }
+
+  const server = createProjectMcpServer({ projectId, agentId, canWriteDocument });
 
   // Stateless mode: each request carries its own transport, so concurrent agents cannot collide
   // on a shared session and a crashed request cannot poison later ones.
