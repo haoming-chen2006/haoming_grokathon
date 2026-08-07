@@ -42,6 +42,7 @@
     "install:client": "cd client && bun install"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@xai-official/grok": "^0.2.118",
     "bun-pty": "^0.4.8",
     "hono": "^4.1.0"

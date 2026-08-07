@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 22
+**Last iteration:** 23
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (38/52 PASS; Stage B complete)
-**Tally:** 38 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED
+**Overall result:** FAIL (42/52 PASS; Stage C tool layer complete)
+**Tally:** 42 PASS · 0 FAIL · 0 BLOCKED · 10 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -1158,10 +1158,83 @@ Thread-length exhaustion escalates independently of the unanswered-streak rule.
 
 | Item | Status | Reason |
 |---|---|---|
-| V-028 Project MCP server connects | NOT TESTED | No MCP server in this repo; no `@modelcontextprotocol/sdk` dependency. |
-| V-029 Read tools return scoped context | NOT TESTED | Depends on V-028. |
-| V-030 Mutation tools enforce permissions | NOT TESTED | Depends on V-028. |
-| V-031 Agent comms tools work through MCP | NOT TESTED | Depends on V-028 and V-025. |
+Implemented in iteration 23: `server/services/projectMcpServer.ts`, built on
+`@modelcontextprotocol/sdk` 1.30.0. Tests: `projectMcpServer.test.ts` → **18 pass, 0 fail**,
+driven through a real MCP `Client` over the SDK's linked in-memory transport — so the protocol
+layer is exercised, not bypassed.
+
+**Identity is not a parameter.** A server is bound to one `projectId` and one `agentId` at
+construction, so an agent cannot address another project or impersonate another agent by passing
+different arguments. This is the property the whole permission model rests on.
+
+### V-028: Project MCP server connects — **PASS** (tool surface)
+
+```text
+Server name:       openui-project 1.0.0
+Tools discovered:  18, matching PROJECT_MCP_TOOLS exactly —
+                   get_project, get_technical_design, get_requirements, get_requirement,
+                   get_acceptance_criteria, get_repository_summary, get_branch_status,
+                   get_worktree_status, get_diff, update_task_progress, report_blocker,
+                   submit_design_suggestion, submit_code_for_review, send_agent_message,
+                   handoff_code_artifact, report_failing_test, request_agent_review,
+                   escalate_to_user
+Connection result: client.listTools() returns all 18; every tool carries a non-empty description
+                   (a tool without one is unusable to a model) and a declared input schema
+```
+
+### V-029: Read tools return scoped project context — **PASS**
+
+```text
+Tool:              get_project
+Response summary:  {name: "Authentication", goal: "Ship auth", budgetUsd: 10, requirementCount: 1}
+
+Tool:              get_technical_design      → {version: 1, content: "…sign in with a modal"}
+Tool:              get_requirement AUTH-03   → {id: "AUTH-03", ownerAgentId: "backend"}
+Tool:              get_acceptance_criteria   → [{text: "Survives reload"}]
+Tool:              get_repository_summary    → reads the REAL repo: currentBranch "main",
+                                               40-char HEAD, protectedBranches includes "main"
+```
+
+An unknown requirement returns `isError: true` with a message, rather than throwing — a tool that
+throws across the protocol boundary gives the agent nothing to reason about.
+
+### V-030: Mutation tools enforce permissions — **PASS**
+
+```text
+Tool:              update_task_progress
+Authorized test:   backend (owner of task "api") → task.status becomes "working"
+Unauthorized test: frontend calling the same tool on the same task
+                   → isError, "PERMISSION_DENIED: Agent \"frontend\" is not assigned to task api"
+
+Tool:              submit_code_for_review
+Unauthorized test: submission with empty changedFiles and summary
+                   → isError, "missing required evidence"
+
+Tool:              submit_design_suggestion
+Behaviour:         an agent PROPOSES rather than edits — suggestion lands "pending" and the
+                   document stays at version 1, since only the user can accept (§4, V-014)
+```
+
+### V-031: Agent communication tools work through MCP — **PASS**
+
+```text
+Tool:    send_agent_message      → from backend to frontend, link {requirement, AUTH-03}
+Tool:    handoff_code_artifact   → artifact auth-contract-v2 produced by backend, handoff
+                                   message linked to the artifact
+Tool:    report_failing_test     → kind "failing_test", linked to tests/auth/session_test.py
+Tool:    request_agent_review    → kind "review_request", linked to branch agent/auth-backend
+Tool:    escalate_to_user        → kind "escalation" with NO toAgentId — addressed to the human
+Tool:    report_blocker          → escalates and records the blocker on the agent's activity
+```
+
+**Design correction made this iteration.** The first version reached for process-wide singletons
+(`getProjectStore()`, `getAgentRegistry()`), which made 15 of 18 tests fail — not because the tools
+were wrong, but because a test cannot control when a singleton initialises. The fix was dependency
+injection rather than test gymnastics: `ProjectMcpContext` now accepts `store` and `registry`,
+defaulting to the singletons in production. The failure was a design smell surfacing as a test
+problem.
+
+
 
 ## §22.11 Code Execution and Testing
 
