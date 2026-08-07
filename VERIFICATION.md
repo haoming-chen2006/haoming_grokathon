@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 36
+**Last iteration:** 38
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -2305,6 +2305,24 @@ renders `body.error`, so anything else would display "undefined".
 
 **Result: no mismatch found.** The stubs were accurate. The value is that drift is now caught: a
 handler that drops a field the UI reads will fail this suite instead of failing in the browser.
+
+## Standing health checks (iteration 38)
+
+With the checklist complete, the loop now runs the checks that have historically found real
+problems, rather than idling.
+
+```text
+Reachability audit   77 modules checked; 3 known-and-classified (entry point, config-invoked
+                     hook, pre-existing OpenUI); 0 new orphans
+Flakiness            three consecutive full runs — 500 pass / 0 fail each time, no variance
+                     (~15 tests drive live agents, so a stable gate is not a given)
+V-052 re-run         all 18 steps green from a fixture at 0 pass / 1 fail:
+                       merged 57e9268d79a0, main:greet.ts contains the implementation,
+                       main suite 1 pass / 0 fail, total cost $0.04 of $10.00
+```
+
+The V-052 re-run matters most: it is the only test that exercises the whole system, and it is the
+one that caught a case where all 18 steps reported success and no code reached `main`.
 
 ## §22.19 Final Completion Gate
 
