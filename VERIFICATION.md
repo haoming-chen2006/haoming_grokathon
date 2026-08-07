@@ -3548,6 +3548,55 @@ All of §1-§21 have now been audited against the implementation.
 
 ---
 
+## Connecting the wire: an agent actually calling a project tool (iteration 58)
+
+Iteration 53's fix — agents finally receiving the Project MCP server — was covered from both ends
+and neither end crossed the gap:
+
+```text
+the launch path   tests assert what session/new is handed          proves the address is passed
+the MCP server    31 tools invoked over HTTP (iteration 47)        proves the server works
+                  nothing proved an agent could reach it
+```
+
+Those are precisely the two ends of the wire that was disconnected for the entire project. The
+acceptance run now has the launched agent call a project tool through its own session, and asserts
+the **effect in the project store**:
+
+```text
+ 9. Agent used a Project MCP tool — report_blocker recorded in the store
+    MCP tools reachable    report_blocker called by the agent, escalation recorded
+```
+
+`report_blocker` is a good probe because its effect is state, not prose: an escalation appears and
+the agent's status becomes `waiting`. A fluent description of having reported a blocker cannot
+satisfy it. The marker `MCP_PROBE_4471` appears nowhere else, so the escalation cannot be matched
+by chance.
+
+**Control experiment — the one that matters.** Reverting iteration 53's fix, so `newSession()` is
+again called with no arguments:
+
+```text
+FAILED: the agent did not reach the Project MCP server — no escalation was recorded
+restored: All 19 steps passed.
+```
+
+So the acceptance test now detects the single largest defect this project had, which it ran past
+without noticing for fifty-two iterations.
+
+**Why it lives in the acceptance script rather than a unit test.** It was first written as one, and
+`Bun.serve` cannot be used in the suite: `bunfig.toml` preloads happy-dom for the whole run, which
+replaces the global `Response`, so Hono's response is rejected by Bun's server. The acceptance
+script already runs the real server as a subprocess, which is the honest place for a test that
+needs a real server, a real agent and a real MCP endpoint at once.
+
+```text
+bun run verify     → exit 0, 663 pass / 0 fail, four audits clean
+bun run acceptance → all 19 steps, merge 5dbd308ff04c, verified on main
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3576,8 +3625,9 @@ reader reaches last.)*
 [x] Build succeeds.                         — bun run build exit 0
 [x] Required tests pass.                    — 663 pass / 0 fail, 37 files;
                                               see the flake note above
-[x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
-                                              from a fixture that starts red
+[x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 19 steps from a
+                                              fixture that starts red, including an agent
+                                              calling a Project MCP tool
 [x] UI acceptance checklist passes.         — 22 of 22 rows, guarded by uiChecklist.test.tsx
 [x] Placeholder and quality audit passes.   — automated as `bun run audit:quality`;
                                               0 unclassified, 0 dead controls;
@@ -3642,7 +3692,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 59 ahead of main
+commits 60 ahead of main
 build   bun run build exit 0
 tests   663 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller

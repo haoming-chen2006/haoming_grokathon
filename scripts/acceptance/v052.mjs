@@ -213,6 +213,33 @@ const committed = await api("POST", "/api/repository/commit", {
 must(committed.status === 200 && committed.json.committed, "commit failed", committed.text.slice(0, 200));
 detail(`committed ${committed.json.commit.slice(0, 12)} — ${committed.json.files.join(", ")}`);
 
+// 8b ──────────────────── the agent uses a Project MCP tool through its own session
+//
+// The two ends of this wire were each tested for the entire project and never connected: the MCP
+// server was driven over HTTP, and the launch path was checked for what it hands to session/new.
+// Until iteration 53 `newSession()` was called with no arguments, so no agent ever received the
+// tools at all. This asserts the effect in the project store, not anything the agent says.
+const beforeEscalations = (await api("GET", `/api/projects/${P}/escalations`)).json.length;
+const toolWork = await api("POST", `/api/coding-agents/${B}/session/message`, {
+  text:
+    "Use the report_blocker tool from the openui-project MCP server to report this blocker: " +
+    '"MCP_PROBE_4471 — checking the project tools are reachable". ' +
+    "Call the tool; do not merely describe it. Reply with only DONE when the call has succeeded.",
+});
+must(toolWork.status === 200, "the MCP probe prompt failed", toolWork.text.slice(0, 200));
+
+const escalations = (await api("GET", `/api/projects/${P}/escalations`)).json;
+must(
+  escalations.some((e) => e.body.includes("MCP_PROBE_4471")),
+  "the agent did not reach the Project MCP server — no escalation was recorded",
+);
+must(escalations.length > beforeEscalations, "no new escalation was recorded");
+log("Agent used a Project MCP tool — report_blocker recorded in the store");
+evidence["MCP tools reachable"] = "report_blocker called by the agent, escalation recorded";
+
+// The blocker sets the agent to waiting; clear it so the flow continues.
+await api("PATCH", `/api/coding-agents/${B}/status`, { status: "working", detail: "resuming" });
+
 // 9 ───────────────────────────────────────────────── structured handoff between agents
 const handoff = await api("POST", `/api/projects/${P}/handoffs`, {
   fromAgentId: B, toAgentId: R, body: "Greeting implemented on agent/greet; ready for review.",
