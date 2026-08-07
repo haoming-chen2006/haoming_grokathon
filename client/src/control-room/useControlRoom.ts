@@ -255,6 +255,22 @@ export function useControlRoom() {
     }
   }, [state.projectId]);
 
+  /**
+   * Pause every agent that is currently working (§11).
+   *
+   * The header's "Pause All" button existed and the shell never passed a handler, so it rendered
+   * and did nothing — the operator's one global stop control was decorative.
+   */
+  const pauseAll = useCallback(async () => {
+    const working = state.agents.filter((a) => a.status === "working");
+    // Settled rather than all: one agent whose session has already exited must not prevent the
+    // rest from being paused.
+    await Promise.allSettled(
+      working.map((a) => json(`/api/coding-agents/${a.id}/session/pause`, { method: "POST", body: "{}" })),
+    );
+    if (state.projectId) void loadProject(state.projectId);
+  }, [state.agents, state.projectId, loadProject]);
+
   const refresh = useCallback(() => {
     if (state.projectId) void loadProject(state.projectId);
   }, [state.projectId, loadProject]);
@@ -268,6 +284,7 @@ export function useControlRoom() {
     loadMessageHistory,
     budgetAlert,
     dismissBudgetAlert: () => setBudgetAlert(null),
+    pauseAll,
     transcript,
     sessionState,
     selectProject: (id: string) => setState((s) => ({ ...s, projectId: id, loading: true })),

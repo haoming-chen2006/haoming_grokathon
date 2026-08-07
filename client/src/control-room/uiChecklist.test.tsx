@@ -58,8 +58,12 @@ const AGENTS = [
     costUsd: 0, tokensUsed: 0 },
 ];
 
+const calls: Array<{ method: string; url: string }> = [];
+
 function stubFetch() {
-  (globalThis as any).fetch = async (url: string) => {
+  calls.length = 0;
+  (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
+    calls.push({ method: init?.method ?? "GET", url: String(url) });
     const send = (data: unknown) => new Response(JSON.stringify(data), { status: 200 });
     const u = String(url);
     if (u === "/api/projects") return send([{ id: "p1", name: "Greeting Service", goal: "g", repositoryPath: "/tmp/repo" }]);
@@ -222,5 +226,25 @@ describe("§22.17: every checklist row is reachable in the assembled app", () =>
       await openTab(tab);
       await waitFor(() => expect(screen.getByTestId(testid)).toBeTruthy());
     }
+  });
+});
+
+describe("Pause All actually pauses (§11)", () => {
+  test("it pauses every working agent, and only those", async () => {
+    // The button rendered with an optional onPauseAll the shell never passed, so clicking it did
+    // nothing. The component's own test passed because it supplied the prop itself.
+    await openApp();
+    fireEvent.click(screen.getByTestId("pause-all"));
+
+    await waitFor(() => {
+      const paused = calls.filter((c) => c.url.includes("/session/pause"));
+      expect(paused.length).toBeGreaterThan(0);
+    });
+
+    const paused = calls.filter((c) => c.url.includes("/session/pause"));
+    // a1 is working; a2 is waiting and must be left alone.
+    expect(paused.some((c) => c.url.includes("a1"))).toBe(true);
+    expect(paused.some((c) => c.url.includes("a2"))).toBe(false);
+    expect(paused.every((c) => c.method === "POST")).toBe(true);
   });
 });

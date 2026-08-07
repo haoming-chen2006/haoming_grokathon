@@ -174,6 +174,41 @@ for (const file of COMPONENTS) {
   }
 }
 
+// ─────────────────────────────────────── optional handler props that no caller ever passes
+
+/**
+ * A button can have an `onClick` and still do nothing: if the handler is an optional prop and no
+ * render site passes it, the control is decorative. That is not visible to the check above, and it
+ * has happened twice — the always-undefined `acpSessionId` ternary (iteration 49) and the header's
+ * "Pause All" button, which rendered for the entire life of the project and did nothing.
+ *
+ * For every optional `onX?: (...) => ...` prop that a component actually uses as a handler, at
+ * least one render site must pass it.
+ */
+for (const file of COMPONENTS) {
+  const src = readFileSync(join(ROOT, file), "utf8");
+  const component = file.split("/").pop().replace(/\.tsx$/, "");
+
+  for (const m of src.matchAll(/^\s*(on[A-Z]\w*)\?:/gm)) {
+    const prop = m[1];
+    // Only props wired to a DOM handler; a merely declared prop is not a control.
+    if (!new RegExp(`on[A-Z]\\w*=\\{${prop}\\}`).test(src)) continue;
+
+    const passedSomewhere = COMPONENTS.some((other) => {
+      if (other === file) return false;
+      const otherSrc = readFileSync(join(ROOT, other), "utf8");
+      return otherSrc.includes(`<${component}`) && new RegExp(`${prop}=`).test(otherSrc);
+    });
+    if (!passedSomewhere) {
+      const line = src.slice(0, m.index).split("\n").length;
+      controlFindings.push({
+        file, line,
+        why: `${prop} is used as a handler but no render site passes it — the control does nothing`,
+      });
+    }
+  }
+}
+
 // ───────────────────────────────────────────────────────────────────────── report
 
 console.log(`\n  §22.18 quality audit — ${files.length} files added by this project\n`);

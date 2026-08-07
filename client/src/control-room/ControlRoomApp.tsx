@@ -59,6 +59,7 @@ export function ControlRoomApp() {
         agentsWaiting={room.agents.filter((a) => a.status === "waiting").length}
         reviewsPending={room.submissions.filter((s) => s.state === "pending").length}
         suggestionsPending={room.suggestions.filter((s) => s.state === "pending").length}
+        onPauseAll={room.pauseAll}
       />
 
       {room.error && (

@@ -3376,6 +3376,55 @@ bun run verify → exit 0, 655 pass / 0 fail, four audits clean
 
 ---
 
+## "Pause All" did nothing, and the audit that should have caught it (iteration 55)
+
+Auditing §11's control-room layout found the operator's one global stop control was decorative.
+
+```tsx
+// ProjectHeader.tsx
+onPauseAll?: () => void;          // optional
+<button data-testid="pause-all" onClick={onPauseAll}>Pause All</button>
+
+// ControlRoomApp.tsx — every other prop passed, this one never
+<ProjectHeader name=… goal=… progress=… costUsd=… budgetUsd=… reviewsPending=… />
+```
+
+The button rendered for the entire life of the project and **did nothing when clicked.** If agents
+were running away — the exact situation the control exists for — pressing it changed nothing.
+
+`ProjectHeader`'s own test passed because it supplies the prop itself, which is the same shape as
+iteration 49's always-undefined `acpSessionId`: a component tested with a value its only real
+caller never provides.
+
+**Fix.** `useControlRoom.pauseAll()` pauses every agent whose status is `working`, using
+`Promise.allSettled` so one already-exited session cannot prevent the rest from being paused, then
+reloads. Asserted through the assembled shell: clicking the button issues `POST
+/session/pause` for the working agent and **not** for the waiting one.
+
+### The quality audit had a blind spot, now closed
+
+§22.18's "no controls that do nothing" check looked for buttons with no `onClick`. This button has
+one — the *prop behind it* was undefined. The audit now also verifies that every optional
+`onX?: () => …` prop a component wires to a DOM handler is passed by at least one render site.
+
+Positive controls, including on the bug just fixed:
+
+```text
+remove onPauseAll={room.pauseAll}          → ProjectHeader.tsx:18  onPauseAll ... does nothing, exit 1
+remove onLoadHistory={…}                   → ConversationView.tsx:35 onLoadHistory ..., exit 1
+restored                                   → exit 0
+```
+
+That is the second time this class of defect has appeared and the first time a check will catch
+the next one. Both instances shared a signature worth naming: **an optional prop, a component test
+that supplies it, and a single real caller that does not.**
+
+```text
+bun run verify → exit 0, 656 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3402,7 +3451,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 655 pass / 0 fail, 37 files;
+[x] Required tests pass.                    — 656 pass / 0 fail, 37 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -3469,9 +3518,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 53 ahead of main
+commits 55 ahead of main
 build   bun run build exit 0
-tests   655 pass / 0 fail across 37 files
+tests   656 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller
 ```
 
