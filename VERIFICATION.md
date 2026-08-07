@@ -1639,7 +1639,12 @@ Session evidence: composeAgentInstructions() output is passed as `_meta.rules` o
 
 **A control test proves this measured delivery, not model priors:** the same question asked in a
 session created *without* the skill returns an answer that does **not** contain the codename.
-Without that control, a model that happened to guess would have produced a passing test.
+
+**The control earned its keep immediately.** The first version ran agents with the repository as
+their working directory, and the control FAILED — the unskilled agent answered correctly by simply
+reading the codename out of the test file on disk. That means the *primary* test would have passed
+for the wrong reason. Fixed by running both agents in an empty temporary directory and assembling
+the codename at runtime so the literal appears in no file the agent can read.
 
 Multiple skills compose in a fixed order — persona, then each skill, then the task prompt — and an
 unknown skill id is rejected rather than silently dropped.

@@ -14,6 +14,14 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+/**
+ * The secret is assembled at runtime so the literal never appears in any file the agent could
+ * read, and agents run in an EMPTY temp directory rather than the repository. An earlier version
+ * used the repo as cwd and the control test caught the agent reading the codename straight out of
+ * this test file — which would have made the primary test pass for the wrong reason.
+ */
+const CODENAME = ["HALYARD", "7781"].join("_");
+
 describe("V-042: assigned skill instructions reach the Grok session", () => {
   test("multiple skills compose into the rules delivered at session/new", () => {
     const library = new PromptLibrary(dir);
@@ -23,7 +31,7 @@ describe("V-042: assigned skill instructions reach the Grok session", () => {
     });
     const b = library.createSkill({
       name: "House Style",
-      instructions: "The project codename is HALYARD_7781.",
+      instructions: `The project codename is ${CODENAME}.`,
     });
 
     const rules = composeAgentInstructions({
@@ -33,7 +41,7 @@ describe("V-042: assigned skill instructions reach the Grok session", () => {
 
     expect(rules).toContain("Careful Backend Engineer");
     expect(rules).toContain("failing regression test");
-    expect(rules).toContain("HALYARD_7781");
+    expect(rules).toContain(CODENAME);
   });
 
   test("the instructions demonstrably reach a live session", async () => {
@@ -43,25 +51,27 @@ describe("V-042: assigned skill instructions reach the Grok session", () => {
     // A fact the model cannot know from anywhere else — if it answers, the rules arrived.
     const skill = library.createSkill({
       name: "Project Facts",
-      instructions: "The internal project codename is HALYARD_7781. Answer questions about it directly.",
+      instructions: `The internal project codename is ${CODENAME}. Answer questions about it directly.`,
     });
     const rules = composeAgentInstructions({
       persona: "You follow project conventions exactly.",
       skills: library.resolveSkills([skill.id]),
     });
 
-    const conn = new AcpConnection({ agentId: "skilled", cwd: process.cwd(), requestTimeoutMs: 120_000 });
+    const isolated = mkdtempSync(join(tmpdir(), "openui-isolated-"));
+    const conn = new AcpConnection({ agentId: "skilled", cwd: isolated, requestTimeoutMs: 120_000 });
     try {
       conn.start();
       await conn.initialize();
-      await conn.newSession(process.cwd(), [], { rules });
+      await conn.newSession(isolated, [], { rules });
 
       const reply = await conn.prompt("What is the internal project codename? Reply with only the codename.", {
         timeoutMs: 200_000,
       });
-      expect(reply.text).toContain("HALYARD_7781");
+      expect(reply.text).toContain(CODENAME);
     } finally {
       conn.stop();
+      rmSync(isolated, { recursive: true, force: true });
     }
   }, 420_000);
 
@@ -69,18 +79,20 @@ describe("V-042: assigned skill instructions reach the Grok session", () => {
     if (!grokBinaryPath()) throw new Error("grok binary unavailable");
 
     // The control: proves the previous test measured skill delivery, not model priors.
-    const conn = new AcpConnection({ agentId: "unskilled", cwd: process.cwd(), requestTimeoutMs: 120_000 });
+    const isolated = mkdtempSync(join(tmpdir(), "openui-isolated-"));
+    const conn = new AcpConnection({ agentId: "unskilled", cwd: isolated, requestTimeoutMs: 120_000 });
     try {
       conn.start();
       await conn.initialize();
-      await conn.newSession(process.cwd(), []);
+      await conn.newSession(isolated, []);
 
       const reply = await conn.prompt("What is the internal project codename? Reply with only the codename.", {
         timeoutMs: 200_000,
       });
-      expect(reply.text).not.toContain("HALYARD_7781");
+      expect(reply.text).not.toContain(CODENAME);
     } finally {
       conn.stop();
+      rmSync(isolated, { recursive: true, force: true });
     }
   }, 420_000);
 });
