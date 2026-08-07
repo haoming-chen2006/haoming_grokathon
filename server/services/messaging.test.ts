@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { ProjectStore, NotFoundError } from "./projectStore";
@@ -518,5 +518,42 @@ describe("archival must not weaken the loop guard (V-027)", () => {
     });
     expect(next.threadId).toBe(last.threadId);
     expect(next.kind).toBe("escalation");
+  });
+});
+
+describe("the message archive is a first-class part of project storage", () => {
+  const links = [{ kind: "task" as const, id: "t1" }];
+
+  function bury(n: number) {
+    for (let i = 0; i < n; i++) {
+      store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "a", toAgentId: "b",
+        body: `m${i}`, links, threadId: `thread-${i}`,
+      });
+    }
+  }
+
+  test("deleting a project removes its archive too", () => {
+    bury(700);
+    expect(store.archivedMessages(projectId).length).toBeGreaterThan(0);
+
+    store.deleteProject(projectId);
+    expect(existsSync(join(dir, `${projectId}.messages.jsonl`))).toBe(false);
+
+    // A project reusing the id must not inherit the old conversation.
+    const revived = store.createProject({ name: "Reused", goal: "g", repositoryPath: "/tmp/r" });
+    expect(store.archivedMessages(revived.id)).toHaveLength(0);
+  });
+
+  test("listProjects is not confused by the archive file", () => {
+    bury(700);
+    // ".messages.jsonl" must not be parsed as a project document.
+    expect(() => store.listProjects()).not.toThrow();
+    expect(store.listProjects()).toHaveLength(1);
+    expect(store.listProjects()[0].id).toBe(projectId);
+  });
+
+  test("a project with no archive reports empty rather than throwing", () => {
+    expect(store.archivedMessages(projectId)).toEqual([]);
   });
 });

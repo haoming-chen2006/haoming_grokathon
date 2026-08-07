@@ -239,6 +239,10 @@ export class ProjectStore {
   deleteProject(projectId: string): void {
     const path = this.pathFor(projectId);
     if (existsSync(path)) unlinkSync(path);
+    // The message archive is a separate file; leaving it behind leaks disk and would resurface
+    // as stale history if the id were ever reused.
+    const archive = this.archivePathFor(projectId);
+    if (existsSync(archive)) unlinkSync(archive);
   }
 
   // ---------------------------------------------------------------- document
