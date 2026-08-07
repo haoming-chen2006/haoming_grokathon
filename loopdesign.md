@@ -55,7 +55,7 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 57
+## 2. State as of iteration 58
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -131,7 +131,11 @@ The checklist is complete. Useful work still available, in rough order of value:
    the second exposed it. A checker that cannot be made to fail on demand proves nothing when it
    passes — **and check the probes too**: one round of them silently passed everything because
    the harness escaped its own backticks.
-2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system.
+2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system,
+   and since iteration 58 it also proves a launched agent can call a Project MCP tool: reverting
+   the iteration-53 fix makes step 9 fail. That step exists because the tools were tested over
+   HTTP and the launch path was tested for its arguments, and neither crossed the gap between
+   them.
    It caught a case where all 18 steps reported success and no code reached `main`, and on being
    made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
    bug in the S-2 path guard, in both the false-refusal and false-approval directions). It builds
