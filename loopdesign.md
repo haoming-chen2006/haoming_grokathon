@@ -25,6 +25,7 @@ Confirm the environment is intact. If either check fails, fix that before anythi
 ./node_modules/.bin/grok --version        # expect: grok 0.2.118
 bun run verify                            # expect: exit 0, 540+ tests, 0 orphans
 bun run acceptance                        # expect: all 18 steps pass (the §22.16 flow)
+bun run audit                             # expect: 0 orphans, every endpoint covered
 ```
 
 `bun run verify` runs, in order: server typecheck → client typecheck → all tests → production
@@ -54,12 +55,12 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 45
+## 2. State as of iteration 46
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 541 tests across 31 suites, both typechecks, the production build, and the
-      reachability audit (82 modules, 0 orphans) all clean.
+Gate: 590 tests across 34 suites, both typechecks, the production build, and both
+      audits (85 modules 0 orphans; 84 endpoints all covered) clean.
 ```
 
 Two items are open but neither is a checklist failure:
@@ -97,7 +98,9 @@ The checklist is complete. Useful work still available, in rough order of value:
 1. **Composition checks.** Four iterations of these each found real bugs: unreachable modules,
    untested wiring, UI↔API contract drift. The reachability audit is now `bun run audit` and runs
    as part of `bun run verify`, so a new orphan fails the gate rather than waiting to be noticed.
-   Contract and wiring checks are still worth re-running by hand after adding an endpoint.
+   Endpoint coverage is `bun run audit:endpoints`, also part of `verify`. Both audits are only
+   as good as their own correctness — each has had real bugs that produced confident wrong
+   answers, so verify a surprising result before acting on it.
 2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system.
    It caught a case where all 18 steps reported success and no code reached `main`, and on being
    made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
