@@ -82,6 +82,7 @@ export function useControlRoom() {
    * an after-the-fact indicator, not a warning.
    */
   const [budgetAlert, setBudgetAlert] = useState<BudgetAlert | null>(null);
+  const [acpSessionId, setAcpSessionId] = useState<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -186,11 +187,15 @@ export function useControlRoom() {
   const openDrawer = useCallback(async (agentId: string) => {
     setDrawerAgentId(agentId);
     setTranscript([]);
+    setAcpSessionId(null);
     setSessionState("starting");
     try {
       const session = await json<any>(`/api/coding-agents/${agentId}/session`, { method: "POST", body: "{}" });
       setSessionState(session.state);
       setTranscript(session.transcript ?? []);
+      // The server returns the ACP session id; without keeping it the drawer cannot show which
+      // session is open.
+      setAcpSessionId(session.acpSessionId ?? null);
     } catch (err) {
       setSessionState("failed");
       setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
@@ -257,6 +262,7 @@ export function useControlRoom() {
   return {
     ...state,
     drawerAgentId,
+    acpSessionId,
     historyLoaded,
     historyLoading,
     loadMessageHistory,

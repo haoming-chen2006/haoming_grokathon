@@ -192,7 +192,7 @@ export function ControlRoomApp() {
           <SessionDrawer
             agentId={drawerAgent.id}
             agentName={drawerAgent.name}
-            acpSessionId={room.agents.find((a) => a.id === drawerAgent.id)?.currentTaskId ? undefined : undefined}
+            acpSessionId={room.acpSessionId ?? undefined}
             state={room.sessionState}
             transcript={room.transcript}
             onSend={(text) => room.sendMessage(drawerAgent.id, text)}

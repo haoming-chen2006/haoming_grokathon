@@ -1969,6 +1969,13 @@ Both are covered by regression tests.
 
 ## §22.17 UI Acceptance Checklist — **22 of 22 rendered and reachable in the running app**
 
+> **Now guarded automatically (iteration 49).** These rows were verified once, by hand, in
+> iteration 33. The shell was edited in most iterations since and nothing re-checked them, so a row
+> could have disappeared with every other test still green. `client/src/control-room/uiChecklist.test.tsx`
+> now asserts each row against the assembled app, reaching it the way a user does — switching tabs,
+> selecting a requirement, opening the session drawer. It found one row that had stopped working;
+> see below.
+
 > **Correction (iteration 33).** Iterations 8–22 recorded these rows as "rendered", which was true
 > only *in tests*. The components existed and were asserted against real DOM, but **nothing
 > imported them** — they were absent from the production bundle, and opening the app showed the
@@ -2979,6 +2986,56 @@ bun run verify → exit 0, 626 pass / 0 fail, 0 orphans, every endpoint covered
 
 ---
 
+## The §22.17 checklist became a standing check, and one row had rotted (iteration 49)
+
+The 22 UI rows were verified by hand in iteration 33 and never re-checked, while the shell was
+edited in most iterations since. Converting that one-time inspection into a test found a real bug
+in the live-session row.
+
+```jsx
+acpSessionId={room.agents.find((a) => a.id === drawerAgent.id)?.currentTaskId ? undefined : undefined}
+```
+
+**A ternary whose branches are identical.** It evaluates a condition and returns `undefined`
+either way, so the drawer never received a session id and never displayed one — although the
+server returns `acpSessionId` from `POST /session` and `SessionDrawer` renders it whenever it is
+given one. The user could open a live Grok session and not see which session they were looking at.
+
+Nothing was going to catch this. TypeScript is satisfied (both branches type-check), the component
+test passes an id directly so its own coverage is green, and the hook never stored the field at
+all. Only asserting it in the *assembled* app exposes it.
+
+**Fix.** `useControlRoom` keeps the `acpSessionId` the server already returns, and the shell passes
+it through.
+
+```text
+control experiment — the always-undefined ternary restored:
+  (fail) a live Grok session can be opened, showing state and transcript
+  11 pass / 1 fail        restored: 12 pass / 0 fail
+```
+
+**Two of the three initial failures were my own fixture, not defects**, and are worth stating so
+the record is not overstated:
+
+```text
+agent-blocker   renders from activity.blocker, not statusDetail — my fixture set the wrong field
+review queue    shows a changed-file COUNT ("1 file"), which is what the §22.17 row specifies;
+                I asserted filenames
+```
+
+**What the guard now covers.** Twelve tests over the assembled shell: header goal/progress/cost,
+agent role, status, branch, worktree, blocker, pause and stop, the canvas, the design document with
+its version, the requirement list and detail with affected files and test results, both review
+queues with their evidence and all four suggestion actions plus request-changes and approve, the
+conversation view with linked objects, the live session drawer with its id, state and transcript,
+and a sweep asserting every tab reaches a real panel rather than an empty frame.
+
+```text
+bun run verify → exit 0, 638 pass / 0 fail, 0 orphans, every endpoint covered
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3005,11 +3062,11 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 626 pass / 0 fail, 35 files;
+[x] Required tests pass.                    — 638 pass / 0 fail, 36 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
-[x] UI acceptance checklist passes.         — 22 of 22 rows
+[x] UI acceptance checklist passes.         — 22 of 22 rows, guarded by uiChecklist.test.tsx
 [x] Placeholder and quality audit passes.   — 1 open finding (Q-2, awaiting the owner)
 [x] Design document matches the merged implementation.
 [x] Costs and usage are recorded accurately. — estimated costs flagged estimated: true
@@ -3069,9 +3126,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 41 ahead of main
+commits 43 ahead of main
 build   bun run build exit 0
-tests   626 pass / 0 fail across 35 files
+tests   638 pass / 0 fail across 36 files
 audits  0 orphans; every endpoint has a caller
 ```
 
