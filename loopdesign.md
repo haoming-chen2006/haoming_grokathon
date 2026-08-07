@@ -23,7 +23,8 @@ Confirm the environment is intact. If either check fails, fix that before anythi
 
 ```bash
 ./node_modules/.bin/grok --version        # expect: grok 0.2.118
-bun run verify                            # expect: exit 0, 500+ tests pass
+bun run verify                            # expect: exit 0, 540+ tests pass
+bun run acceptance                        # expect: all 18 steps pass (the §22.16 flow)
 ```
 
 `bun run verify` runs, in order: server typecheck → client typecheck → all tests → production
@@ -53,11 +54,11 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 42
+## 2. State as of iteration 43
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 536 tests across 31 suites, both typechecks and the production build clean.
+Gate: 541 tests across 31 suites, both typechecks and the production build clean.
 ```
 
 Two items are open but neither is a checklist failure:
@@ -95,8 +96,11 @@ The checklist is complete. Useful work still available, in rough order of value:
 1. **Composition checks.** Four iterations of these each found real bugs: unreachable modules,
    untested wiring, UI↔API contract drift. Re-run the reachability audit after any change that
    adds a module or endpoint.
-2. **Re-run V-052.** It is the only test that exercises the whole system; it caught a case where
-   all 18 steps reported success and no code reached `main`.
+2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system.
+   It caught a case where all 18 steps reported success and no code reached `main`, and on being
+   made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
+   bug in the S-2 path guard, in both the false-refusal and false-approval directions). It builds
+   its own red fixture and runs against an isolated data directory, so it is safe to re-run.
 3. **Flakiness.** Live-agent tests depend on model behaviour. A test that passes on re-run is a
    defect in the test, not a pass — make it deterministic.
 4. **Documentation drift.** This file and `README.md` describe how to run the system; both go
