@@ -18,7 +18,7 @@
 // the checklist could not be reproduced by anyone else.
 
 import { spawn, execSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -168,6 +168,9 @@ const reviewer = await api("POST", "/api/coding-agents", { projectId: P, name: "
 must(backend.status === 201 && reviewer.status === 201, "agent creation failed");
 const B = backend.json.id, R = reviewer.json.id;
 
+/** Every agent this run creates, so the restart check does not depend on a hardcoded count. */
+const createdAgentIds = [planner.json.id, B, R];
+
 const task = await api("POST", `/api/projects/${P}/tasks`, {
   id: "t-greet", objective: "Implement greet(name)", assignedAgentId: B,
   requirementId: "GREET-01", expectedFiles: ["greet.ts"], milestoneId: "m1",
@@ -239,6 +242,55 @@ evidence["MCP tools reachable"] = "report_blocker called by the agent, escalatio
 
 // The blocker sets the agent to waiting; clear it so the flow continues.
 await api("PATCH", `/api/coding-agents/${B}/status`, { status: "working", detail: "resuming" });
+
+// 8c ───────── an agent launched by the product receives its assigned skill (V-042)
+//
+// The rules mechanism is proven elsewhere with a control, but that test calls AcpConnection
+// directly. Until iteration 53 nothing passed `rules` through the launch path, so a configured
+// persona and skills were inert for every agent the product actually started. The codename is
+// assembled at run time so it cannot be sitting in any file the agent might read instead.
+const CODENAME = ["SKILL", "PROBE", String(7000 + (evidence ? 331 : 0))].join("_");
+const skill = await api("POST", "/api/library/skills", {
+  name: "Project Codename",
+  instructions: `The internal project codename is ${CODENAME}. State it exactly when asked.`,
+});
+must(skill.status === 201, "skill creation failed", skill.text.slice(0, 200));
+
+const skilledWt = await api("POST", "/api/repository/worktrees", {
+  repoPath: REPO, agentId: "skilled", branch: "agent/skilled", baseBranch: "main",
+});
+must(skilledWt.status === 201, "worktree for the skilled agent failed", skilledWt.text.slice(0, 200));
+
+const skilled = await api("POST", "/api/coding-agents", {
+  projectId: P, name: "Skilled Engineer", role: "Backend Engineer",
+  skills: [skill.json.id], budgetUsd: 3,
+});
+must(skilled.status === 201, "skilled agent creation failed", skilled.text.slice(0, 200));
+createdAgentIds.push(skilled.json.id);
+await api("PATCH", `/api/coding-agents/${skilled.json.id}/task`, {
+  taskId: "t-greet", branch: "agent/skilled", worktree: skilledWt.json.path,
+});
+
+const opened = await api("POST", `/api/coding-agents/${skilled.json.id}/session`, {});
+must(opened.status === 200 || opened.status === 201, "opening the skilled session failed", opened.text.slice(0, 200));
+
+// Written to a file, not spoken: a reply is prose and prose is not a stable interface.
+const skillWork = await api("POST", `/api/coding-agents/${skilled.json.id}/session/message`, {
+  text:
+    "Write the internal project codename into a file named codename.txt in the current directory, " +
+    "containing only the codename and nothing else. Reply with only DONE.",
+});
+must(skillWork.status === 200, "the skill probe prompt failed", skillWork.text.slice(0, 200));
+
+const codenameFile = join(skilledWt.json.path, "codename.txt");
+must(existsSync(codenameFile), "the skilled agent did not write codename.txt");
+must(
+  readFileSync(codenameFile, "utf8").includes(CODENAME),
+  "the agent's assigned skill did not reach its session — the codename was not known",
+);
+log("Agent received its assigned skill — codename known only via rules");
+evidence["Skills reach agents"] = `${CODENAME} known only from the assigned skill`;
+await api("POST", `/api/coding-agents/${skilled.json.id}/session/stop`).catch(() => {});
 
 // 9 ───────────────────────────────────────────────── structured handoff between agents
 const handoff = await api("POST", `/api/projects/${P}/handoffs`, {
@@ -356,10 +408,21 @@ must(after.status === 200, "the project did not survive the restart");
 must(after.json.document.currentVersion === 2, "the document version did not survive the restart");
 must(after.json.requirements[0]?.status === "complete", "requirement state did not survive the restart");
 must(after.json.submissions.some((s) => s.state === "merged"), "submission state did not survive the restart");
+// Compare against the agents this run actually created rather than a hardcoded count — the
+// count went stale the moment a step added another agent.
 const agentsAfter = await api("GET", `/api/coding-agents?projectId=${P}`);
-must(agentsAfter.json.length === 3, `agents did not survive the restart (${agentsAfter.json.length} of 3)`);
-log("Restarted the server — project, document v2, requirement, submission and 3 agents all restored");
-evidence["Survived restart"] = "project, document v2, requirement complete, submission merged, 3 agents";
+const survivingIds = new Set(agentsAfter.json.map((a) => a.id));
+const missing = createdAgentIds.filter((id) => !survivingIds.has(id));
+must(
+  missing.length === 0,
+  `agents did not survive the restart: ${missing.length} of ${createdAgentIds.length} missing`,
+);
+log(
+  `Restarted the server — project, document v2, requirement, submission and ` +
+    `${createdAgentIds.length} agents all restored`,
+);
+evidence["Survived restart"] =
+  `project, document v2, requirement complete, submission merged, ${createdAgentIds.length} agents`;
 
 console.log("\n  ── V-052 evidence ──");
 for (const [k, v] of Object.entries(evidence)) console.log(`  ${k.padEnd(22)} ${v}`);

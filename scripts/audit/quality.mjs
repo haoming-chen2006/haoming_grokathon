@@ -77,12 +77,17 @@ const CLASSIFIED = [
       f.startsWith("scripts/acceptance/") || /JSONRPC_METHOD_NOT_FOUND|Method not implemented/.test(line),
     why: "the acceptance fixture's deliberately unimplemented function, or a JSON-RPC method-not-found reply",
   },
-  {
-    pattern: "placeholder",
-    // A comment, or the wording of a test name — prose about the concept, not a marker.
-    test: (line) => /^\s*(\*|\/\/)/.test(line) || /\b(test|describe|it)\(\s*["`']/.test(line),
-    why: "prose in a comment or a test name, not a marker",
-  },
+  // Descriptive English words appearing in a comment or a test name are prose about a concept,
+  // not unfinished work. TODO, FIXME and HACK are deliberately excluded: those are markers by
+  // convention precisely *because* they appear in comments, so exempting them would gut the audit.
+  ...["placeholder", "hardcoded", "temporary", "mock data", "not implemented", "coming soon"].map(
+    (pattern) => ({
+      pattern,
+      // Line comments, block-comment bodies, and JSDoc openers (/** … */ on one line).
+      test: (line) => /^\s*(\/\/|\/\*|\*)/.test(line) || /\b(test|describe|it)\(\s*["`']/.test(line),
+      why: "prose in a comment or a test name, not a marker",
+    }),
+  ),
 ];
 
 function classify(pattern, file, line) {
