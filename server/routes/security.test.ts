@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, symlinkSync, realpathSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
@@ -194,5 +194,63 @@ describe("S-1b: agent permission has a single source of truth", () => {
       body: JSON.stringify({ content: "written by a granted agent" }),
     });
     expect(res.status).toBe(200);
+  });
+});
+
+describe("S-2b: the confinement guard compares canonical paths", () => {
+  test("a worktree reached through a symlinked parent is allowed", async () => {
+    // On macOS /var is a symlink to /private/var, so a project stored as /var/... and a worktree
+    // git reports as /private/var/... are the same directory under two names. String comparison
+    // rejected the worktree and broke the end-to-end flow for any repo under /var or /tmp.
+    const real = realpathSync(managed);
+    expect(real).not.toBe(managed); // the fixture must actually exercise a symlink
+
+    const { status, json } = await req("POST", "/api/repository/worktrees", {
+      repoPath: managed, agentId: "a-sym", branch: "agent/sym", baseBranch: "main",
+    });
+    expect(status).toBe(201);
+
+    // The worktree path comes back canonicalised, and operating on it is accepted.
+    const commit = await req("POST", "/api/repository/commit", {
+      worktree: json.path, message: "nothing to commit", author: "t",
+    });
+    expect(commit.status).not.toBe(403);
+  });
+
+  test("the same repository named through its symlink is accepted", async () => {
+    const real = realpathSync(managed);
+    const viaReal = await req("GET", `/api/repository/info?path=${encodeURIComponent(real)}`);
+    expect(viaReal.status).toBe(200);
+    const viaLink = await req("GET", `/api/repository/info?path=${encodeURIComponent(managed)}`);
+    expect(viaLink.status).toBe(200);
+  });
+
+  test("a symlink inside a managed repo pointing outside is refused", async () => {
+    // This previously PASSED the guard: "<managed>/escape" starts with the managed root as a
+    // string, so git would have been pointed at the unmanaged repository.
+    const escape = join(managed, "escape");
+    symlinkSync(unmanaged, escape);
+
+    const { status, json } = await req("GET", `/api/repository/info?path=${encodeURIComponent(escape)}`);
+    expect(status).toBe(403);
+    expect(json.code).toBe("UNMANAGED_PATH");
+  });
+
+  test("commit cannot be smuggled through such a symlink", async () => {
+    const escape = join(managed, "escape2");
+    symlinkSync(unmanaged, escape);
+    writeFileSync(join(unmanaged, "victim2.ts"), "export const v = 2;\n");
+
+    const { status } = await req("POST", "/api/repository/commit", {
+      worktree: escape, message: "not yours", author: "t",
+    });
+    expect(status).toBe(403);
+    expect(execSync("git log --oneline", { cwd: unmanaged }).toString().trim().split("\n")).toHaveLength(1);
+  });
+
+  test("a path that does not exist yet is still confined", () => {
+    // Canonicalising must not accidentally admit unknown paths.
+    return req("GET", `/api/repository/info?path=${encodeURIComponent(join(unmanaged, "not-created-yet"))}`)
+      .then(({ status }) => expect(status).toBe(403));
   });
 });

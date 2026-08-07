@@ -2580,6 +2580,85 @@ confinement check passes it through and the git check is what rejects it.
 
 ---
 
+## V-052 made reproducible, and the two bugs that surfaced (iteration 43)
+
+The ledger cited `scratchpad/v052.mjs` as the evidence for V-052 — the only test that exercises
+the whole system. That file lived in a session temp directory: untracked, unrunnable by anyone
+else, and gone the moment the scratchpad is cleared. §5 requires evidence "backed by a command
+someone else could re-run", which this was not.
+
+It is now `scripts/acceptance/v052.mjs`, run with **`bun run acceptance`**, and self-contained:
+
+```text
+builds its own fixture repo   starts RED (greet unimplemented, 0 pass / 1 fail) and asserts so,
+                              because a green run against an already-green fixture proves nothing
+starts its own server         own port, own OPENUI_DATA_DIR — earlier hand-runs of this script
+                              are what left stray projects in the user's real ~/.openui
+verifies on main              git show main:greet.ts must contain the implementation, and main's
+                              own suite must pass — the check the first V-052 run failed
+steps 17/18                   restarts the server and asserts project, document v2, requirement,
+                              submission and all 3 agents survive
+cleans up                     fixture and data directory removed unless --keep
+```
+
+Re-running it end to end immediately found **two real defects that every unit test missed.**
+
+### 1. The S-2 confinement guard compared non-canonical paths
+
+```text
+ 8. Agent implemented the feature in its worktree
+    FAILED: commit failed
+    Refusing to operate on "/private/var/folders/…/repo/.agents/agent-greet":
+    it is not inside a repository managed by this server.
+```
+
+On macOS `/var` is a symlink to `/private/var`. The project's `repositoryPath` was stored as
+`/var/folders/…` while git reported the worktree as `/private/var/folders/…` — the same directory
+under two names. `resolve()` normalises but does not follow symlinks, so the guard refused a
+legitimate worktree inside a managed repository. **Any repository under `/var` or `/tmp` could not
+complete the workflow.**
+
+Fixing it also closed a hole in the other direction. `<managed-repo>/escape` symlinked to an
+unmanaged repository *starts with* the managed root as a string, so it passed the guard — and
+`commit` would then have run `git add -A` in the unmanaged repository. Canonicalising both sides
+refuses it.
+
+```text
+control experiment — canonicalisation removed:
+  (fail) a worktree reached through a symlinked parent is allowed
+  (fail) the same repository named through its symlink is accepted
+  (fail) a symlink inside a managed repo pointing outside is refused
+  (fail) commit cannot be smuggled through such a symlink
+  12 pass / 4 fail        restored: 16 pass / 0 fail
+```
+
+Two of those are the false refusal, two are the false approval. Paths that do not exist yet are
+canonicalised via their deepest existing ancestor, and remain confined.
+
+### 2. Step 1 of §22.16 no longer matched how the product works
+
+`GET /api/repository/info` was the script's first call, and S-2 (iteration 39) refuses it before a
+project exists. That is correct behaviour, not a bug: creating the project with a `repositoryPath`
+is what opens the repository, and **the client never calls `/api/repository` at all** (verified by
+grep over `client/src/`). The script now creates the project first, matching real usage.
+
+### Result
+
+```text
+All 18 steps passed, from a fixture that starts red.
+  Merge commit           628f7877ae51741cc1749cff1fb5c264d6781af8
+  Tests passed           1/1
+  Verified on main       greet.ts implemented, 1 pass / 0 fail
+  Total cost             $0.04 of $10.00
+  Survived restart       project, document v2, requirement complete, submission merged, 3 agents
+
+~/.openui unchanged by the acceptance run — isolation works (checksum comparison)
+no temp fixtures left behind
+bun run verify → exit 0, 541 pass / 0 fail across 31 files
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -2606,9 +2685,10 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 536 pass / 0 fail, 31 files;
+[x] Required tests pass.                    — 541 pass / 0 fail, 31 files;
                                               see the flake note above
-[x] End-to-end acceptance test passes.      — §22.16, code reached main
+[x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
+                                              from a fixture that starts red
 [x] UI acceptance checklist passes.         — 22 of 22 rows
 [x] Placeholder and quality audit passes.   — 1 open finding (Q-2, awaiting the owner)
 [x] Design document matches the merged implementation.
@@ -2661,9 +2741,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 30 ahead of main
+commits 32 ahead of main
 build   bun run build exit 0
-tests   536 pass / 0 fail across 31 files
+tests   541 pass / 0 fail across 31 files
 ```
 
 ---

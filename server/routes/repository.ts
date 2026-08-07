@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { resolve, sep } from "path";
+import { basename, dirname, join, resolve, sep } from "path";
+import { realpathSync } from "fs";
 import { getProjectStore } from "../services/projectStore";
 import {
   GitCommandError,
@@ -25,11 +26,41 @@ export const repositoryRoutes = new Hono();
  * would `git add -A` in whatever directory it was given. Without this, any caller able to reach
  * the server could operate on any repository on the machine.
  */
+/**
+ * Resolve a path to its canonical form, following symlinks.
+ *
+ * Both halves of the comparison must be canonical or the guard gets it wrong in both directions:
+ *
+ *   - False refusals. On macOS `/var` is a symlink to `/private/var`, so a project stored as
+ *     `/var/folders/x/repo` and a git worktree reported as `/private/var/folders/x/repo` are the
+ *     same directory under two names. String comparison rejected the worktree, which broke the
+ *     end-to-end flow for any repository under /var or /tmp.
+ *   - False approvals. `<managed-repo>/link` pointing at `/etc` starts with the managed root as a
+ *     string, so it passed — and git would then have operated on /etc. Canonicalising closes that.
+ *
+ * A path that does not exist yet cannot be canonicalised, so the deepest existing ancestor is
+ * resolved and the remaining segments are appended.
+ */
+function canonical(path: string): string {
+  let head = resolve(path);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return tail.length === 0 ? realpathSync(head) : join(realpathSync(head), ...tail);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return resolve(path); // reached the root; nothing to canonicalise
+      tail.unshift(basename(head));
+      head = parent;
+    }
+  }
+}
+
 function assertManagedPath(candidate: string): string {
-  const resolved = resolve(candidate);
+  const resolved = canonical(candidate);
   const roots = getProjectStore()
     .listProjects()
-    .map((p) => resolve(p.repositoryPath));
+    .map((p) => canonical(p.repositoryPath));
 
   // A path is allowed when it is a managed repository or lives inside one (e.g. a worktree
   // under <repo>/.agents/). Compared with a trailing separator so "/repo-other" cannot match
