@@ -2392,24 +2392,111 @@ but anyone binding it to a network with `OPENUI_HOST` is exposing unauthenticate
 agent control. This is a deliberate scope boundary — §20 lists "enterprise access controls" as an
 explicit non-goal — not an oversight.
 
+## Message-store scaling (iteration 41)
+
+A concern raised in iteration 6 and never measured: every mutation rewrites the whole project
+JSON, and messages lived in that file, so each write was O(total messages).
+
+**Measured before any change**, 2000 messages through the production `ProjectStore.sendMessage`:
+
+```text
+  messages | write ms | project file
+       500 |        0 | 289 KB
+      1000 |        2 | 580 KB
+      1500 |        2 | 881 KB
+      2000 |        3 | 1182 KB
+  per-write slowdown, 500 -> 2000 messages: 3.0x
+```
+
+Real, and O(n) per write as suspected: at 20k messages that is a 12 MB file rewritten on every
+update. Fixed rather than documented again.
+
+**The fix.** Messages beyond a 500-message window move to an append-only sidecar,
+`<projectId>.messages.jsonl`. Nothing is deleted — `listMessages(id, {includeArchived: true})`
+returns the full history. Archiving appends and never rewrites, so it does not itself grow with
+history.
+
+**Two bugs the fix introduced, both caught before commit:**
+
+1. *Archiving would have silently broken the loop guard (V-027).* `checkLoopGuard` counts a
+   thread's length and a pair's unanswered streak from `project.messages`. Archiving half a
+   thread would under-count, so a runaway conversation would never escalate — the exact failure
+   V-027 exists to prevent. Retention is now **thread-atomic**: a thread is either entirely
+   retained or entirely archived. If a reply revives a fully archived thread, that thread's
+   history is spliced back in for the guard check.
+2. *The first fix reintroduced the cost it removed.* A brand-new thread is never "live", so every
+   send with a fresh thread id scanned the entire sidecar — writes still crept 1→3ms at 4000
+   messages while the project file stayed flat, which is what exposed it. The archive is now read
+   only when the thread could actually be in it (a reply, or an explicitly supplied thread id).
+
+**Measured after**, 4000 messages, same production path:
+
+```text
+  new thread per message                  | 10 long-lived threads, maxThreadLength 100000
+  messages | write ms | project file      | messages | write ms | project file
+      1000 |        1 | 299 KB            |     1000 |        1 |  583 KB
+      2000 |        1 | 309 KB            |     2000 |        2 | 1186 KB
+      3000 |        1 | 309 KB            |     3000 |        4 | 1790 KB
+      4000 |        1 | 309 KB            |     4000 |        6 | 2393 KB
+  retained 500 + archived 3500 = 4000     | retained 4000 + archived 0
+```
+
+```text
+  default limits, ~15-turn conversations (the realistic shape)
+  messages | write ms | project file
+      1000 |        1 | 346 KB
+      2000 |        1 | 353 KB
+      3000 |        1 | 361 KB
+      4000 |        1 | 357 KB
+  retained 505 + archived 3495 = 4000
+```
+
+**Honest residual limitation.** The right-hand column above is not fixed, and thread-atomic
+retention is why: threads that never end are never archived. Reproducing it required raising
+`maxThreadLength` to 100000; under the default of 20 a thread escalates to the user and stops, so
+the realistic shape stays flat at 1 ms. The bound is *retained = 500-message window + the full
+history of every thread with a message in that window*, which is unbounded only if threads are.
+Correctness was preferred to the tighter bound: splitting a thread would silently disable V-027.
+
+Ten tests cover this in `messaging.test.ts`, including that a thread is never split across the
+boundary, that a long thread still escalates once archiving is active, and that replying into a
+fully archived thread still counts that thread's history.
+
+---
+
+## Test-suite stability (iteration 41)
+
+One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
+(8 full suites, 5 repeats of the model-dependent files). The failing test was not named in the
+output — notably no `(fail)` line was printed, which points at a crash or timeout rather than an
+assertion, but that is a hypothesis and not evidence.
+
+Recorded as an open, unreproduced flake rather than written off. The gate is green on every run
+since, but "green on 12 of 13 runs" is the accurate claim, not "green".
+
+---
+
 ## §22.19 Final Completion Gate
+
+*(Regenerated at iteration 41. The previous copy of this section and the report below it were
+written at iteration 18, when the project was blocked on B-3, and were never updated as the
+blocker cleared — they still read "BLOCKED / 34 of 52 / complete: NO" while the body of this
+ledger recorded all 52 items passing. A stale summary is worse than none, since it is the part a
+reader reaches last.)*
 
 ```text
 [x] V-001 through V-052 have recorded statuses.
-[ ] Every required item is PASS.            — 34 of 52 PASS
-[ ] No required item is NOT TESTED.         — 17 NOT TESTED (all require B-3)
-[ ] No critical item is BLOCKED.            — 1 BLOCKED (V-005, auth — B-3)
-[x] Build succeeds.                         — bun run build exit 0, iteration 2
-[~] Required tests pass.                    — 162 pass / 0 fail across 7 suites (grokDetect,
-                                              acpClient, projectStore, taskGraph, repository,
-                                              messaging, agentRegistry); V-028…V-040 and
-                                              V-042…V-052 still largely have no test to run yet
-[ ] End-to-end acceptance test passes.
-[x] UI acceptance checklist passes.          — 22 of 22 rows (open live Grok session closed in iteration 22)
-[x] Placeholder and quality audit passes.    — every match classified; 1 open finding (Q-2)
-[x] Design document matches the merged implementation. — audited iteration 32;
-                                                deviations recorded above
-[ ] Costs and usage are recorded accurately.
+[x] Every required item is PASS.            — 52 of 52
+[x] No required item is NOT TESTED.
+[x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
+[x] Build succeeds.                         — bun run build exit 0
+[x] Required tests pass.                    — 521 pass / 0 fail, 1436 expect() calls,
+                                              30 files; see the flake note above
+[x] End-to-end acceptance test passes.      — §22.16, code reached main
+[x] UI acceptance checklist passes.         — 22 of 22 rows
+[x] Placeholder and quality audit passes.   — 1 open finding (Q-2, awaiting the owner)
+[x] Design document matches the merged implementation.
+[x] Costs and usage are recorded accurately. — estimated costs flagged estimated: true
 [x] Final Git status is known and documented.
 [x] Final evidence report is generated.
 ```
@@ -2418,103 +2505,52 @@ explicit non-goal — not an oversight.
 
 ## FINAL VERIFICATION REPORT
 
-*(§22.19 required format. Produced at iteration 18, the point §22.2 mandates the loop stop and ask
-for human input: "an action requires credentials that were not provided".)*
-
 ```text
 FINAL VERIFICATION REPORT
 
-Overall result: BLOCKED
+Overall result: PASS, with one open question for the owner
 ```
 
-**Passed checks (34 of 52):**
+**Passed checks: 52 of 52** — V-001 through V-052. Per-item evidence is in the sections above;
+each verdict names the command that produced it.
+
+**Failed checks: none.**
+
+**Open items:**
 
 ```text
-V-001 install            V-002 dev server        V-003 production build
-V-004 Grok detection     V-008 open repository   V-009 worktree isolation
-V-010 changed files/diff V-011 branch protection V-012 document create/import
-V-013 requirements       V-014 document protected V-015 design suggestions
-V-016 version conflicts  V-019 dependency status V-020 objective progress
-V-021 command center     V-022 agent states      V-024 coding activity
-V-025 structured msgs    V-026 handoffs          V-027 loop prevention
-V-037 submission evidence V-038 request changes  V-039 approved merge
-V-040 completion gate    V-041 agent templates   V-043 prompt variables
-V-044 reusable workflow  V-045 usage tracking    V-046 spending limits
-V-047 restricted actions V-048 secret exposure   V-049 state survives restart
-V-051 partial work kept
+Q-2  bin/openui.js and server/index.js are a dead Express stack, tracked since the initial
+     commit, importing express/ws/node-pty/cors — none of which are dependencies. Running
+     `node bin/openui.js` fails with a module-resolution error. They predate this project and
+     are not part of it; deleting tracked files is the repository owner's call, not mine.
+     Resolution needed: delete, or keep and document as legacy.
+
+FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" above).
 ```
 
-**Failed checks:** none. No item is in a FAIL state.
-
-**Blocked checks (18) — all on B-3, Grok authentication:**
+**Known limitations, recorded rather than hidden:**
 
 ```text
-V-005 ACP session creation      V-006 multiple visible agents   V-007 session persistence
-V-017 Planner generates plan    V-018 "Agents launched"         V-023 live session drawer
-V-028 MCP server connects       V-029 MCP read tools            V-030 MCP mutation permissions
-V-031 MCP comms tools           V-032 agent modifies code       V-033 agent runs commands
-V-034 test results recorded     V-035 failed tests block        V-036 reviewer compliance
-V-042 skills reach the session  V-050 failed session recovery   V-052 end-to-end acceptance
+- The API and MCP endpoints have no authentication. Defensible for a loopback, single-user tool,
+  and §20 lists enterprise access controls as an explicit non-goal — but it is why the server
+  binds 127.0.0.1 by default (S-3). Do not expose it with OPENUI_HOST without adding auth.
+- Costs are estimates. Every figure carries estimated: true and a rateKey; the ACP transport
+  reports token usage, not billed dollars.
+- A never-ending message thread is never archived (see "Message-store scaling" above).
+- Grok's [permissions] deny rules and PreToolUse hooks did not behave as its docs describe under
+  --always-approve; the hook is the control that actually blocks. Recorded in the blocker log.
 ```
 
-**Automated commands executed:**
+**Final Git status:**
 
 ```text
-bun run verify   → server typecheck + client typecheck + 360 tests + production build, exit 0
-bun test server/ client/src        360 pass, 0 fail, 16 files
-tsc --noEmit (server, client)      exit 0
-bun run build                      exit 0
-./node_modules/.bin/grok --version grok 0.2.118 (1e1687c1cf6a)
-ACP probe: grok --no-auto-update agent --always-approve stdio
-                                   initialize → protocolVersion 1; session/new → -32000
-```
-
-**Manual checks completed:**
-
-```text
-§22.18 placeholder and quality audit — every match classified; 1 open finding (Q-2)
-§22.17 UI acceptance checklist — 21 of 22 rows rendered and asserted in the DOM
-SIGKILL crash recovery — state and uncommitted work verified intact across processes
-Real-git verification — worktree isolation, merge-base attribution, conflict abort
-```
-
-**Branches and commits:**
-
-```text
-Branch: main @ 31e5140 (unchanged — this work is uncommitted in the working tree)
-44 new source files under server/ and client/src/ (~10,631 lines)
-11 modified files, including 15 pre-existing backend type errors fixed
-No commits were made; committing is the repository owner's decision.
-```
-
-**Tests:** 360 pass, 0 fail across 16 suites. The repository had **zero** tests at baseline.
-
-**Known limitations:**
-
-```text
-- No live Grok session has ever been created, so no item depending on one is verified.
-- Q-2: a dead Express stack (bin/openui.js, server/index.js) remains committed; removal not
-  actioned because those files predate this project.
-- The backend port (6968) is still undocumented in README.md (noted under V-002).
-- Client and server duplicate the agent-status enum; a drift test guards it, but it is duplication.
-```
-
-**Remaining work:**
-
-```text
-1. Authenticate Grok:  ./node_modules/.bin/grok  → sign in at grok.com   [BLOCKS EVERYTHING BELOW]
-2. Re-run the ACP probe to confirm session/new returns a sessionId       → closes V-005
-3. Launch 4 agents with real sessions                                    → V-006, V-007, V-023
-4. Wire the Project MCP server into session/new mcpServers               → V-028…V-031
-5. Drive an agent through a real coding task in its worktree             → V-032…V-036, V-042
-6. Kill a live session and recover it                                    → V-050
-7. Run the full §22.16 flow end to end                                   → V-052
-```
-
-```text
-The project is complete: NO
+branch  grok-control-room (local only, never pushed)
+commits 26 ahead of main
+build   bun run build exit 0
+tests   521 pass / 0 fail across 30 files
 ```
 
 ---
 
-**The project is complete: NO**
+**The project is complete: YES — subject to Q-2, which is a decision for the owner rather than
+an unfinished piece of work.**

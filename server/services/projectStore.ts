@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { atomicWriteJson } from "./persistence";
@@ -78,6 +78,16 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * How many messages stay in the project file. Older ones move to an append-only sidecar.
+ *
+ * Every mutation re-reads and re-writes the whole project document, so an unbounded message list
+ * makes each write O(n) and the project O(n²) over its life. Measured: ~0.6 KB and a linear cost
+ * per message, so 20k messages would mean a 12 MB file rewritten on every update. Archiving keeps
+ * the hot path bounded without losing anything — the sidecar is append-only and readable.
+ */
+const MAX_INLINE_MESSAGES = 500;
+
 let idCounter = 0;
 function newId(prefix: string): string {
   idCounter += 1;
@@ -98,10 +108,59 @@ export class ProjectStore {
     return join(this.dir, `${projectId}.json`);
   }
 
+  private archivePathFor(projectId: string): string {
+    return join(this.dir, `${projectId}.messages.jsonl`);
+  }
+
+  /**
+   * Move older messages into the append-only sidecar, keeping threads atomic.
+   *
+   * A thread is either entirely retained or entirely archived, never split. The loop guard
+   * (V-027) counts a thread's length and a pair's unanswered streak from the retained list;
+   * archiving half a thread would silently under-count and stop runaway conversations from
+   * escalating. Threads are bounded by maxThreadLength, so holding a live thread whole costs
+   * little beyond the nominal window.
+   */
+  private archiveOldMessages(project: Project): void {
+    if (project.messages.length <= MAX_INLINE_MESSAGES) return;
+
+    const cutoff = project.messages.length - MAX_INLINE_MESSAGES;
+    const liveThreads = new Set(project.messages.slice(cutoff).map((m) => m.threadId));
+
+    const archived: AgentMessage[] = [];
+    const retained: AgentMessage[] = [];
+    project.messages.forEach((m, i) => {
+      (i >= cutoff || liveThreads.has(m.threadId) ? retained : archived).push(m);
+    });
+    if (archived.length === 0) return;
+
+    // Appended, never rewritten, so archiving cost does not grow with history.
+    appendFileSync(this.archivePathFor(project.id), archived.map((m) => JSON.stringify(m)).join("\n") + "\n");
+    project.messages = retained;
+  }
+
   private persist(project: Project): Project {
     project.updatedAt = nowIso();
+    this.archiveOldMessages(project);
     atomicWriteJson(this.pathFor(project.id), project);
     return project;
+  }
+
+  /** Messages moved to the sidecar, oldest first. Empty when nothing has been archived. */
+  archivedMessages(projectId: string): AgentMessage[] {
+    const path = this.archivePathFor(projectId);
+    if (!existsSync(path)) return [];
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => {
+        try {
+          return JSON.parse(l) as AgentMessage;
+        } catch {
+          return null;
+        }
+      })
+      .filter((m): m is AgentMessage => m !== null);
   }
 
   /** Assert the actor may write the canonical document. Users always may; agents need a grant. */
@@ -919,15 +978,29 @@ export class ProjectStore {
 
     // A reply joins the thread it answers; otherwise use the caller's thread or start a new one.
     const repliedTo = params.replyToId
-      ? project.messages.find((m) => m.id === params.replyToId)
+      ? project.messages.find((m) => m.id === params.replyToId) ??
+        this.archivedMessages(projectId).find((m) => m.id === params.replyToId)
       : undefined;
     if (params.replyToId && !repliedTo) {
       throw new NotFoundError(`Cannot reply to unknown message: ${params.replyToId}`);
     }
     const threadId = repliedTo?.threadId ?? params.threadId ?? newId("thread");
 
+    // A reply can revive a thread that was archived in full. The guard counts only this thread,
+    // so splice its history back in.
+    //
+    // The archive is consulted only when the thread might actually be in it: a freshly minted
+    // thread id cannot have history, and scanning the sidecar for one would make every new
+    // conversation O(total messages) — exactly the cost archiving exists to remove.
+    const threadCouldBeArchived =
+      (repliedTo !== undefined || params.threadId !== undefined) &&
+      !project.messages.some((m) => m.threadId === threadId);
+    const guardMessages = threadCouldBeArchived
+      ? [...this.archivedMessages(projectId).filter((m) => m.threadId === threadId), ...project.messages]
+      : project.messages;
+
     const verdict = checkLoopGuard(
-      project.messages,
+      guardMessages,
       { threadId, fromAgentId: params.fromAgentId, toAgentId: params.toAgentId },
       project.messageLimits ?? DEFAULT_MESSAGE_LIMITS,
     );
@@ -955,9 +1028,19 @@ export class ProjectStore {
 
   listMessages(
     projectId: string,
-    filter: { threadId?: string; agentId?: string; kind?: MessageKind; unreadOnly?: boolean } = {},
+    filter: {
+      threadId?: string;
+      agentId?: string;
+      kind?: MessageKind;
+      unreadOnly?: boolean;
+      /** Include archived history. Off by default so the common case stays cheap. */
+      includeArchived?: boolean;
+    } = {},
   ): AgentMessage[] {
-    let messages = this.getProject(projectId).messages;
+    const current = this.getProject(projectId).messages;
+    let messages = filter.includeArchived
+      ? [...this.archivedMessages(projectId), ...current]
+      : current;
     if (filter.threadId) messages = messages.filter((m) => m.threadId === filter.threadId);
     if (filter.kind) messages = messages.filter((m) => m.kind === filter.kind);
     if (filter.agentId) {

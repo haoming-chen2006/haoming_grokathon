@@ -353,3 +353,170 @@ describe("V-027: conversations do not loop indefinitely", () => {
     expect(threadMessages(messages, "t1")).toHaveLength(2);
   });
 });
+
+describe("message archival keeps the hot path bounded", () => {
+  const links = [{ kind: "task" as const, id: "t1" }];
+
+  // Distinct threads per message: retention is thread-atomic, so traffic spread over a handful
+  // of long-lived threads is deliberately never archived (see the dedicated test below).
+  function send(n: number) {
+    for (let i = 0; i < n; i++) {
+      store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "a", toAgentId: "b",
+        body: `m${i}`, links, threadId: `thread-${i}`,
+      });
+    }
+  }
+
+  test("below the threshold nothing is archived", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    send(100);
+    expect(store.listMessages(projectId)).toHaveLength(100);
+    expect(store.archivedMessages(projectId)).toHaveLength(0);
+  });
+
+  test("above the threshold the oldest move to the sidecar and nothing is lost", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    send(700);
+
+    // The project file keeps a bounded window; the rest is archived, not deleted.
+    expect(store.listMessages(projectId)).toHaveLength(500);
+    expect(store.archivedMessages(projectId)).toHaveLength(200);
+    expect(store.listMessages(projectId, { includeArchived: true })).toHaveLength(700);
+    // And the archived half really is the older half.
+    expect(store.archivedMessages(projectId)[0].body).toBe("m0");
+  });
+
+  test("the archive keeps oldest-first order and precedes current messages", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    send(600);
+    const all = store.listMessages(projectId, { includeArchived: true });
+    expect(all[0].body).toBe("m0");
+    expect(all[all.length - 1].body).toBe("m599");
+  });
+
+  test("archived messages survive a restart", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    send(600);
+    const reopened = new ProjectStore(dir);
+    expect(reopened.archivedMessages(projectId)).toHaveLength(100);
+    expect(reopened.listMessages(projectId, { includeArchived: true })).toHaveLength(600);
+  });
+
+  test("a reply can still resolve a thread whose parent was archived", () => {
+    // Without checking the archive, replying to an older message would silently start a new
+    // thread and break the conversation.
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    const first = store.sendMessage(projectId, {
+      kind: "question", fromAgentId: "a", toAgentId: "b", body: "original", links,
+    });
+    send(600);
+    expect(store.archivedMessages(projectId).some((m) => m.id === first.id)).toBe(true);
+
+    const reply = store.sendMessage(projectId, {
+      kind: "answer", fromAgentId: "b", toAgentId: "a", body: "late reply", links,
+      replyToId: first.id,
+    });
+    expect(reply.threadId).toBe(first.threadId);
+  });
+
+  test("filters apply to archived messages too when history is requested", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    send(600);
+    // thread-0 is old enough to have been archived, so it is invisible without history.
+    expect(store.listMessages(projectId, { threadId: "thread-0" })).toHaveLength(0);
+    const withHistory = store.listMessages(projectId, { threadId: "thread-0", includeArchived: true });
+    expect(withHistory).toHaveLength(1);
+    expect(withHistory[0].body).toBe("m0");
+  });
+
+  test("a few long-lived threads are kept whole rather than archived", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    for (let i = 0; i < 700; i++) {
+      store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "a", toAgentId: "b",
+        body: `m${i}`, links, threadId: `thread-${i % 10}`,
+      });
+    }
+    // Every thread has recent activity, so none may be archived — splitting one would break
+    // the loop guard. The window is a floor, not a hard cap.
+    expect(store.archivedMessages(projectId)).toHaveLength(0);
+    expect(store.listMessages(projectId)).toHaveLength(700);
+  });
+});
+
+describe("archival must not weaken the loop guard (V-027)", () => {
+  const links = [{ kind: "task" as const, id: "t1" }];
+
+  test("a thread is never split across the archive boundary", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 99999, maxUnansweredPerPair: 99999 });
+    for (let i = 0; i < 700; i++) {
+      store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "a", toAgentId: "b",
+        body: `m${i}`, links, threadId: `thread-${i % 10}`,
+      });
+    }
+    const retainedThreads = new Set(store.listMessages(projectId).map((m) => m.threadId));
+    const archivedThreads = new Set(store.archivedMessages(projectId).map((m) => m.threadId));
+    for (const t of retainedThreads) {
+      expect(archivedThreads.has(t), `thread ${t} was split across the boundary`).toBe(false);
+    }
+  });
+
+  test("a long-running thread still escalates after archival has kicked in", () => {
+    // Without thread-atomic retention the guard would under-count and never escalate.
+    store.setMessageLimits(projectId, { maxThreadLength: 20, maxUnansweredPerPair: 99999 });
+
+    // Push plenty of unrelated traffic so archiving is active.
+    for (let i = 0; i < 600; i++) {
+      store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "x", toAgentId: "y",
+        body: `noise${i}`, links, threadId: `noise-${i}`,
+      });
+    }
+    expect(store.archivedMessages(projectId).length).toBeGreaterThan(0);
+
+    const hot = "hot-thread";
+    const kinds: string[] = [];
+    for (let i = 0; i < 25; i++) {
+      kinds.push(store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "a", toAgentId: "b",
+        body: `turn ${i}`, links, threadId: hot,
+      }).kind);
+    }
+    // The 21st message onward is converted to an escalation.
+    expect(kinds.slice(0, 20).every((k) => k === "question")).toBe(true);
+    expect(kinds.slice(20).every((k) => k === "escalation")).toBe(true);
+  });
+
+  test("replying into a fully archived thread still counts that thread's history", () => {
+    store.setMessageLimits(projectId, { maxThreadLength: 5, maxUnansweredPerPair: 99999 });
+    const old = "ancient";
+    let last = store.sendMessage(projectId, {
+      kind: "question", fromAgentId: "a", toAgentId: "b", body: "t0", links, threadId: old,
+    });
+    for (let i = 1; i < 5; i++) {
+      last = store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "a", toAgentId: "b", body: `t${i}`, links, threadId: old,
+      });
+    }
+
+    // Bury it far enough that the whole thread is archived.
+    for (let i = 0; i < 700; i++) {
+      store.sendMessage(projectId, {
+        kind: "question", fromAgentId: "x", toAgentId: "y",
+        body: `noise${i}`, links, threadId: `noise-${i}`,
+      });
+    }
+    expect(store.listMessages(projectId).some((m) => m.threadId === old)).toBe(false);
+    expect(store.archivedMessages(projectId).filter((m) => m.threadId === old)).toHaveLength(5);
+
+    // The thread already holds its full limit of 5, entirely in the archive. The next reply must
+    // escalate — which is only possible if the guard consults archived history.
+    const next = store.sendMessage(projectId, {
+      kind: "question", fromAgentId: "a", toAgentId: "b", body: "t5", links, replyToId: last.id,
+    });
+    expect(next.threadId).toBe(last.threadId);
+    expect(next.kind).toBe("escalation");
+  });
+});
