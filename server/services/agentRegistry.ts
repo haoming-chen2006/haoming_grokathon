@@ -426,11 +426,14 @@ export class AgentRegistry {
 
 /** Process-wide registry, persisted alongside the rest of OpenUI state. */
 let registry: AgentRegistry | null = null;
+let registryDir: string | null = null;
+
+/** Rebuilt when the configured data directory changes — see getProjectStore for the reasoning. */
 export function getAgentRegistry(): AgentRegistry {
-  if (!registry) {
-    registry = new AgentRegistry({
-      persistDir: process.env.OPENUI_DATA_DIR || join(homedir(), ".openui"),
-    });
+  const dir = process.env.OPENUI_DATA_DIR || join(homedir(), ".openui");
+  if (!registry || registryDir !== dir) {
+    registry = new AgentRegistry({ persistDir: dir });
+    registryDir = dir;
   }
   return registry;
 }

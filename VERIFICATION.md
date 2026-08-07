@@ -4,7 +4,7 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 33
+**Last iteration:** 35
 **Last updated:** 2026-08-07
 **Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -2256,6 +2256,39 @@ PATCH /:id/position      → position saved: {x: 314, y: 159}
 **The lesson, recorded because it recurred:** a passing test proves a unit works, not that anything
 calls it. Three checklist items were marked PASS on evidence that was real but unreachable. The
 reachability audit is now part of the loop procedure.
+
+## Coverage of the wiring itself (iteration 35)
+
+Iterations 33–34 added the control-room shell, the data hook, and two endpoints — with **no tests**.
+The components beneath them were each covered; the code that assembles them was not, which is
+precisely how the UI came to be unreachable.
+
+```text
+client/src/control-room/ControlRoomApp.tsx   tests referencing it: 0  → now 8
+client/src/control-room/useControlRoom.ts    tests referencing it: 0  → covered via the shell
+server/routes/projects.ts new endpoints      tests referencing them: 0 → now 8
+```
+
+`controlRoomApp.test.tsx` renders the real shell against a stubbed API and asserts the header
+figures, the empty state, every tab, requirement selection driving the implementation panel, the
+session drawer opening and closing, a failed load surfacing as `role="alert"`, and agent status
+appearing as text rather than colour alone.
+
+`projectRoutes.test.ts` covers the design-review endpoint (compliant, missing-tests, a credential
+in the diff that must not be echoed, 404 for an unknown submission), the test-run endpoint
+(detection, an explicitly configured command winning, and a clear refusal when no command is
+detectable), and the planner endpoint's 404 path.
+
+### Singleton directory binding — fixed
+
+Six of those route tests failed at first, for the same reason the MCP tests failed in iteration 23:
+`getProjectStore()`, `getAgentRegistry()` and `getPromptLibrary()` each bound their data directory
+on first call and cached it forever. Whichever caller ran first fixed the directory for the whole
+process.
+
+That is untestable **and wrong**: a configuration change would not be picked up. All three now
+rebuild when the configured directory changes. The tests pass because the design improved, not
+because the tests were bent around it.
 
 ## §22.19 Final Completion Gate
 

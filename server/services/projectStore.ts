@@ -1230,10 +1230,23 @@ export class ProjectStore {
 }
 
 /** Default store, rooted alongside the rest of OpenUI state in ~/.openui. */
-const DEFAULT_DIR = join(process.env.OPENUI_DATA_DIR || join(homedir(), ".openui"), "projects");
-let defaultStore: ProjectStore | null = null;
+function projectsDir(): string {
+  return join(process.env.OPENUI_DATA_DIR || join(homedir(), ".openui"), "projects");
+}
 
+let defaultStore: ProjectStore | null = null;
+let defaultStoreDir: string | null = null;
+
+/**
+ * Process-wide store. Rebuilt when the configured data directory changes rather than caching the
+ * first one forever — otherwise the directory is fixed by whichever caller happened to run first,
+ * which is both untestable and wrong if the configuration changes.
+ */
 export function getProjectStore(): ProjectStore {
-  if (!defaultStore) defaultStore = new ProjectStore(DEFAULT_DIR);
+  const dir = projectsDir();
+  if (!defaultStore || defaultStoreDir !== dir) {
+    defaultStore = new ProjectStore(dir);
+    defaultStoreDir = dir;
+  }
   return defaultStore;
 }

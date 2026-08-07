@@ -333,9 +333,14 @@ export class PromptLibrary {
 }
 
 let library: PromptLibrary | null = null;
+let libraryDir: string | null = null;
+
+/** Rebuilt when the configured data directory changes — see getProjectStore for the reasoning. */
 export function getPromptLibrary(): PromptLibrary {
-  if (!library) {
-    library = new PromptLibrary(process.env.OPENUI_DATA_DIR || join(homedir(), ".openui"));
+  const dir = process.env.OPENUI_DATA_DIR || join(homedir(), ".openui");
+  if (!library || libraryDir !== dir) {
+    library = new PromptLibrary(dir);
+    libraryDir = dir;
   }
   return library;
 }
