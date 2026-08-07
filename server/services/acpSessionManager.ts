@@ -229,6 +229,13 @@ export class AcpSessionManager {
             { costUsd: estimate.costUsd, tokens: result.usage.totalTokens, estimated: true },
             projectBudget,
           );
+          // A per-task cap must stop live work too, not only usage reported over HTTP.
+          const taskId = getAgentRegistry().get(agentId).currentTaskId;
+          if (taskId) {
+            getProjectStore().recordTaskCost(entry.session.projectId, taskId, estimate.costUsd, {
+              estimated: true,
+            });
+          }
         } catch (err) {
           // A budget stop must surface, not be swallowed by the message path.
           this.push(entry, "system", err instanceof Error ? err.message : String(err));

@@ -3170,6 +3170,73 @@ bun run verify → exit 0, 638 pass / 0 fail, 0 orphans, every endpoint covered,
 
 ---
 
+## §16 conformance: a cap that did nothing (iteration 52)
+
+The iteration-32 conformance audit covered §13 (MCP tools) and §18 (MVP scope). **It never covered
+§16, Cost and Budget Tracking** — the section the recent budget work touches. Audited now.
+
+### The control that did nothing
+
+§16 lists a per-task cap. `CodingTask.budgetUsd` was settable through the API and enforced
+**nowhere**, and `task.costUsd` was initialised to zero and never updated from live agent work. So
+a user could set a task budget, see it persisted, and have it silently do nothing — precisely what
+§22.18's "no controls that do nothing" forbids.
+
+Tellingly, the `"task"` scope already existed in `evaluateBudget` and `BudgetExceededError`. The
+primitives were built and only the wiring was missing, which is why nothing looked obviously
+broken.
+
+`ProjectStore.recordTaskCost` now accumulates cost against the task and enforces its cap, wired
+into both paths that record spending — the HTTP `/usage` endpoint and the live ACP session, since
+a cap that only stops reported usage would not stop an agent that is actually running. As with the
+agent and project caps the real spend is kept and work stops; discarding the charge would make the
+ledger understate what was consumed.
+
+```text
+cost accumulates onto the agent's current task            0.3 + 0.2 -> task.costUsd 0.5
+passing the cap is a 402 naming the task scope            scope "task", cost kept at 2.5
+a task with no cap is unaffected
+an agent with no current task records against no task
+approaching the cap publishes budget_warning scope "task" on the control-room channel
+```
+
+### Deviations found and NOT fixed, recorded rather than quietly closed
+
+§16 names ten cost dimensions and eight controls. Implemented:
+
+```text
+tracked   project, agent, coding task, code-review submission
+          model request  (token usage per prompt via extractUsage, attributed to the agent)
+
+NOT tracked separately: requirement, branch, tool call, test-or-build run, design suggestion
+          Each is attributable through the agent and task that produced it, but there is no
+          per-dimension total. V-045 requires per-agent tracking, which passes.
+
+controls  project cap, per-agent cap, per-task cap, warning threshold, automatic pause
+
+NOT implemented: approval threshold, maximum retries, maximum tool-call count
+          No checklist item requires them. They are cost-governance features beyond V-045/V-046,
+          and inventing them now would be scope the design lists but the acceptance criteria
+          never exercise.
+```
+
+These are recorded as deviations, not defects: the difference from the per-task cap is that
+nothing in the product *offers* them, so nothing misleads a user into believing they work. The
+per-task cap was different precisely because the field existed and accepted values.
+
+### §17 Persistence — re-checked after archival
+
+§17 requires conversations to persist. Message archival (iteration 41) moved older messages to a
+sidecar, so this was re-verified rather than assumed: the sidecar survives restart, is deleted with
+its project, and `listMessages({ includeArchived: true })` returns the full history — reachable
+from the UI since iteration 42.
+
+```text
+bun run verify → exit 0, 643 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3196,7 +3263,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 638 pass / 0 fail, 36 files;
+[x] Required tests pass.                    — 643 pass / 0 fail, 36 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -3263,9 +3330,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 47 ahead of main
+commits 49 ahead of main
 build   bun run build exit 0
-tests   638 pass / 0 fail across 36 files
+tests   643 pass / 0 fail across 36 files
 audits  0 orphans; every endpoint has a caller
 ```
 

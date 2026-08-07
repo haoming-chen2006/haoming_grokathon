@@ -8,6 +8,7 @@ import {
 } from "../services/acpSessionManager";
 import { AGENT_RUNTIME_STATUSES, AGENT_STATUS_PRESENTATION } from "../types/agent";
 import { getProjectStore } from "../services/projectStore";
+import type { BudgetSnapshot } from "../services/agentRegistry";
 
 export const agentRoutes = new Hono();
 
@@ -166,6 +167,15 @@ agentRoutes.post("/:agentId/usage", async (c) => {
       body.warningThreshold,
     );
 
+    // §16 also caps a coding task. The agent's current task is the one the spend belongs to.
+    let taskBudget: BudgetSnapshot | undefined;
+    if (agent.currentTaskId && body.costUsd) {
+      taskBudget = getProjectStore().recordTaskCost(agent.projectId, agent.currentTaskId, body.costUsd, {
+        warningThreshold: body.warningThreshold,
+        estimated: body.estimated,
+      }).budget;
+    }
+
     const bus = getControlRoomBus();
     const summary = getAgentRegistry().costSummary(agent.projectId, projectBudget);
     bus.publish(agent.projectId, {
@@ -175,7 +185,9 @@ agentRoutes.post("/:agentId/usage", async (c) => {
       byAgent: summary.byAgent.map((a) => ({ agentId: a.agentId, name: a.name, costUsd: a.costUsd })),
     });
     // Warn before the hard stop, so the user sees it coming (V-046).
-    for (const snapshot of [result.agentBudget, result.projectBudget]) {
+    const snapshots: BudgetSnapshot[] = [result.agentBudget, result.projectBudget];
+    if (taskBudget) snapshots.push(taskBudget);
+    for (const snapshot of snapshots) {
       if (snapshot.warning && snapshot.limit !== undefined) {
         bus.publish(agent.projectId, {
           type: "budget_warning",
@@ -187,7 +199,7 @@ agentRoutes.post("/:agentId/usage", async (c) => {
       }
     }
 
-    return c.json(result);
+    return c.json(taskBudget ? { ...result, taskBudget } : result);
   } catch (err) {
     if (err instanceof BudgetExceededError) {
       try {

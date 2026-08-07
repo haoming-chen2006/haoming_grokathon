@@ -279,3 +279,91 @@ describe("budget events reach the control-room channel (V-046)", () => {
     }
   });
 });
+
+describe("per-task spending caps are enforced (§16)", () => {
+  const USER = { kind: "user" as const, id: "user" };
+
+  function taskProject() {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "t-cap", objective: "o", budgetUsd: 1 }, USER);
+    store.approvePlan(projectId, USER);
+    return store;
+  }
+
+  test("cost accumulates onto the task the agent is working on", async () => {
+    // task.costUsd was initialised to zero and never updated from live work, so §16's
+    // "track cost at coding task" was not actually happening.
+    const store = taskProject();
+    const agent = makeAgent({ budgetUsd: 100 });
+    getAgentRegistry().assignTask(agent.id, "t-cap");
+
+    await req("POST", `/api/coding-agents/${agent.id}/usage`, { costUsd: 0.3, tokens: 10 });
+    await req("POST", `/api/coding-agents/${agent.id}/usage`, { costUsd: 0.2, tokens: 10 });
+
+    const task = store.getProject(projectId).tasks.find((t) => t.id === "t-cap")!;
+    expect(task.costUsd).toBeCloseTo(0.5, 5);
+  });
+
+  test("passing the task cap is a 402 naming the task scope", async () => {
+    // The cap was settable through the API and enforced nowhere — a control that did nothing.
+    const store = taskProject();
+    const agent = makeAgent({ budgetUsd: 100 });
+    getAgentRegistry().assignTask(agent.id, "t-cap");
+
+    const under = await req("POST", `/api/coding-agents/${agent.id}/usage`, { costUsd: 0.5, tokens: 10 });
+    expect(under.status).toBe(200);
+
+    const over = await req("POST", `/api/coding-agents/${agent.id}/usage`, { costUsd: 2, tokens: 10 });
+    expect(over.status).toBe(402);
+    expect(over.json.scope).toBe("task");
+
+    // As with the agent cap, the real spend is kept — the tokens were already consumed.
+    const task = store.getProject(projectId).tasks.find((t) => t.id === "t-cap")!;
+    expect(task.costUsd).toBeCloseTo(2.5, 5);
+  });
+
+  test("a task with no cap is unaffected", async () => {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "t-free", objective: "o" }, USER);
+    store.approvePlan(projectId, USER);
+
+    const agent = makeAgent({ budgetUsd: 100 });
+    getAgentRegistry().assignTask(agent.id, "t-free");
+
+    // Well under the $10 project cap, so only the absent task cap is in play here.
+    const res = await req("POST", `/api/coding-agents/${agent.id}/usage`, { costUsd: 5, tokens: 10 });
+    expect(res.status).toBe(200);
+    expect(store.getProject(projectId).tasks.find((t) => t.id === "t-free")!.costUsd).toBeCloseTo(5, 5);
+  });
+
+  test("an agent with no current task records nothing against any task", async () => {
+    const store = taskProject();
+    const agent = makeAgent({ budgetUsd: 100 });
+
+    const res = await req("POST", `/api/coding-agents/${agent.id}/usage`, { costUsd: 5, tokens: 10 });
+    expect(res.status).toBe(200);
+    expect(store.getProject(projectId).tasks.find((t) => t.id === "t-cap")!.costUsd).toBe(0);
+  });
+
+  test("approaching the task cap publishes a warning on the control-room channel", async () => {
+    const seen: any[] = [];
+    const unsubscribe = getControlRoomBus().subscribe(projectId, (p) => seen.push(p.event));
+    try {
+      taskProject();
+      const agent = makeAgent({ budgetUsd: 100 });
+      getAgentRegistry().assignTask(agent.id, "t-cap");
+
+      await req("POST", `/api/coding-agents/${agent.id}/usage`, {
+        costUsd: 0.85, tokens: 10, warningThreshold: 0.75,
+      });
+      const warning = seen.find((e) => e.type === "budget_warning" && e.scope === "task");
+      expect(warning).toBeTruthy();
+      expect(warning.spent).toBeCloseTo(0.85, 5);
+      expect(warning.limit).toBe(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+});

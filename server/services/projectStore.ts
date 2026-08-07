@@ -18,6 +18,12 @@ import {
 } from "./messaging";
 import { assertNoSecrets } from "./secrets";
 import {
+  BudgetExceededError,
+  DEFAULT_WARNING_THRESHOLD,
+  evaluateBudget,
+  type BudgetSnapshot,
+} from "./agentRegistry";
+import {
   CompletionGateError,
   IncompleteSubmissionError,
   evaluateCompletionGate,
@@ -1130,6 +1136,50 @@ export class ProjectStore {
     if (taskId) artifact.taskId = taskId;
     this.persist(project);
     return artifact;
+  }
+
+  /**
+   * Accumulate cost against a task and enforce its cap (§16).
+   *
+   * `CodingTask.budgetUsd` was settable through the API and enforced nowhere, and `task.costUsd`
+   * was initialised to zero and never updated from live agent work — so a per-task cap was a
+   * control that did nothing, which §22.18 explicitly forbids. The `"task"` scope already existed
+   * in `evaluateBudget` and `BudgetExceededError`; only the wiring was missing.
+   *
+   * Like the agent and project caps, the cost is recorded before the limit is checked: the tokens
+   * were already spent, and dropping the charge would make the ledger understate real spending.
+   */
+  recordTaskCost(
+    projectId: string,
+    taskId: string,
+    costUsd: number,
+    opts: { warningThreshold?: number; estimated?: boolean } = {},
+  ): { task: CodingTask; budget: BudgetSnapshot } {
+    const project = this.getProject(projectId);
+    const task = project.tasks.find((t) => t.id === taskId);
+    if (!task) throw new NotFoundError(`Task not found: ${taskId}`);
+
+    task.costUsd = Number(((task.costUsd ?? 0) + costUsd).toFixed(10));
+    task.updatedAt = nowIso();
+
+    const budget = evaluateBudget(
+      "task",
+      task.costUsd,
+      task.budgetUsd,
+      opts.warningThreshold ?? DEFAULT_WARNING_THRESHOLD,
+      opts.estimated ?? false,
+    );
+    this.persist(project);
+
+    if (budget.exceeded) {
+      throw new BudgetExceededError(
+        `task budget exceeded: $${budget.spent.toFixed(2)} of $${budget.limit?.toFixed(2)}. Execution paused.`,
+        "task",
+        budget.spent,
+        budget.limit ?? 0,
+      );
+    }
+    return { task, budget };
   }
 
   /** One message by id, including archived history. */
