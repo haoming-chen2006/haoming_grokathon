@@ -55,7 +55,7 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 58
+## 2. State as of iteration 59
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -132,10 +132,16 @@ The checklist is complete. Useful work still available, in rough order of value:
    passes — **and check the probes too**: one round of them silently passed everything because
    the harness escaped its own backticks.
 2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system,
-   and since iteration 58 it also proves a launched agent can call a Project MCP tool: reverting
-   the iteration-53 fix makes step 9 fail. That step exists because the tools were tested over
-   HTTP and the launch path was tested for its arguments, and neither crossed the gap between
-   them.
+   and since iterations 58-59 it also proves a launched agent can call a Project MCP tool (step 9)
+   and receives its assigned skill (step 10). Reverting either half of the iteration-53 fix fails
+   exactly one of them. Those steps exist because each capability was tested at both ends —
+   the mechanism, and the arguments the launch path passes — with nothing crossing the gap.
+
+   **When a fix adds an argument, the end-to-end probe belongs in `bun run acceptance`.** Unit
+   tests can only assert what was passed; the acceptance script has a real server, a real agent
+   and a real MCP endpoint, which is what it takes to show the argument had an effect. Use a
+   marker assembled at run time so it cannot be read off disk, and assert an effect rather than a
+   reply.
    It caught a case where all 18 steps reported success and no code reached `main`, and on being
    made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
    bug in the S-2 path guard, in both the false-refusal and false-approval directions). It builds
