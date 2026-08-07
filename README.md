@@ -86,3 +86,78 @@ Maintained by the Mosaic Research team. For questions or feedback, post in [#ai-
 ## Acknowledgements
 
 Based on [OpenUI](https://github.com/JJ27/openui), originally forked from [Fallomai/openui](https://github.com/Fallomai/openui).
+
+---
+
+## Grok Build Control Room
+
+A visual control layer for supervising multiple Grok Build coding agents against a design
+document. Built on top of the OpenUI canvas; the two views share one app.
+
+```bash
+set -a; . ./.env; set +a          # OPENAI_API_KEY (or XAI_API_KEY) for the agent backend
+bun run dev
+```
+
+Then open **http://localhost:6969/?view=control-room** — or use the toggle in the bottom-right to
+switch between the Control Room and the original terminal canvas.
+
+### Creating a project
+
+The Control Room shows an empty state until a project exists:
+
+```bash
+curl -X POST http://localhost:6968/api/projects \
+  -H 'content-type: application/json' \
+  -d '{"name":"My Project","goal":"Ship the feature",
+       "repositoryPath":"/absolute/path/to/a/git/repo","budgetUsd":10}'
+
+curl -X POST http://localhost:6968/api/coding-agents \
+  -H 'content-type: application/json' \
+  -d '{"projectId":"<id>","name":"Backend Engineer","role":"Backend Engineer","budgetUsd":3}'
+```
+
+### Views
+
+| Tab | What it shows |
+|---|---|
+| Agents | Agent cards: role, status, branch, worktree, current task, tests, cost, blocker |
+| Canvas | The same agents on a draggable canvas; layout persists across restarts |
+| Design Document | The canonical design document, versioned. Agents may read it but not edit it |
+| Reviews | Pending design suggestions and code submissions, with approve / request-changes / merge |
+| Conversations | Agent-to-agent messages, grouped by thread, each linked to a project object |
+
+Click **Open Session** on an agent card for a live drawer: streaming transcript, tool activity, a
+message box, and pause / stop.
+
+### Agent model backend
+
+Agents run through the real `grok` binary over ACP. The model behind it is configured in
+`~/.grok/config.toml`, which supports any OpenAI-compatible endpoint:
+
+```toml
+[model.gpt-4o]
+model = "gpt-4o"
+base_url = "https://api.openai.com/v1"
+env_key = "OPENAI_API_KEY"     # keys resolve from the environment, never written to the file
+
+[models]
+default = "gpt-4o"
+```
+
+### Safety controls
+
+- Agents work in isolated git worktrees; protected branches reject direct writes
+- Merging requires a named approver — there is no anonymous merge path
+- Destructive shell commands are refused by a `PreToolUse` hook before they run
+- Credentials are refused on any durable write (design document, messages, artifacts)
+- Per-agent and per-project spending caps warn, then pause execution
+
+### Verifying
+
+```bash
+bun run verify     # server typecheck, client typecheck, tests, production build
+```
+
+`VERIFICATION.md` records the evidence for every item in `verifiables.md`, and
+`product-design.md` is the design contract the implementation is audited against.

@@ -23,7 +23,7 @@ Confirm the environment is intact. If either check fails, fix that before anythi
 
 ```bash
 ./node_modules/.bin/grok --version        # expect: grok 0.2.118
-bun run verify                            # expect: exit 0, 360+ tests pass
+bun run verify                            # expect: exit 0, 500+ tests pass
 ```
 
 `bun run verify` runs, in order: server typecheck → client typecheck → all tests → production
@@ -53,35 +53,47 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 19
+## 2. State as of iteration 37
 
 ```text
-35 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
-Gate: 360 tests across 16 suites, both typechecks and the build clean.
+52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
+Gate: 500 tests across 29 suites, both typechecks and the production build clean.
 ```
 
-The backend, UI and safety controls are built and tested. B-3 (authentication) is resolved — a live
-ACP session is obtainable, verified through the production `AcpConnection`.
-
-**Everything remaining is buildable. Nothing is blocked.**
+Every checklist item V-001…V-052 passes with recorded evidence, including V-052, the §22.16
+end-to-end acceptance test. The §22.17 UI checklist is 22/22 and the §22.18 quality audit passes.
 
 ---
 
-## 3. The 17 remaining items, in dependency order
+## 3. What is actually left
 
-Work top-down. Each stage unlocks the next; do not skip ahead.
+**One item, and it is not a coding task.**
 
-| Stage | Items | What it needs |
-|---|---|---|
-| **A. Live sessions** | V-006, V-007 | Four concurrent agents each with a real `sessionId`, separate task/status/transcript; stopping one leaves the others running. Then session persistence across restart (`loadSession: true` is advertised). |
-| **B. Session drawer** | V-023 | Wire `AcpConnection` events into the UI: streaming transcript, tool activity, send-message, pause, stop. |
-| **C. MCP** | V-028…V-031 | Build the Project MCP server, pass it via `session/new`'s `mcpServers`. Read tools return scoped project data; mutation tools enforce permissions; agent-comms tools work end to end. |
-| **D. Agent execution** | V-032…V-036 | An agent edits files in its worktree, runs commands, records test results; failing tests block completion; the Reviewer checks design compliance. |
-| **E. Skills** | V-042 | Assigned skill instructions verifiably reach the session (`composeAgentInstructions` already produces the text; prove it lands). |
-| **F. Recovery** | V-050 | Kill a live session, mark it failed, restart/replace it, restore task context, avoid duplicate work. |
-| **G. Acceptance** | V-052 | The full §22.16 flow, end to end. This is the terminal gate. |
+```text
+Q-2  bin/openui.js and server/index.js are a dead Express stack, committed since the initial
+     commit, importing express/ws/node-pty/cors — none of which are dependencies. Running
+     `node bin/openui.js` fails with a cryptic module error while reading like a supported
+     entry point.
 
----
+     Deleting tracked files that predate this project is the repository owner's decision.
+     Awaiting: "delete them" or "keep them". Either answer closes the final §22.19 gate.
+```
+
+Do **not** delete them unilaterally (see §6). Do not spend iterations restating this.
+
+### If the loop runs with nothing to do
+
+The checklist is complete. Useful work still available, in rough order of value:
+
+1. **Composition checks.** Four iterations of these each found real bugs: unreachable modules,
+   untested wiring, UI↔API contract drift. Re-run the reachability audit after any change that
+   adds a module or endpoint.
+2. **Re-run V-052.** It is the only test that exercises the whole system; it caught a case where
+   all 18 steps reported success and no code reached `main`.
+3. **Flakiness.** Live-agent tests depend on model behaviour. A test that passes on re-run is a
+   defect in the test, not a pass — make it deterministic.
+4. **Documentation drift.** This file and `README.md` describe how to run the system; both go
+   stale as the code moves.
 
 ## 4. Loop procedure
 
@@ -147,8 +159,8 @@ Report the blocker with evidence and stop. Do not spend iterations restating a k
 
 The project is complete only when §22.19's gate passes in full: every required item PASS, no item
 NOT TESTED, no critical item BLOCKED, build green, tests green, the §22.16 end-to-end acceptance
-test passing, the §22.17 UI checklist complete (currently 21/22), and the §22.18 quality audit
-clean (currently passing, with one open finding — Q-2, a dead Express stack still committed).
+test passing, the §22.17 UI checklist complete (22/22 as of iteration 33), and the §22.18 quality
+audit clean (passing, with one open finding — Q-2, awaiting the owner's decision).
 
 Only then output `The project is complete: YES`.
 
