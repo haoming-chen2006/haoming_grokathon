@@ -2781,6 +2781,77 @@ removed: exit 0
 
 ---
 
+## Endpoint coverage — a third of the API had never been called (iteration 46)
+
+The module audit asks "can the app reach this file?". Routes needed the same question, so
+`bun run audit:endpoints` now walks every declared endpoint and checks whether **anything** calls
+it — a test, the client, or a tracked script. Mount prefixes are resolved through the nesting
+chain (`server/index.ts` mounts `apiRoutes` at `/api`; `api.ts` mounts the rest beneath it), so
+what gets audited is the real public path.
+
+**First run: 84 endpoints, 33 with no caller at all.**
+
+```text
+agents.ts      12 uncovered      library.ts      9 uncovered (the entire router)
+projects.ts    11 uncovered      repository.ts   1 uncovered
+```
+
+The services beneath them were well tested — which is exactly why this went unnoticed. A store can
+be correct while the route in front of it reads the wrong field, returns the wrong status, or
+swallows an error, and a service-level test cannot see any of that. The whole library router,
+backing V-041/V-043/V-044, had never been exercised over HTTP.
+
+Three new suites close the gap — `library.test.ts`, `agentRoutes.test.ts`, `projectReads.test.ts`
+— 49 tests asserting status codes, error codes and response shapes, including the failure paths
+(unknown ids returning 404 rather than 500, invalid input rejected rather than stored).
+
+```text
+$ bun run audit:endpoints
+84 endpoints, 115 distinct API URLs found in callers
+covered by a caller:  83
+known and classified:  1   ALL /mcp/:projectId/:agentId — called by Grok, not by our own code
+Every endpoint has at least one caller.
+```
+
+### What the new tests found
+
+**No route bugs.** Every failure in the first run was my own wrong assumption, and each is worth
+recording because the corrections are the actual findings:
+
+1. *The status vocabulary is not what I assumed.* There is no `blocked` state; it is
+   `working | waiting | needs_review | complete | idle | failed`. `PATCH /status` correctly
+   rejected `blocked` with a 400.
+2. *`estimated` lives on the budget snapshot, not the agent.* The flag travels with the response
+   the caller receives, which is what stops a UI presenting an estimate as a billed figure.
+3. *A refused charge is still recorded, and that is correct.* I asserted that exceeding a cap
+   should discard the overspend. It should not: `recordUsage` reports tokens **already consumed**,
+   so dropping the cost would make the ledger understate real spend. V-046 requires "execution
+   pauses at the hard limit" and says nothing about discarding the charge. The test now asserts
+   the honest behaviour — 402 returned, true cost kept, agent paused with a stated reason.
+4. *The completion gate is nested under `gate`, with `unmet` alongside.* The test now also asserts
+   `unmet` names the blocking condition, since a bare set of booleans would not tell a user why
+   completion is refused.
+
+**Two bugs in the audits themselves**, both caught by the gate rather than by inspection:
+
+- The endpoint audit read mount prefixes only from `server/index.ts`, found two, and declared every
+  other router unmounted. Prefixes are nested and are now resolved transitively.
+- The reachability audit flagged `scripts/audit/endpoints.mjs` as an orphan the moment it was
+  written — correctly, since nothing imports it. Entry points are now derived from `package.json`
+  `scripts` as well as `bin`/`main`/`module`, so adding a script no longer requires editing the
+  audit. That is the audit doing its job on its own author.
+
+**A deliberate non-change.** Three session endpoints showed as uncovered although tests existed:
+the tests built the URL as `/session/${action}`, and a template hole in the final segment is
+indistinguishable from any other path. Loosening the matcher would have overstated coverage, so
+the tests were made explicit instead — one call per endpoint.
+
+```text
+bun run verify → exit 0, 590 pass / 0 fail, 0 orphans, every endpoint covered
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -2807,7 +2878,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 541 pass / 0 fail, 31 files;
+[x] Required tests pass.                    — 590 pass / 0 fail, 34 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -2871,9 +2942,10 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 32 ahead of main
+commits 37 ahead of main
 build   bun run build exit 0
-tests   541 pass / 0 fail across 31 files
+tests   590 pass / 0 fail across 34 files
+audits  0 orphans; every endpoint has a caller
 ```
 
 ---

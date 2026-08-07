@@ -25,8 +25,6 @@ const ENTRY_POINTS = [
   ["server/index.ts", "the server process"],
   ["client/src/main.tsx", "the browser bundle"],
   ["server/hooks/shellSafetyHook.ts", "invoked by ~/.grok/hooks/openui-shell-safety.json"],
-  ["scripts/acceptance/v052.mjs", "bun run acceptance"],
-  ["scripts/audit/reachability.mjs", "bun run audit (this script)"],
 ];
 
 /**
@@ -45,6 +43,19 @@ function manifestEntryPoints() {
   for (const [name, target] of Object.entries(pkg.bin ?? {})) add(target, `package.json bin "${name}"`);
   add(pkg.main, "package.json main");
   add(pkg.module, "package.json module");
+
+  // Anything a package script runs directly is an entry point. Hardcoding these meant adding a
+  // new script and then having the audit call it an orphan — which it duly did for endpoints.mjs.
+  const seenScripts = new Set(out.map(([rel]) => rel));
+  for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) {
+    for (const m of String(cmd).matchAll(/(?:^|\s)((?:\.\/)?scripts\/[\w./-]+\.(?:mjs|js|ts|tsx))/g)) {
+      const rel = m[1].replace(/^\.\//, "");
+      if (!seenScripts.has(rel) && existsSync(join(ROOT, rel))) {
+        seenScripts.add(rel);
+        out.push([rel, `bun run ${name}`]);
+      }
+    }
+  }
   return out;
 }
 
