@@ -158,7 +158,7 @@ default = "gpt-4o"
 ```bash
 bun run verify     # server typecheck, client typecheck, tests, production build
 bun run acceptance # the §22.16 end-to-end flow: real agent, real git, verified on main
-bun run audit      # reachability + endpoint coverage (both run inside `verify`)
+bun run audit      # reachability, endpoint coverage and §22.18 quality (all run inside `verify`)
 ```
 
 `VERIFICATION.md` records the evidence for every item in `verifiables.md`, and
