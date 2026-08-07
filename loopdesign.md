@@ -55,11 +55,11 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 47
+## 2. State as of iteration 48
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 620 tests across 35 suites, both typechecks, the production build, and both
+Gate: 626 tests across 35 suites, both typechecks, the production build, and both
       audits (85 modules 0 orphans; 84 endpoints all covered) clean.
 ```
 
@@ -104,9 +104,16 @@ The checklist is complete. Useful work still available, in rough order of value:
 
    The recurring lesson across iterations 42–47: **coverage of a surface is not coverage of its
    behaviour.** Modules were reachable but unwired; endpoints were declared but uncalled; MCP
-   tools were advertised but never invoked. Each time, asking "does anything actually exercise
-   this?" of a *new* surface found real bugs. Surfaces not yet asked: the WebSocket/control-room
-   event channel, and the client components below the shell.
+   tools were advertised but never invoked; control-room events were published and dropped by the
+   client (iteration 48 — a real V-046 gap, and a ledger row of mine that was true of the wire and
+   false for the user). Each time, asking "does anything actually exercise this?" of a *new*
+   surface found real bugs.
+
+   A cheap version of the check: list what one side produces, list what the other consumes, and
+   diff them. That is how the budget events were found, in one command.
+
+   Surfaces not yet asked: the client components below the shell (are all 22 §22.17 rows still
+   mounted?), and the ACP event types the session drawer consumes.
 2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system.
    It caught a case where all 18 steps reported success and no code reached `main`, and on being
    made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
