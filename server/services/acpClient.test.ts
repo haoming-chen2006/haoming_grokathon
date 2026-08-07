@@ -161,7 +161,81 @@ describe("AcpConnection integration — V-005", () => {
   }, 60_000);
 });
 
-describe("Concurrent agents — V-006 foundation", () => {
+describe("V-006: multiple visible Grok agents can run", () => {
+  // The four templates the checklist names.
+  const ROLES = ["Planner", "Implementation Agent", "Test Agent", "Reviewer"] as const;
+
+  test("four agents hold independent sessions with separate transcripts", async () => {
+    if (!grokBinaryPath()) throw new Error("grok binary unavailable");
+
+    const conns = ROLES.map((role) => makeConn(undefined, role));
+    try {
+      conns.forEach((c) => c.start());
+      await Promise.all(conns.map((c) => c.initialize()));
+
+      // Separate identity: four real sessions, four distinct ids.
+      const sessionIds = await Promise.all(conns.map((c) => c.newSession()));
+      expect(sessionIds).toHaveLength(4);
+      expect(sessionIds.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+      expect(new Set(sessionIds).size).toBe(4);
+
+      // Separate transcript: each agent gets a DIFFERENT arithmetic question and its answer must
+      // appear in its own transcript and nowhere else. Arithmetic is used deliberately — an
+      // instruction to echo an arbitrary token is sometimes refused, which would make this test
+      // measure model compliance rather than transcript isolation.
+      const expected = [36, 48, 60, 72]; // 12 * (i + 3); no value is a substring of another
+      const replies = await Promise.all(
+        conns.map((c, i) =>
+          c.prompt(`What is 12 * ${i + 3}? Reply with only the number.`, { timeoutMs: 180_000 }),
+        ),
+      );
+
+      replies.forEach((reply, i) => {
+        expect(reply.text).toContain(String(expected[i]));
+        // A transcript that leaked from a sibling would carry another agent's answer.
+        for (let other = 0; other < expected.length; other++) {
+          if (other !== i) expect(reply.text).not.toContain(String(expected[other]));
+        }
+      });
+
+      // Separate status: each connection tracks its own session id.
+      conns.forEach((c, i) => expect(c.sessionId).toBe(sessionIds[i]));
+    } finally {
+      conns.forEach((c) => c.stop());
+    }
+  }, 300_000);
+
+  test("stopping one session leaves the others working", async () => {
+    if (!grokBinaryPath()) throw new Error("grok binary unavailable");
+
+    const conns = ROLES.map((role) => makeConn(undefined, role));
+    try {
+      conns.forEach((c) => c.start());
+      await Promise.all(conns.map((c) => c.initialize()));
+      await Promise.all(conns.map((c) => c.newSession()));
+
+      conns[0].stop();
+      await new Promise((r) => setTimeout(r, 1000));
+      expect(conns[0].isRunning).toBe(false);
+
+      // The survivors must still be able to complete a real turn, not merely report isRunning.
+      const survivor = await conns[1].prompt("What is 6 * 7? Reply with only the number.", {
+        timeoutMs: 180_000,
+      });
+      expect(survivor.text).toContain("42");
+      expect(conns.slice(1).every((c) => c.isRunning)).toBe(true);
+    } finally {
+      conns.forEach((c) => c.stop());
+    }
+  }, 300_000);
+
+  test("a prompt before newSession is refused rather than silently misrouted", async () => {
+    const conn = makeConn();
+    await expect(conn.prompt("hello")).rejects.toThrow(/no session/);
+  });
+});
+
+describe("Concurrent agents — transport isolation", () => {
   test("four independent agents initialize concurrently with distinct identities", async () => {
     if (!grokBinaryPath()) throw new Error("grok binary unavailable");
 

@@ -94,6 +94,8 @@ export class AcpConnection {
   private pending = new Map<number, Pending>();
   private buffer = "";
   private closed = false;
+  /** Per-prompt update collectors, active only for the duration of a prompt() call. */
+  private promptCollectors = new Set<(event: AcpEvent) => void>();
 
   readonly agentId: string;
   readonly cwd: string;
@@ -110,6 +112,13 @@ export class AcpConnection {
   }
 
   private emit(event: AcpEvent): void {
+    for (const collect of this.promptCollectors) {
+      try {
+        collect(event);
+      } catch {
+        // A collector must never break the event stream for other listeners.
+      }
+    }
     try {
       this.options.onEvent?.(event);
     } catch (err) {
@@ -256,10 +265,10 @@ export class AcpConnection {
   }
 
   /** Issue a JSON-RPC request. Rejects with AcpError on a protocol error. */
-  request<T = any>(method: string, params: unknown = {}): Promise<T> {
+  request<T = any>(method: string, params: unknown = {}, timeoutOverrideMs?: number): Promise<T> {
     if (this.closed) return Promise.reject(new Error("ACP connection is closed"));
     const id = this.nextId++;
-    const timeoutMs = this.options.requestTimeoutMs ?? 60_000;
+    const timeoutMs = timeoutOverrideMs ?? this.options.requestTimeoutMs ?? 60_000;
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -332,6 +341,46 @@ export class AcpConnection {
         });
       }
       throw err;
+    }
+  }
+
+  /**
+   * Send a prompt and collect the reply. Returns the assembled `agent_message_chunk` text along
+   * with the reasoning and tool activity seen during the turn, so a caller can render a
+   * transcript (V-023) or assert on it (V-006).
+   *
+   * Each connection owns exactly one session, so transcripts cannot bleed between agents.
+   */
+  async prompt(
+    text: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<{ text: string; thoughts: string; toolCalls: string[]; stopReason: string | null }> {
+    if (!this.sessionId) throw new Error(`Agent ${this.agentId} has no session; call newSession() first`);
+
+    let reply = "";
+    let thoughts = "";
+    const toolCalls: string[] = [];
+
+    // Collect only this session's updates. The handler is removed in `finally` so a later prompt
+    // cannot accumulate output from an earlier one.
+    const collector = (event: AcpEvent) => {
+      if (event.type !== "update" || event.sessionId !== this.sessionId) return;
+      const update = event.update;
+      if (update.sessionUpdate === "agent_message_chunk") reply += update.content?.text ?? "";
+      else if (update.sessionUpdate === "agent_thought_chunk") thoughts += update.content?.text ?? "";
+      else if (update.sessionUpdate === "tool_call" && update.title) toolCalls.push(update.title);
+    };
+
+    this.promptCollectors.add(collector);
+    try {
+      const result = await this.request<any>(
+        "session/prompt",
+        { sessionId: this.sessionId, prompt: [{ type: "text", text }] },
+        opts.timeoutMs ?? 180_000,
+      );
+      return { text: reply.trim(), thoughts: thoughts.trim(), toolCalls, stopReason: result?.stopReason ?? null };
+    } finally {
+      this.promptCollectors.delete(collector);
     }
   }
 

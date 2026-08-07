@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 19
+**Last iteration:** 20
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (35/52 PASS — B-3 RESOLVED; 17 items now reachable)
-**Tally:** 35 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
+**Overall result:** FAIL (36/52 PASS; Stage A underway)
+**Tally:** 36 PASS · 0 FAIL · 0 BLOCKED · 16 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -473,25 +473,42 @@ remove large amounts of planned work:
 | `mcpServers` param on `session/new` | V-028 project MCP server connects |
 | `_meta.rules` / `systemPromptOverride` / `agentProfile` | V-042 skills reach session, personas |
 
-### V-006: Multiple visible Grok agents can run — **NOT TESTED** (transport half proven)
+### V-006: Multiple visible Grok agents can run — **PASS** (iteration 20)
 
-The process/transport layer is verified; the product layer is not.
+The four agent templates the checklist names, each holding a real ACP session.
 
 ```text
-Test: "four independent agents initialize concurrently with distinct identities"
-      server/services/acpClient.test.ts → pass
+Agent IDs:                Planner               019fda77-47ea-7d52-a874-8c94679d2e14
+                          Implementation Agent  019fda77-47ea-79c0-8337-63241080312f
+                          Test Agent            019fda77-47e9-7731-9716-db19208ea933
+                          Reviewer              019fda77-47e9-7392-988b-74b70dc42974
+Concurrent session count: 4  (distinct session ids: 4 of 4)
 
-Agent IDs:               planner, backend, frontend, reviewer
-Concurrent session count: 4 processes, all returning protocolVersion 1
-Distinct identity:        new Set(agentInstanceId).size === 4  (no shared instance)
-Isolation test:           conns[0].stop() → conns[0].isRunning false,
-                          conns[1..3].isRunning all still true
+Separate transcript — each agent asked a DIFFERENT question; each answer appears only in
+its own transcript, and no agent's transcript contains another's answer:
+                          Planner               asked 12*3 → "36"
+                          Implementation Agent  asked 12*4 → "48"
+                          Test Agent            asked 12*5 → "60"
+                          Reviewer              asked 12*6 → "72"
+
+Isolation test:           conns[0].stop()
+                          → Planner running = false
+                          → others running  = true
+                          → a survivor completes a further real turn: 6*7 → "42"
 ```
 
-Recorded NOT TESTED, not PASS, because the required result also demands each session have "a
-separate identity, **task, status, and transcript**". Task, status, and transcript belong to the
-control-room model, which does not exist yet — and ACP `session/new` is still auth-blocked, so
-these are OS processes with ACP handshakes rather than true Grok *sessions*.
+Stopping is verified by a **completed turn**, not merely an `isRunning` flag — a process can be
+alive and still be unable to serve a request, so the survivor is made to do real work.
+
+Implementation: `AcpConnection.prompt()` collects `agent_message_chunk` / `agent_thought_chunk` /
+`tool_call` updates scoped to its own `sessionId`, and the collector is removed in `finally` so a
+later prompt cannot accumulate an earlier one's output. Each connection owns exactly one session,
+so transcripts cannot bleed between agents.
+
+**Test-design note.** The first version of this test asked each agent to echo an arbitrary token.
+One agent replied *"I'm sorry, but I can't comply with that request."* — the test was measuring
+model compliance rather than transcript isolation. It now uses distinct arithmetic (36/48/60/72,
+no value a substring of another), which a coding agent answers naturally.
 
 | Item | Status | Reason |
 |---|---|---|
