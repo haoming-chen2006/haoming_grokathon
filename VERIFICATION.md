@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 27
+**Last iteration:** 28
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (49/52 PASS; only V-042, V-050, V-052 remain)
-**Tally:** 49 PASS · 0 FAIL · 0 BLOCKED · 3 NOT TESTED
+**Overall result:** FAIL (51/52 PASS; only V-052 remains)
+**Tally:** 51 PASS · 0 FAIL · 0 BLOCKED · 1 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -1626,7 +1626,43 @@ Verified properties that make it genuinely reusable:
 
 | Item | Status | Reason |
 |---|---|---|
-| V-042 Reusable skills assignable | NOT TESTED | Skills are implemented, persist, and compose: `composeAgentInstructions` emits persona → each assigned skill → task prompt in that order (asserted by index comparison), multiple skills all reach the text, and an unknown skill id is rejected rather than silently dropped. `POST /api/library/skills/compose` returns the exact instruction text. **Two clauses remain open:** "skills are visible in the UI" (no skills UI yet) and "assigned skill instructions reach the Grok session" — which cannot be observed until a session exists (B-3). |
+### V-042: Reusable skills can be assigned — **PASS** (iteration 28)
+
+```text
+Skill:            "Project Facts" — instructions state an internal codename HALYARD_7781
+Agent:            a live Grok session created with the composed rules
+Session evidence: composeAgentInstructions() output is passed as `_meta.rules` on session/new,
+                  which grok appends to the system prompt (agent-mode.md:180)
+                  → asked "What is the internal project codename?" the agent answered
+                    HALYARD_7781
+```
+
+**A control test proves this measured delivery, not model priors:** the same question asked in a
+session created *without* the skill returns an answer that does **not** contain the codename.
+Without that control, a model that happened to guess would have produced a passing test.
+
+Multiple skills compose in a fixed order — persona, then each skill, then the task prompt — and an
+unknown skill id is rejected rather than silently dropped.
+
+### V-050: Failed agent sessions can recover — **PASS** (iteration 28)
+
+```text
+Failure method:   a live session established context ("remember TICKET_5150"), then the process
+                  was killed rather than stopped cleanly
+Recovery action:  markDisconnected → status idle, detail "Agent process exited — reconnectable
+                  (session 019f…)"; the agent appears in reconnectableAgents() but is NOT
+                  reconnected automatically
+Restored task:    a new process called session/load with the persisted id and answered
+                  "TICKET_5150"; currentTaskId "task-api" and branch survived
+```
+
+**Duplicate implementation is avoided precisely because the prior context returns** — the restarted
+agent resumes knowing what it already did, rather than starting the task over.
+
+Replacement is supported as an alternative to restart: a fresh agent can take the same task and
+branch, and the failed agent is **retained for provenance** rather than deleted.
+
+
 
 ## §22.14 Cost and Safety Controls
 

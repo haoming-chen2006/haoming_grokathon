@@ -323,12 +323,18 @@ export class AcpConnection {
    * Create a session. Requires credentials — emits `auth_required` and rethrows when Grok is
    * not signed in, so the UI can surface a sign-in prompt instead of a generic failure.
    */
-  async newSession(cwd = this.cwd, mcpServers: unknown[] = []): Promise<string> {
+  async newSession(
+    cwd = this.cwd,
+    mcpServers: unknown[] = [],
+    opts: { rules?: string } = {},
+  ): Promise<string> {
     try {
       const result = await this.request<any>("session/new", {
         cwd,
         mcpServers,
-        _meta: { yoloMode: true },
+        // `rules` is appended to the system prompt, which is how an agent's persona and assigned
+        // skill instructions actually reach the session (agent-mode.md:180, V-042).
+        _meta: { yoloMode: true, ...(opts.rules ? { rules: opts.rules } : {}) },
       });
       this.sessionId = result?.sessionId ?? null;
       if (!this.sessionId) throw new Error("session/new returned no sessionId");
