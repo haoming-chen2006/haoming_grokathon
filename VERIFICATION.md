@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 24
+**Last iteration:** 25
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (42/52 PASS; Stage C complete — MCP verified end to end)
-**Tally:** 42 PASS · 0 FAIL · 0 BLOCKED · 10 NOT TESTED
+**Overall result:** FAIL (44/52 PASS; Stage D underway)
+**Tally:** 44 PASS · 0 FAIL · 0 BLOCKED · 8 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -1274,8 +1274,69 @@ problem.
 
 | Item | Status | Reason |
 |---|---|---|
-| V-032 Agent can modify code in worktree | NOT TESTED | Depends on V-005, V-009. |
-| V-033 Agent can run repository commands | NOT TESTED | Depends on V-005. |
+### V-032: Agent can modify code in its worktree — **PASS** (iteration 25)
+
+Tests: `agentExecution.test.ts` → **4 pass**, driven by real Grok agents against real worktrees.
+
+```text
+Agent:          backend            (sibling agent "frontend" exists to prove containment)
+Modified files: session.ts, created by the agent on its own instruction
+Branch:         agent/backend
+
+Inspect:  an agent asked for the value of x in app.ts answered "1" via a tool call
+Edit:     the agent created session.ts containing "export const session = true;"
+Contain:  the file is ABSENT from the sibling worktree and from the base checkout
+Report:   agentChangedFiles(worktree, "main") lists session.ts; the sibling worktree
+          reports zero changed files
+```
+
+Containment cannot be demonstrated without a sibling to contain from, so the test provisions two
+agents with two worktrees and asserts the negative case as well as the positive one.
+
+### V-033: Agent can run repository commands — **PASS** (iteration 25)
+
+```text
+Command:    `cat marker.txt` in the agent's worktree
+Exit code / output captured:
+            the agent replied "MARKER_9137" — a value it could only obtain by running the
+            command, and a tool call was recorded, so the result was executed rather than guessed
+Failure:    asked to run `exit 3`, the agent reported exit code 3 rather than reporting success
+
+Permission behavior:
+            `git branch -D stale-feature` from a live agent → BLOCKED, branch survived,
+            and the agent explained: "there's a hook in place to prevent force-deleting
+            branches without explicit human approval in your control room" — which is this
+            project's own hook reason text, not the model's own caution.
+```
+
+Enforcement is a Grok `PreToolUse` hook (`server/hooks/shellSafetyHook.ts`) reusing the same
+classifier the approval queue uses, so the UI and the agent's tool loop cannot disagree about what
+counts as destructive. A shell call whose command cannot be read is denied rather than waved
+through — failing open would defeat the policy.
+
+#### Findings about Grok 0.2.118 that the documentation does not match
+
+Both were established by experiment, and both matter to anyone relying on these controls:
+
+```text
+1. A PreToolUse hook returning {"decision":"deny"} — with exit code 2, per the documented
+   explicit-deny signal — did NOT block `echo` under --always-approve. The hook was provably
+   invoked (audit log recorded the exact command) and its denial was ignored.
+   Docs claim: "a deny decision in stdout JSON is honored regardless of exit code."
+
+2. `[permissions] deny = ["Bash(git branch -D *)"]` alone did NOT block that command either.
+   Docs claim: "Deny always wins over allow and over always-approve's normal pass-through."
+   Verified by disabling the hook and re-running: the branch WAS deleted.
+
+With the hook enabled, the same command IS blocked. So the hook is the effective control here,
+and deny rules are retained only as defence in depth — explicitly NOT relied upon.
+```
+
+**Practical consequence:** trivially safe commands such as `echo` appear to bypass hook
+enforcement, while genuinely gate-worthy ones are blocked. The policy therefore holds for the
+commands it exists to stop, but "hooks block everything" is not a safe assumption on this version.
+
+
 | V-034 Test results are recorded | NOT TESTED | No test-result model yet. Test infrastructure now exists (iteration 2): `bun test` runner, `test`/`typecheck`/`verify` scripts in `package.json`, 22 tests across 2 files. The repo had none at baseline. |
 | V-035 Failed tests block completion | NOT TESTED | Depends on V-034. |
 | V-036 Reviewer checks design compliance | NOT TESTED | No Reviewer role exists. |
