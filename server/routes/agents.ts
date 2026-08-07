@@ -1,12 +1,23 @@
 import { Hono } from "hono";
 import { BudgetExceededError, getAgentRegistry, statusPresentation } from "../services/agentRegistry";
 import { getControlRoomBus } from "../services/controlRoomEvents";
+import {
+  NoLiveSessionError,
+  SessionPausedError,
+  getAcpSessionManager,
+} from "../services/acpSessionManager";
 import { AGENT_RUNTIME_STATUSES, AGENT_STATUS_PRESENTATION } from "../types/agent";
 import { getProjectStore } from "../services/projectStore";
 
 export const agentRoutes = new Hono();
 
 function fail(c: any, err: unknown) {
+  if (err instanceof NoLiveSessionError) {
+    return c.json({ error: err.message, code: err.code }, 409);
+  }
+  if (err instanceof SessionPausedError) {
+    return c.json({ error: err.message, code: err.code }, 409);
+  }
   if (err instanceof BudgetExceededError) {
     return c.json(
       { error: err.message, code: err.code, scope: err.scope, spent: err.spent, limit: err.limit },
@@ -204,6 +215,68 @@ agentRoutes.get("/costs/:projectId", (c) => {
       budget = undefined;
     }
     return c.json(getAgentRegistry().costSummary(c.req.param("projectId"), budget));
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+// ------------------------------------------------- live session drawer (V-023)
+
+/** Open (or reopen) an agent's Grok session — what clicking an agent card does. */
+agentRoutes.post("/:agentId/session", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const session = await getAcpSessionManager().open(c.req.param("agentId"), {
+      resume: body?.resume === true,
+    });
+    return c.json(session);
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/** Transcript, optionally only what is new since a sequence number. */
+agentRoutes.get("/:agentId/session", (c) => {
+  try {
+    const manager = getAcpSessionManager();
+    const agentId = c.req.param("agentId");
+    const since = Number(c.req.query("since") ?? 0);
+    const session = manager.get(agentId);
+    return c.json({ ...session, transcript: manager.transcript(agentId, since) });
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+agentRoutes.post("/:agentId/session/message", async (c) => {
+  try {
+    const body = await c.req.json();
+    const added = await getAcpSessionManager().send(c.req.param("agentId"), body?.text ?? "");
+    return c.json({ added });
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+agentRoutes.post("/:agentId/session/pause", (c) => {
+  try {
+    return c.json(getAcpSessionManager().pause(c.req.param("agentId")));
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+agentRoutes.post("/:agentId/session/resume", (c) => {
+  try {
+    return c.json(getAcpSessionManager().resume(c.req.param("agentId")));
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+agentRoutes.post("/:agentId/session/stop", (c) => {
+  try {
+    return c.json(getAcpSessionManager().stop(c.req.param("agentId")));
   } catch (err) {
     return fail(c, err);
   }

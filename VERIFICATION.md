@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 21
+**Last iteration:** 22
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (37/52 PASS; Stage A complete)
-**Tally:** 37 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED
+**Overall result:** FAIL (38/52 PASS; Stage B complete)
+**Tally:** 38 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -1038,7 +1038,47 @@ have survived a restart at all. Persistence was added, and a unit test then caug
 `saveTemplate` never persisted — a saved template would have been lost on restart, quietly
 defeating V-041's "reused in a new project". Both fixed. A corrupt `agents.json` is also handled:
 the server logs and starts empty rather than failing to boot.
-| V-023 Live session drawer works | NOT TESTED | Doubly blocked: needs a UI *and* a live Grok session (B-3). The ACP adapter already emits the transcript/tool events it would render. |
+### V-023: Live session drawer works — **PASS** (iteration 22)
+
+Server: `server/services/acpSessionManager.ts` holds the live `AcpConnection` per agent and turns
+ACP events into transcript lines. UI: `client/src/control-room/SessionDrawer.tsx`.
+Tests: `sessionDrawer.test.tsx` → **11 pass**, plus an end-to-end run against a real agent.
+
+```text
+Agent ID:       agent_msihf1ar1nig6
+Stream event:   POST /api/coding-agents/:id/session   → state: ready
+                acpSessionId: 019fda9d-3065-7f02-a300-e6e0fdeaab1b
+                POST .../session/message {"text":"What is 9 * 9? …"}
+                → [user]  What is 9 * 9? Reply with only the number.
+                → [agent] 81
+Control action: POST .../session/pause  → HTTP 200
+                POST .../session/message while paused
+                → 409 {"error":"Agent … is paused. Resume it before sending a message.",
+                       "code":"SESSION_PAUSED"}
+                POST .../session/resume → state: ready
+                POST .../session/stop   → state: stopped
+                agent status: idle | "Stopped by user — reconnectable (session 019fda9d…)"
+```
+
+Transcript lines carry a kind — user / agent / thought / tool / system — each with a text label,
+and tool entries carry their status (`Tool · completed`). Lines are published on the control-room
+WebSocket as they arrive, so the drawer streams rather than polls.
+
+Design decisions:
+
+```text
+- Live connections live in the session manager, NOT the agent registry: the registry stores what
+  survives a restart, the manager stores what is currently running. A process handle is not
+  persistable state.
+- Pause keeps the process alive and preserves the session — pausing refuses new work rather than
+  discarding the agent, so resuming is instant and loses nothing.
+- Stop retains the ACP session id, so a stopped agent stays reconnectable (V-007).
+- The transcript buffer is bounded at 500 lines so a long-running agent cannot grow it without limit.
+- The UI mirrors the backend: Send is disabled while paused (backend returns 409 SESSION_PAUSED)
+  and while working, and a stopped session disables its input and controls entirely.
+```
+
+
 
 ## §22.9 Multi-Agent Communication
 
@@ -1694,7 +1734,7 @@ Status:    RAISED — per §22.2 ("an action requires credentials that were not 
                                               messaging, agentRegistry); V-028…V-040 and
                                               V-042…V-052 still largely have no test to run yet
 [ ] End-to-end acceptance test passes.
-[ ] UI acceptance checklist passes.          — 21 of 22 rows; the last needs B-3
+[x] UI acceptance checklist passes.          — 22 of 22 rows (open live Grok session closed in iteration 22)
 [x] Placeholder and quality audit passes.    — every match classified; 1 open finding (Q-2)
 [ ] Design document matches the merged implementation.
 [ ] Costs and usage are recorded accurately.

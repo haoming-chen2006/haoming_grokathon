@@ -32,7 +32,14 @@ export type ControlRoomEvent =
       limit: number;
       fraction: number;
     }
-  | { type: "budget_exceeded"; scope: "agent" | "task" | "project"; spent: number; limit: number };
+  | { type: "budget_exceeded"; scope: "agent" | "task" | "project"; spent: number; limit: number }
+  /** A line appended to an agent's live transcript (V-023). */
+  | {
+      type: "transcript";
+      agentId: string;
+      entry: { seq: number; at: string; kind: string; text: string; status?: string };
+    }
+  | { type: "session_state"; agentId: string; state: string; error?: string };
 
 export interface PublishedEvent {
   projectId: string;
