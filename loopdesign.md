@@ -55,11 +55,11 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 48
+## 2. State as of iteration 49
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 626 tests across 35 suites, both typechecks, the production build, and both
+Gate: 638 tests across 36 suites, both typechecks, the production build, and both
       audits (85 modules 0 orphans; 84 endpoints all covered) clean.
 ```
 
@@ -112,8 +112,14 @@ The checklist is complete. Useful work still available, in rough order of value:
    A cheap version of the check: list what one side produces, list what the other consumes, and
    diff them. That is how the budget events were found, in one command.
 
-   Surfaces not yet asked: the client components below the shell (are all 22 §22.17 rows still
-   mounted?), and the ACP event types the session drawer consumes.
+   The §22.17 rows are now guarded by `uiChecklist.test.tsx` (iteration 49 — which found a
+   ternary whose branches were identical, so a session id was never displayed). The ACP event
+   types were diffed and are complete: the session manager forwards only `session_state` and
+   `transcript`, and the client handles both.
+
+   A one-time manual verification decays the moment the code moves. When a check is recorded as
+   passing "by inspection", the follow-up worth doing is turning it into a test — that is what
+   found the last two bugs.
 2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system.
    It caught a case where all 18 steps reported success and no code reached `main`, and on being
    made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
