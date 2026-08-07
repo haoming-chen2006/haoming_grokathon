@@ -1,4 +1,5 @@
 import { grokBinaryPath } from "./grokDetect";
+import { extractUsage, type TokenUsage } from "./usageAccounting";
 
 const QUIET = !!process.env.OPENUI_QUIET;
 const log = QUIET ? () => {} : console.log.bind(console);
@@ -396,7 +397,14 @@ export class AcpConnection {
   async prompt(
     text: string,
     opts: { timeoutMs?: number } = {},
-  ): Promise<{ text: string; thoughts: string; toolCalls: string[]; stopReason: string | null }> {
+  ): Promise<{
+    text: string;
+    thoughts: string;
+    toolCalls: string[];
+    stopReason: string | null;
+    /** Exact token counts reported by the agent for this turn (V-045). */
+    usage: TokenUsage;
+  }> {
     if (!this.sessionId) throw new Error(`Agent ${this.agentId} has no session; call newSession() first`);
 
     let reply = "";
@@ -420,7 +428,13 @@ export class AcpConnection {
         { sessionId: this.sessionId, prompt: [{ type: "text", text }] },
         opts.timeoutMs ?? 180_000,
       );
-      return { text: reply.trim(), thoughts: thoughts.trim(), toolCalls, stopReason: result?.stopReason ?? null };
+      return {
+        text: reply.trim(),
+        thoughts: thoughts.trim(),
+        toolCalls,
+        stopReason: result?.stopReason ?? null,
+        usage: extractUsage(result?._meta),
+      };
     } finally {
       this.promptCollectors.delete(collector);
     }

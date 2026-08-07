@@ -1,6 +1,8 @@
 import { AcpConnection, type AcpEvent } from "./acpClient";
 import { getAgentRegistry } from "./agentRegistry";
 import { getControlRoomBus } from "./controlRoomEvents";
+import { estimateCost } from "./usageAccounting";
+import { getProjectStore } from "./projectStore";
 
 const QUIET = !!process.env.OPENUI_QUIET;
 const log = QUIET ? () => {} : console.log.bind(console);
@@ -208,7 +210,33 @@ export class AcpSessionManager {
     } catch {}
 
     try {
-      await entry.connection.prompt(text, { timeoutMs: 300_000 });
+      const result = await entry.connection.prompt(text, { timeoutMs: 300_000 });
+
+      // Record what the turn actually consumed. Tokens are exact; the dollar figure is an
+      // estimate from list prices and is flagged as such (V-045).
+      const estimate = estimateCost(result.usage);
+      if (result.usage.totalTokens > 0) {
+        try {
+          const projectBudget = (() => {
+            try {
+              return getProjectStore().getProject(entry.session.projectId).budgetUsd;
+            } catch {
+              return undefined;
+            }
+          })();
+          getAgentRegistry().recordUsage(
+            agentId,
+            { costUsd: estimate.costUsd, tokens: result.usage.totalTokens, estimated: true },
+            projectBudget,
+          );
+        } catch (err) {
+          // A budget stop must surface, not be swallowed by the message path.
+          this.push(entry, "system", err instanceof Error ? err.message : String(err));
+          this.setState(entry, "paused");
+          throw err;
+        }
+      }
+
       this.setState(entry, "ready");
       try {
         getAgentRegistry().setStatus(agentId, "idle");

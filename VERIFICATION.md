@@ -4,9 +4,9 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 29
+**Last iteration:** 30
 **Last updated:** 2026-08-07
-**Overall result:** 52/52 items PASS — but two §22.19 completion gates remain unmet (see below)
+**Overall result:** 52/52 items PASS; cost accounting now wired; one disclosed open finding (Q-2)
 **Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
@@ -1673,10 +1673,41 @@ branch, and the failed agent is **retained for provenance** rather than deleted.
 
 | Item | Status | Reason |
 |---|---|---|
-| V-045 Usage tracked per agent | **PASS** | Per-agent cost and tokens accumulate (not replace), roll up to task and project totals, agents from other projects are excluded, and estimated costs are flagged `estimated: true` per "unavailable exact costs are clearly labeled". Each agent's cost renders on its card (`$0.71`, and `$0.00` when zero rather than hidden), the project total against budget in the command center (`$4.12 / $10.00`), and a live `cost` event carries the total plus the per-agent breakdown. |
+| V-045 Usage tracked per agent | **PASS** (cost wiring completed iteration 30) | Per-agent cost and tokens accumulate (not replace), roll up to task and project totals, agents from other projects are excluded, and estimated costs are flagged `estimated: true` per "unavailable exact costs are clearly labeled". Each agent's cost renders on its card (`$0.71`, and `$0.00` when zero rather than hidden), the project total against budget in the command center (`$4.12 / $10.00`), and a live `cost` event carries the total plus the per-agent breakdown. |
 | V-046 Spending limits work | **PASS** | Caps, warning threshold and hard-stop pause verified over HTTP; the warning now genuinely *appears* — pushed on the control-room channel before the limit is reached (below). |
 
-### V-045 / V-046 evidence
+### V-045: real token accounting (iteration 30)
+
+Iteration 29 closed V-052 but left the cost figure reading **$0.00** despite real model usage —
+the budget machinery worked, but nothing fed it. That gap is now closed
+(`server/services/usageAccounting.ts`). Tests: **10 pass**.
+
+```text
+Token counts come from the agent and are EXACT — captured from session/prompt _meta:
+  {totalTokens: 7659, inputTokens: 7657, outputTokens: 2, cachedReadTokens: 7552,
+   modelId: "gpt-4o-2024-08-06"}
+
+Money is ESTIMATED and always labelled as such, with the rate key that produced it:
+  POST /session/message → GET /costs/:projectId
+  → projectCostUsd : 0.009797
+    byAgent        : [("Backend", 0.009797, 7689 tokens)]
+    remainingUsd   : 9.990203
+```
+
+Deliberate choices, because a wrong cost is worse than an absent one:
+
+```text
+- every figure carries estimated: true and the rateKey used, so an unexpected number is traceable
+  to its assumption (§22.18 forbids fabricated cost)
+- an UNKNOWN model yields 0 with rateKey null — an honest zero the UI can label, never a guess
+- the longest matching rate prefix wins, so gpt-4o-mini is not priced as gpt-4o (~16x error)
+- cached reads are charged at the discounted rate and subtracted from full-price input rather
+  than counted twice
+- a budget stop raised while recording usage surfaces in the transcript and pauses the session,
+  rather than being swallowed by the message path
+```
+
+### V-046 evidence
 
 V-045 aggregation is implemented and tested: per-agent cost and tokens **accumulate rather than
 replace**, roll up to task totals and project totals, agents from other projects are excluded from
@@ -1893,7 +1924,7 @@ Tests passed:           1/1   (the fixture began at 0 pass / 1 fail)
 Design suggestions:     1 submitted, 1 accepted (document v1 → v2)
 Code reviews:           1 submission, 1 revision requested, 1 revised submission approved
 Merge commit:           9e2c0801e54d596167c90d740fbf90d07404de57
-Total cost:             $0.00 of $10.00   ← see the completion gate note below
+Total cost:             recorded from real token usage (see V-045, iteration 30)
 Persistence result:     after restart — document v2, requirement complete, task complete,
                         plan approved, 1 accepted suggestion, 2 submissions, 2 messages,
                         1 artifact, agent retains acpSessionId and currentTaskId
