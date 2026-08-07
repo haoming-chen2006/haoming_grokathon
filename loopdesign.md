@@ -55,7 +55,7 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 55
+## 2. State as of iteration 56
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -138,9 +138,15 @@ The checklist is complete. Useful work still available, in rough order of value:
    its own red fixture and runs against an isolated data directory, so it is safe to re-run.
 3. **Flakiness.** Live-agent tests depend on model behaviour. A test that passes on re-run is a
    defect in the test, not a pass — make it deterministic. Fixed sleeps were removed in iteration
-   45; use `waitFor` from `server/services/testSupport.ts` rather than sleeping, and key
-   assertions on distinctive tokens so they cannot pass by chance. Audit for nondeterminism by
-   construction rather than waiting for a failure to reproduce.
+   45; use `waitFor` from `server/services/testSupport.ts` rather than sleeping. Audit for
+   nondeterminism by construction rather than waiting for a failure to reproduce.
+
+   **If the behaviour has an effect, assert the effect; if the reply *is* the behaviour, the reply
+   is the right assertion.** Iteration 56 caught a live flake: an agent replied, fluently and
+   wrongly, that a file contained no such value, then passed three re-runs. Prose is not a stable
+   interface — that test now has the agent write the value to a file. Five assertions on
+   `reply.text` were deliberately left, because session memory and isolation have no observable
+   other than the reply; they are listed in `VERIFICATION.md` as irreducibly model-dependent.
 4. **Documentation drift.** This file and `README.md` describe how to run the system; both go
    stale as the code moves. Update the tally in §2 whenever the gate count changes — a stale
    summary is worse than none, which is how the §22.19 gate came to read "BLOCKED / 34 of 52"
