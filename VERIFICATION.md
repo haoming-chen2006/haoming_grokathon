@@ -3310,6 +3310,72 @@ configuration, and a module can be imported by the wrong caller.
 
 ---
 
+## The same bug in the branch beside it (iteration 54)
+
+Iteration 53 fixed `newSession()` being called with no arguments. The `if` it sits in has another
+branch, and that branch had the identical defect:
+
+```ts
+if (opts.resume && agent.acpSessionId && connection.supportsLoadSession) {
+  await connection.loadSession(agent.acpSessionId);      // mcpServers defaults to []
+} else {
+  await connection.newSession(cwd, mcpServersFor(...), { rules: rulesFor(...) });   // fixed in 53
+}
+```
+
+`session/load` takes `mcpServers` precisely because the tools must be re-supplied when a session is
+reopened. Omitting it meant **a resumed agent had no Project MCP tools** — so an agent recovered
+after a crash (V-050), or restored by auto-resume, came back unable to read the design document,
+report progress or submit work. Fresh launches were fixed; recovered ones were not.
+
+Fixed, with the control experiment on the call site rather than the builder:
+
+```text
+resume fix reverted:   11 pass / 1 fail   (reopening a session re-supplies the Project MCP server)
+restored:              12 pass / 0 fail
+```
+
+A second test covers the fallback: when the agent does not advertise `loadSession`, `open()` falls
+through to a new session, which must also carry the tools.
+
+**The lesson generalises, so it was applied deliberately: after fixing one branch of a conditional,
+check the others.** Both branches configure the same session; only one had been looked at.
+
+## Sweep: are any other optional parameters going unpassed? (iteration 54)
+
+"Reachability is not configuration" is only useful if it is applied beyond the one place it was
+learned. Every function in `server/` declaring a defaulted parameter was listed, and every call
+site checked against it.
+
+```text
+15 functions with defaulted optional parameters
+ 2 flagged as possibly called bare — both false positives, the regex matching the declaration
+ 0 real cases: every call site passes its options
+```
+
+Recorded because a clean sweep is only worth anything if the method is stated: the raw output was
+*not* believed, both hits were checked by hand against their real call sites, and both were the
+declarations themselves.
+
+## §14 deviation: `agent.tools` is vestigial (iteration 54)
+
+`CodingAgent.tools` and `AgentTemplate.tools` are stored, returned by the API, and consulted by
+nothing — no UI offers them and the launch path does not read them. Per-agent tool restriction is
+not required by any checklist item, and the design's capability list ("use Grok Build tools; use
+project MCP tools") describes what agents may do rather than a per-agent allowlist — and that list
+became true only with iteration 53's fix.
+
+Recorded as a deviation rather than fixed. It is weaker than the per-task cap of iteration 52: no
+interface presents it as a control, so nothing misleads a user into believing it takes effect. It
+is settable through the generic create endpoint, which is why it is written down here rather than
+left implicit.
+
+```text
+bun run verify → exit 0, 655 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3336,7 +3402,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 653 pass / 0 fail, 37 files;
+[x] Required tests pass.                    — 655 pass / 0 fail, 37 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -3403,9 +3469,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 51 ahead of main
+commits 53 ahead of main
 build   bun run build exit 0
-tests   653 pass / 0 fail across 37 files
+tests   655 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller
 ```
 

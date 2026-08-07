@@ -175,7 +175,10 @@ export class AcpSessionManager {
 
       // Reopen the persisted session when asked, so the drawer shows prior history.
       if (opts.resume && agent.acpSessionId && connection.supportsLoadSession) {
-        await connection.loadSession(agent.acpSessionId);
+        // The tools must be re-supplied on reload too. session/load takes mcpServers for exactly
+        // this reason, and omitting it gave a resumed agent none of them — the same defect as the
+        // newSession call below, in the branch beside it.
+        await connection.loadSession(agent.acpSessionId, this.mcpServersFor(agentId, agent.projectId));
         this.push(entry, "system", `Reopened session ${agent.acpSessionId}`);
       } else {
         await connection.newSession(this.cwdFor(agentId), this.mcpServersFor(agentId, agent.projectId), {

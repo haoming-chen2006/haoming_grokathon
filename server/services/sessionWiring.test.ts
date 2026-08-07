@@ -174,3 +174,57 @@ describe("session/new actually receives them", () => {
     expect(calls[0].opts.rules).toBeUndefined();
   });
 });
+
+describe("a resumed session keeps its tools", () => {
+  function recordingManager(supportsLoad = true) {
+    const loads: Array<{ sessionId: string; mcpServers: unknown[] }> = [];
+    const news: Array<{ mcpServers: unknown[] }> = [];
+    const mgr = new AcpSessionManager(
+      () => "/tmp/wt",
+      () =>
+        ({
+          start() {}, stop() {},
+          async initialize() {},
+          get supportsLoadSession() { return supportsLoad; },
+          get sessionId() { return "sess-1"; },
+          async loadSession(sessionId: string, mcpServers: unknown[] = []) {
+            loads.push({ sessionId, mcpServers });
+            return sessionId;
+          },
+          async newSession(_cwd: unknown, mcpServers: unknown[] = []) {
+            news.push({ mcpServers });
+            return "sess-new";
+          },
+        }) as any,
+    );
+    return { mgr, loads, news };
+  }
+
+  test("reopening a session re-supplies the Project MCP server", async () => {
+    // session/load takes mcpServers precisely because they must be re-supplied; omitting it left
+    // a resumed agent with no tools at all.
+    const agent = getAgentRegistry().create({ projectId, name: "Backend", role: "Backend Engineer" });
+    getAgentRegistry().setAcpSession(agent.id, "sess-old");
+
+    const { mgr, loads } = recordingManager();
+    await mgr.open(agent.id, { resume: true });
+
+    expect(loads).toHaveLength(1);
+    expect(loads[0].sessionId).toBe("sess-old");
+    expect(loads[0].mcpServers).toHaveLength(1);
+    expect((loads[0].mcpServers[0] as any).name).toBe("openui-project");
+    expect((loads[0].mcpServers[0] as any).url).toContain(encodeURIComponent(agent.id));
+  });
+
+  test("without loadSession support it falls back to a new session, still with tools", async () => {
+    const agent = getAgentRegistry().create({ projectId, name: "B", role: "Reviewer" });
+    getAgentRegistry().setAcpSession(agent.id, "sess-old");
+
+    const { mgr, loads, news } = recordingManager(false);
+    await mgr.open(agent.id, { resume: true });
+
+    expect(loads).toHaveLength(0);
+    expect(news).toHaveLength(1);
+    expect((news[0].mcpServers[0] as any).name).toBe("openui-project");
+  });
+});
