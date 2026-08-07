@@ -1674,7 +1674,7 @@ branch, and the failed agent is **retained for provenance** rather than deleted.
 | Item | Status | Reason |
 |---|---|---|
 | V-045 Usage tracked per agent | **PASS** (cost wiring completed iteration 30) | Per-agent cost and tokens accumulate (not replace), roll up to task and project totals, agents from other projects are excluded, and estimated costs are flagged `estimated: true` per "unavailable exact costs are clearly labeled". Each agent's cost renders on its card (`$0.71`, and `$0.00` when zero rather than hidden), the project total against budget in the command center (`$4.12 / $10.00`), and a live `cost` event carries the total plus the per-agent breakdown. |
-| V-046 Spending limits work | **PASS** | Caps, warning threshold and hard-stop pause verified over HTTP; the warning now genuinely *appears* — pushed on the control-room channel before the limit is reached (below). |
+| V-046 Spending limits work | **PASS** (UI gap closed iteration 48) | Caps, warning threshold and hard-stop pause verified over HTTP. The warning is published on the control-room channel before the limit is reached **and rendered by the shell** — until iteration 48 the client dropped both budget events, so the wording below ("genuinely appears") was true of the channel and false for the user. |
 
 ### V-045: real token accounting (iteration 30)
 
@@ -2922,6 +2922,63 @@ bun run verify → exit 0, 620 pass / 0 fail, 0 orphans, every endpoint covered
 
 ---
 
+## The budget warning never reached the user (iteration 48)
+
+The loop document named the control-room event channel as a surface nobody had asked the coverage
+question of. Comparing the two vocabularies took one command and found a real V-046 gap.
+
+```text
+published on the bus     agent_status  agent_activity  cost  progress  requirement_status
+                         task_status  session_state  transcript  budget_warning  budget_exceeded
+
+handled by the shell     agent_status  agent_activity  cost  progress  requirement_status
+                         task_status  session_state  transcript
+```
+
+**`budget_warning` and `budget_exceeded` were published and silently dropped.** The server
+forwards every bus event to the socket verbatim, so the chain was intact right up to the client,
+which ignored both.
+
+V-046 requires that *"warnings appear before configured thresholds"*. The only spending signal a
+user could actually see was the header appending "— over budget" once `costUsd > budgetUsd` — an
+after-the-fact indicator derived from the cost figure, not a warning. By the time it appeared the
+cap was already blown, and a hard stop looked identical to being slightly over.
+
+**My own ledger entry asserted this worked.** It read "the warning now genuinely *appears* — pushed
+on the control-room channel before the limit is reached". Every word of that is true of the
+channel and none of it was true for the user. That row is corrected above. It is the same mistake
+as §22.17 in iteration 33 — evidence that was real, about a thing nobody could reach.
+
+**Reproduced before fixing**, at the shell level, by pushing a real server event through the same
+socket path the live channel uses:
+
+```text
+(fail) a warning published before the limit is shown
+(fail) a hard stop is distinguishable from a warning
+(fail) an exceeded alert is not overwritten by a later warning
+(fail) the alert can be dismissed
+10 pass / 4 fail        after the fix: 14 pass / 0 fail
+```
+
+**Fix.** `useControlRoom` handles both events, and `ControlRoomApp` renders a dismissible alert —
+amber for a warning, red for a stop, each naming the scope and the figures. A stop is never
+downgraded by a later warning, because that would hide that execution has halted.
+
+**Both halves of the chain are now covered**, which is the point:
+
+```text
+server  POST /usage crossing the threshold publishes budget_warning with spent < limit,
+        and no budget_exceeded             (agentRoutes.test.ts, over the real bus)
+client  the same event renders a visible alert with the scope and figures
+        (controlRoomApp.test.tsx, pushed through the stubbed socket)
+```
+
+```text
+bun run verify → exit 0, 626 pass / 0 fail, 0 orphans, every endpoint covered
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -2948,7 +3005,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 620 pass / 0 fail, 35 files;
+[x] Required tests pass.                    — 626 pass / 0 fail, 35 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16 all 18 steps, `bun run acceptance`,
                                               from a fixture that starts red
@@ -3012,9 +3069,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 39 ahead of main
+commits 41 ahead of main
 build   bun run build exit 0
-tests   620 pass / 0 fail across 35 files
+tests   626 pass / 0 fail across 35 files
 audits  0 orphans; every endpoint has a caller
 ```
 

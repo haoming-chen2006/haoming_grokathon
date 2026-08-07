@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ControlRoomApp } from "./ControlRoomApp";
 
 /**
@@ -47,6 +47,12 @@ const AGENTS = [
 ];
 
 const calls: Array<{ method: string; url: string; body?: string }> = [];
+const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
+
+/** Deliver a control-room event exactly as the server publishes it. */
+function publish(event: unknown) {
+  for (const s of sockets) s.onmessage?.({ data: JSON.stringify({ event }) });
+}
 let projectsResponse: any = [{ id: "p1", name: "Greeting Service", goal: "g", repositoryPath: "/tmp/repo" }];
 let failNext: string | null = null;
 
@@ -76,10 +82,12 @@ function stubFetch() {
     if (String(url).includes("/session")) return send({ agentId: "a1", projectId: "p1", acpSessionId: "sess-1", state: "ready", transcript: [] });
     return send({});
   };
-  // The shell opens a WebSocket; a no-op stand-in keeps that out of the assertions.
+  // The shell opens a WebSocket; a stand-in that records its instances lets a test push a real
+  // server event through the same path the live channel uses.
+  sockets.length = 0;
   (globalThis as any).WebSocket = class {
     onmessage: any; onclose: any;
-    constructor(public url: string) {}
+    constructor(public url: string) { sockets.push(this as any); }
     close() {}
   };
 }
@@ -214,5 +222,58 @@ describe("the shell can reach archived conversation history", () => {
     // And the control is replaced rather than left inviting a second load.
     expect(screen.queryByTestId("load-message-history")).toBeNull();
     expect(screen.getByTestId("message-history-loaded")).toBeTruthy();
+  });
+});
+
+describe("budget warnings reach the user (V-046)", () => {
+  async function open() {
+    render(<ControlRoomApp />);
+    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+  }
+
+  test("a warning published before the limit is shown", async () => {
+    // V-046 requires warnings to appear BEFORE the configured threshold. The server publishes
+    // budget_warning on this channel; if the shell ignores it the user only ever learns about
+    // spending after the cap is already blown.
+    await open();
+    expect(screen.queryByTestId("budget-alert")).toBeNull();
+
+    act(() => publish({ type: "budget_warning", scope: "project", spent: 8, limit: 10, fraction: 0.8 }));
+
+    await waitFor(() => expect(screen.getByTestId("budget-alert")).toBeTruthy());
+    const text = screen.getByTestId("budget-alert").textContent ?? "";
+    expect(text).toContain("$8.00");
+    expect(text).toContain("$10.00");
+    expect(text.toLowerCase()).toContain("project");
+  });
+
+  test("a hard stop is distinguishable from a warning", async () => {
+    await open();
+    act(() => publish({ type: "budget_exceeded", scope: "agent", spent: 3.5, limit: 3 }));
+
+    await waitFor(() => expect(screen.getByTestId("budget-alert")).toBeTruthy());
+    const alert = screen.getByTestId("budget-alert");
+    // A stop and a warning must not read the same; one means work has halted.
+    expect(alert.getAttribute("data-severity")).toBe("exceeded");
+    expect((alert.textContent ?? "").toLowerCase()).toContain("paused");
+  });
+
+  test("an exceeded alert is not overwritten by a later warning", async () => {
+    await open();
+    act(() => publish({ type: "budget_exceeded", scope: "agent", spent: 3.5, limit: 3 }));
+    await waitFor(() => expect(screen.getByTestId("budget-alert")).toBeTruthy());
+
+    act(() => publish({ type: "budget_warning", scope: "project", spent: 8, limit: 10, fraction: 0.8 }));
+    // Downgrading a stop to a warning would hide that execution is halted.
+    expect(screen.getByTestId("budget-alert").getAttribute("data-severity")).toBe("exceeded");
+  });
+
+  test("the alert can be dismissed", async () => {
+    await open();
+    act(() => publish({ type: "budget_warning", scope: "project", spent: 8, limit: 10, fraction: 0.8 }));
+    await waitFor(() => expect(screen.getByTestId("budget-alert")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("budget-alert-dismiss"));
+    expect(screen.queryByTestId("budget-alert")).toBeNull();
   });
 });

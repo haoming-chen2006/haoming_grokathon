@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { agentRoutes } from "./agents";
 import { ProjectStore } from "../services/projectStore";
 import { getAgentRegistry } from "../services/agentRegistry";
+import { getControlRoomBus } from "../services/controlRoomEvents";
 
 /**
  * HTTP coverage for the agent router.
@@ -233,5 +234,48 @@ describe("session control with no live session", () => {
   test("stop on an agent with no session is a handled error", async () => {
     const agent = makeAgent();
     await expectHandledError(`/api/coding-agents/${agent.id}/session/stop`);
+  });
+});
+
+describe("budget events reach the control-room channel (V-046)", () => {
+  test("crossing the warning threshold publishes a warning before the cap", async () => {
+    // The chain that matters: HTTP -> bus -> WebSocket -> UI. This asserts the first two links;
+    // the shell's handling of the event is covered in controlRoomApp.test.tsx.
+    const seen: any[] = [];
+    const unsubscribe = getControlRoomBus().subscribe(projectId, (p) => seen.push(p.event));
+    try {
+      const agent = makeAgent({ budgetUsd: 10 });
+      // 80% of the agent cap, with the threshold set below it.
+      const res = await req("POST", `/api/coding-agents/${agent.id}/usage`, {
+        costUsd: 8, tokens: 100, warningThreshold: 0.75,
+      });
+      expect(res.status).toBe(200);
+
+      const warning = seen.find((e) => e.type === "budget_warning");
+      expect(warning).toBeTruthy();
+      expect(warning.spent).toBeCloseTo(8, 5);
+      expect(warning.limit).toBe(10);
+      // It must arrive while spending is still under the cap — that is what makes it a warning.
+      expect(warning.spent).toBeLessThan(warning.limit);
+      expect(seen.some((e) => e.type === "budget_exceeded")).toBe(false);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("passing the cap publishes an exceeded event", async () => {
+    const seen: any[] = [];
+    const unsubscribe = getControlRoomBus().subscribe(projectId, (p) => seen.push(p.event));
+    try {
+      const agent = makeAgent({ budgetUsd: 1 });
+      await req("POST", `/api/coding-agents/${agent.id}/usage`, { costUsd: 5, tokens: 10 });
+
+      const exceeded = seen.find((e) => e.type === "budget_exceeded");
+      expect(exceeded).toBeTruthy();
+      expect(exceeded.scope).toBe("agent");
+      expect(exceeded.spent).toBeGreaterThan(exceeded.limit);
+    } finally {
+      unsubscribe();
+    }
   });
 });

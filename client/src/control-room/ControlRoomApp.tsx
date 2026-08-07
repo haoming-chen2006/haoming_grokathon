@@ -67,6 +67,39 @@ export function ControlRoomApp() {
         </div>
       )}
 
+      {/*
+        V-046: a warning must reach the user *before* the cap is hit, and a hard stop must read
+        differently from a warning — one of them means work has already halted.
+      */}
+      {room.budgetAlert && (
+        <div
+          data-testid="budget-alert"
+          data-severity={room.budgetAlert.severity}
+          role="alert"
+          className={`flex items-center justify-between gap-3 border-b px-3 py-1.5 text-xs ${
+            room.budgetAlert.severity === "exceeded"
+              ? "border-red-500/20 bg-red-500/10 text-red-300"
+              : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+          }`}
+        >
+          <span>
+            {room.budgetAlert.severity === "exceeded"
+              ? `${room.budgetAlert.scope === "agent" ? "Agent" : "Project"} budget reached — execution paused at `
+              : `${room.budgetAlert.scope === "agent" ? "Agent" : "Project"} spending approaching its limit: `}
+            ${room.budgetAlert.spent.toFixed(2)} of ${room.budgetAlert.limit.toFixed(2)}
+          </span>
+          <button
+            type="button"
+            data-testid="budget-alert-dismiss"
+            onClick={room.dismissBudgetAlert}
+            className="shrink-0 opacity-70 hover:opacity-100"
+            aria-label="Dismiss budget alert"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         {/* Left: requirements */}
         <aside className="w-72 shrink-0 overflow-y-auto border-r border-white/10">

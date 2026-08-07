@@ -19,6 +19,13 @@ export interface ProgressView {
   total: number;
 }
 
+export interface BudgetAlert {
+  severity: "warning" | "exceeded";
+  scope: "agent" | "project";
+  spent: number;
+  limit: number;
+}
+
 export interface ControlRoomState {
   projects: ProjectSummary[];
   projectId: string | null;
@@ -66,6 +73,15 @@ export function useControlRoom() {
   const [sessionState, setSessionState] = useState<LiveSessionStateView>("stopped");
   const socketRef = useRef<WebSocket | null>(null);
 
+  /**
+   * The latest budget alert pushed by the server.
+   *
+   * V-046 requires warnings to appear *before* the configured threshold. The server published
+   * budget_warning and budget_exceeded on this channel and the shell ignored both, so the only
+   * spending signal a user ever saw was the header turning red once the cap was already blown —
+   * an after-the-fact indicator, not a warning.
+   */
+  const [budgetAlert, setBudgetAlert] = useState<BudgetAlert | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -143,6 +159,14 @@ export function useControlRoom() {
           if (state.projectId) void loadProject(state.projectId);
         } else if (e.type === "requirement_status" || e.type === "task_status") {
           if (state.projectId) void loadProject(state.projectId);
+        } else if (e.type === "budget_warning" || e.type === "budget_exceeded") {
+          const severity = e.type === "budget_exceeded" ? "exceeded" : "warning";
+          setBudgetAlert((prev) =>
+            // A stop must not be downgraded by a later warning; that would hide that work halted.
+            prev?.severity === "exceeded" && severity === "warning"
+              ? prev
+              : { severity, scope: e.scope, spent: e.spent, limit: e.limit },
+          );
         }
       };
 
@@ -236,6 +260,8 @@ export function useControlRoom() {
     historyLoaded,
     historyLoading,
     loadMessageHistory,
+    budgetAlert,
+    dismissBudgetAlert: () => setBudgetAlert(null),
     transcript,
     sessionState,
     selectProject: (id: string) => setState((s) => ({ ...s, projectId: id, loading: true })),
