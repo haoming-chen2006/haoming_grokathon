@@ -55,13 +55,14 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 50
+## 2. State as of iteration 51
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 638 tests across 36 suites, both typechecks, the production build, and three
+Gate: 638 tests across 36 suites, both typechecks, the production build, and four
       audits — reachability (85 modules, 0 orphans), endpoints (84, all covered),
-      and quality (§22.18: 0 unclassified indicators, 0 dead controls).
+      quality (§22.18: 0 unclassified, 0 dead controls), and docs (every cited
+      file and command resolves).
 ```
 
 Two items are open but neither is a checklist failure:
@@ -123,11 +124,13 @@ The checklist is complete. Useful work still available, in rough order of value:
    found the last two bugs. §22.17 (iteration 49) and §22.18 (iteration 50) are both automated
    now; the remaining by-inspection record is the §22.19 design-document conformance audit.
 
-   **Write a positive control for every checker, and more than one.** Three consecutive audits
+   **Write a positive control for every checker, and more than one.** Four consecutive audits
    shipped with bugs in the checker itself — multi-line imports invisible, mount prefixes
-   unresolved, a JSX tag ended by the `>` inside an arrow function. In the last case the first
-   probe passed for accidental reasons and only the second exposed it. A checker that cannot be
-   made to fail on demand proves nothing when it passes.
+   unresolved, a JSX tag ended by the `>` inside an arrow function, exact-path-only resolution
+   giving 37 false positives. In one case the first probe passed for accidental reasons and only
+   the second exposed it. A checker that cannot be made to fail on demand proves nothing when it
+   passes — **and check the probes too**: one round of them silently passed everything because
+   the harness escaped its own backticks.
 2. **Re-run V-052** — `bun run acceptance`. It is the only test that exercises the whole system.
    It caught a case where all 18 steps reported success and no code reached `main`, and on being
    made reproducible in iteration 43 it immediately found two more (a symlink-canonicalisation
