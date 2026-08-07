@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 25
+**Last iteration:** 26
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (44/52 PASS; Stage D underway)
-**Tally:** 44 PASS · 0 FAIL · 0 BLOCKED · 8 NOT TESTED
+**Overall result:** FAIL (47/52 PASS; Stage D complete)
+**Tally:** 47 PASS · 0 FAIL · 0 BLOCKED · 5 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -1337,9 +1337,76 @@ enforcement, while genuinely gate-worthy ones are blocked. The policy therefore 
 commands it exists to stop, but "hooks block everything" is not a safe assumption on this version.
 
 
-| V-034 Test results are recorded | NOT TESTED | No test-result model yet. Test infrastructure now exists (iteration 2): `bun test` runner, `test`/`typecheck`/`verify` scripts in `package.json`, 22 tests across 2 files. The repo had none at baseline. |
-| V-035 Failed tests block completion | NOT TESTED | Depends on V-034. |
-| V-036 Reviewer checks design compliance | NOT TESTED | No Reviewer role exists. |
+### V-034: Test results are recorded — **PASS** (iteration 26)
+
+`server/services/testRunner.ts` + `ProjectStore.recordTestRun`.
+Tests: `testRunner.test.ts` → **20 pass**.
+
+```text
+Test command:  detected or configured — a configured command always wins over detection
+               package.json (choosing bun vs npm by lockfile), pytest, go, cargo, Makefile
+               returns null when nothing is detectable, rather than guessing
+Passed:        22
+Failed:        0
+Linked task:   task "api", testRun.ranByAgentId "backend", testRun.ranAt recorded
+```
+
+Counts are parsed from **real runner output** — bun, vitest, jest, pytest and go formats, with
+ANSI stripped — and verified by executing actual suites, not by simulating output.
+
+**Unknown is never success.** A run whose counts cannot be parsed is recorded with
+`parsed: false` and `total: 0`, and `testsPassed()` returns false. `echo nothing to do` exits 0
+and is still not a pass — the vacuous-pass case §22.18 warns about.
+
+### V-035: Failed tests block completion — **PASS** (iteration 26)
+
+```text
+Task:          api
+Failing test:  recorded run — 18 of 20 passing, exit 1
+Blocked state: blocked: true
+               reason: "2 of 20 required tests failing"
+               task.status moves needs_review → working
+               task.reviewStatus → changes_requested
+```
+
+A red suite cannot sit silently in a review queue: recording a failing run moves the task **out of**
+`needs_review` and back to `working`. An unparseable run blocks too, with the reason
+`"Test results could not be parsed … treating as not passing"`.
+
+**Re-running updates the status:** a subsequent green run lifts the block and returns
+`reviewStatus` to `pending`. The recorded run survives a restart.
+
+### V-036: Reviewer checks design compliance — **PASS** (iteration 26)
+
+`server/services/designReview.ts`. Tests: `designReview.test.ts` → **12 pass**.
+
+```text
+Review ID:            rev_…
+Requirements checked: ["AUTH-03"]
+Findings:             five kinds, each with a severity and the subjects it refers to —
+                      missing_implementation, missing_tests, undocumented_deviation,
+                      unrelated_changes, security_concern
+```
+
+Each flag the design names is exercised:
+
+```text
+missing implementation   a claimed requirement that does not exist → blocking
+missing tests            nothing ran, or "2 of 20 tests are failing" → blocking
+undocumented deviation   an unresolved design suggestion against a submitted requirement →
+                         blocking, because merging would leave the document out of step with code
+unrelated changes        files outside those declared for the work → warning, not blocking
+security concern         a credential introduced by the diff → blocking, and the finding is
+                         asserted NOT to echo the secret it found
+                         a destructive command on an ADDED line → warning
+                         (a REMOVED `rm -rf` is a fix, not a defect, and is not flagged)
+```
+
+**The review is deterministic**, asserted by running the same inputs twice and comparing findings.
+A reviewer that changes its verdict between runs cannot gate a merge, so this is derived from the
+requirement, submission and diff rather than from a model.
+
+
 
 ## §22.12 Code Review and Merge
 

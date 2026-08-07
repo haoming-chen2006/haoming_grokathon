@@ -126,6 +126,20 @@ export type TaskStatus = "pending" | "working" | "needs_review" | "complete" | "
  */
 export type EffectiveTaskStatus = TaskStatus | "blocked" | "ready";
 
+/** The most recent test run for a task (V-034). */
+export interface TaskTestRun {
+  command: string;
+  passed: number;
+  failed: number;
+  total: number;
+  /** False when counts could not be parsed — an honest unknown, never treated as success. */
+  parsed: boolean;
+  exitCode: number;
+  ranByAgentId: string;
+  ranAt: string;
+  outputExcerpt?: string;
+}
+
 export interface CodingTask {
   id: string;
   objective: string;
@@ -143,6 +157,8 @@ export interface CodingTask {
   /** Per-task spending cap (§16). */
   budgetUsd?: number;
   reviewStatus: ReviewStatus;
+  /** Latest recorded test run, linked to the agent that ran it (V-034). */
+  testRun?: TaskTestRun;
   milestoneId?: string;
   createdAt: string;
   updatedAt: string;

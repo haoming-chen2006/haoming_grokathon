@@ -34,6 +34,7 @@ import type {
   CodeSubmission,
   CodingTask,
   CompletionGate,
+  TaskTestRun,
   DesignSuggestion,
   EffectiveTaskStatus,
   ImplementationPlan,
@@ -590,6 +591,43 @@ export class ProjectStore {
     const unblocked = patch.status === "complete" ? newlyUnblocked(project.tasks, taskId) : [];
     this.persist(project);
     return { task, unblocked };
+  }
+
+  /**
+   * Record a test run against a task (V-034) and derive whether it blocks completion (V-035).
+   * A task whose required tests are failing is moved out of needs_review and back to working,
+   * so a red suite cannot sit silently in a review queue.
+   */
+  recordTestRun(
+    projectId: string,
+    taskId: string,
+    run: Omit<TaskTestRun, "ranAt">,
+  ): { task: CodingTask; blocked: boolean; reason?: string } {
+    const project = this.getProject(projectId);
+    const task = project.tasks.find((t) => t.id === taskId);
+    if (!task) throw new NotFoundError(`Task not found: ${taskId}`);
+
+    task.testRun = { ...run, ranAt: nowIso() };
+    task.updatedAt = task.testRun.ranAt;
+
+    // Unknown counts are not success: a suite that ran nothing must not unblock a task.
+    const green = run.parsed && run.failed === 0 && run.total > 0 && run.passed === run.total;
+    let reason: string | undefined;
+
+    if (!green) {
+      reason = !run.parsed
+        ? `Test results could not be parsed from "${run.command}" (exit ${run.exitCode}); treating as not passing`
+        : `${run.failed} of ${run.total} required tests failing`;
+      // Re-running is what clears this, so the task returns to working rather than complete.
+      if (task.status === "needs_review" || task.status === "complete") task.status = "working";
+      task.reviewStatus = "changes_requested";
+    } else if (task.reviewStatus === "changes_requested") {
+      // A green re-run lifts the previous block.
+      task.reviewStatus = "pending";
+    }
+
+    this.persist(project);
+    return { task, blocked: !green, reason };
   }
 
   /** Dependency-respecting execution order (§10 step 11: "merge branches in dependency order"). */
