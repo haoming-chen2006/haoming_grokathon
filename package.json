@@ -39,9 +39,10 @@
     "typecheck": "tsc --noEmit && bun run --cwd client tsc --noEmit",
     "verify": "bun run typecheck && bun run test && bun run build && bun run audit",
     "acceptance": "bun run scripts/acceptance/v052.mjs",
-    "audit": "bun run scripts/audit/reachability.mjs && bun run audit:endpoints && bun run audit:quality",
+    "audit": "bun run scripts/audit/reachability.mjs && bun run audit:endpoints && bun run audit:quality && bun run audit:docs",
     "audit:endpoints": "bun run scripts/audit/endpoints.mjs",
     "audit:quality": "bun run scripts/audit/quality.mjs",
+    "audit:docs": "bun run scripts/audit/docs.mjs",
     "prepublishOnly": "bun run build",
     "install:client": "cd client && bun install"
   },

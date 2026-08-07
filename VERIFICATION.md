@@ -1887,7 +1887,8 @@ Storage robustness asserted alongside:
 ### V-052: Complete coding workflow succeeds — **PASS** (iteration 29)
 
 All 18 steps of §22.16 run against a live server, real Grok agents and a real git repository
-containing an intentionally incomplete feature. Script: `scratchpad/v052.mjs`.
+containing an intentionally incomplete feature. Script: `scripts/acceptance/v052.mjs`, run with
+`bun run acceptance` (it lived in an untracked scratchpad until iteration 43).
 
 ```text
  1. Opened repository — branch main
@@ -3107,6 +3108,68 @@ bun run verify → exit 0, 638 pass / 0 fail, 0 orphans, every endpoint covered,
 
 ---
 
+## The ledger's own citations now have to resolve (iteration 51)
+
+This document is the deliverable: ~3,200 lines asserting what was verified and how. Its value
+depends entirely on a reader being able to follow it, and over fifty iterations the code moved
+repeatedly while nothing re-checked the references. `bun run audit:docs` now verifies that every
+source file and every `bun run` command named in the evidence documents resolves. It is part of
+`verify`.
+
+**It found one real stale citation.** §22.16's V-052 entry read:
+
+```text
+Script: `scratchpad/v052.mjs`.
+```
+
+That was true until iteration 43 moved the acceptance test into the repository. A reader following
+it — the whole point of the §5 rule that evidence be "backed by a command someone else could
+re-run" — found nothing. Now corrected to `scripts/acceptance/v052.mjs`, with the move noted.
+
+**The first version reported 38 findings, 37 of them false.** The docs cite files both fully
+(`server/services/repository.ts`) and by bare name (`repository.test.ts`), and the checker only
+tried exact paths. Resolution now accepts a bare name matched against any tracked file, while a
+citation *with* directories must match a real suffix — so `scratchpad/v052.mjs` does not resolve
+merely because a `v052.mjs` exists elsewhere, which is exactly how the one real finding survived
+the fix.
+
+**Scope.** Only the evidence documents. `product-design.md` and `verifiables.md` are
+specifications whose example paths belong to a hypothetical user project rather than to this
+repository; checking those would produce noise and train a reader to ignore the audit. Commands
+are checked everywhere, because a documented command either exists or it does not.
+
+That distinction is not academic: the first draft of this very section quoted one of those example
+paths in backticks, and the audit failed the gate on it. A backticked path in the ledger reads as
+a citation, so the rule is right and the prose was wrong.
+
+**Four citations are classified as legitimately non-repository**, each with a reason: a runtime
+data file in the data directory, `Cargo.toml` and `rust-toolchain.toml` inside the gitignored
+`.refs/` clone of grok-build, and the historical `scratchpad/v052.mjs` in the narrative that
+describes moving it. The audit also fails on a *stale* classification — an allowlist entry the
+docs no longer mention — which immediately caught three entries I had added speculatively.
+
+**Six positive controls**, following the rule adopted last iteration:
+
+```text
+a file that does not exist              exit 1
+a path whose basename exists elsewhere  exit 1
+a documented script not in package.json exit 1
+a stale classification entry            exit 1
+a real file cited by bare name          exit 0
+a real file cited by full path          exit 0
+```
+
+The first attempt at these probes silently passed everything because the harness escaped the
+backticks, so the planted text never matched. Worth recording: the probes themselves need
+checking, not just the checker.
+
+```text
+bun run verify → exit 0, 638 pass / 0 fail, 0 orphans, every endpoint covered,
+                 0 unclassified indicators, 0 dead controls, every citation resolves
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3141,7 +3204,8 @@ reader reaches last.)*
 [x] Placeholder and quality audit passes.   — automated as `bun run audit:quality`;
                                               0 unclassified, 0 dead controls;
                                               1 open finding (Q-2, awaiting the owner)
-[x] Design document matches the merged implementation.
+[x] Design document matches the merged implementation. — audited iteration 32; citations
+                                              kept honest by `bun run audit:docs`
 [x] Costs and usage are recorded accurately. — estimated costs flagged estimated: true
 [x] Final Git status is known and documented.
 [x] Final evidence report is generated.
@@ -3199,7 +3263,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 45 ahead of main
+commits 47 ahead of main
 build   bun run build exit 0
 tests   638 pass / 0 fail across 36 files
 audits  0 orphans; every endpoint has a caller
