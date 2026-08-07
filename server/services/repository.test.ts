@@ -7,6 +7,7 @@ import {
   NotARepositoryError,
   ProtectedBranchError,
   agentChangedFiles,
+  commitAgentWork,
   agentWorktreePath,
   assertAgentCanWrite,
   createAgentWorktree,
@@ -288,5 +289,44 @@ describe("V-011: main branch is protected", () => {
     expect(git(["rev-parse", "main"], repo).stdout.trim()).toBe(headBefore);
     expect(git(["show", "main:app.ts"], repo).stdout).toContain("222");
     expect(existsSync(join(repo, ".git", "MERGE_HEAD"))).toBe(false);
+  });
+});
+
+describe("committing agent work (found by V-052)", () => {
+  test("commits working-tree changes on the agent's branch", () => {
+    const wt = createAgentWorktree(repo, { agentId: "a", branch: "agent/c", baseBranch: "main" });
+    writeFileSync(join(wt.path, "impl.ts"), "export const done = true;\n");
+
+    const result = commitAgentWork(wt.path, "Implement it");
+    expect(result.committed).toBe(true);
+    expect(result.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(result.files).toContain("impl.ts");
+    expect(listChangedFiles(wt.path)).toHaveLength(0);
+  });
+
+  test("reports nothing to commit rather than creating an empty commit", () => {
+    const wt = createAgentWorktree(repo, { agentId: "a", branch: "agent/empty", baseBranch: "main" });
+    const result = commitAgentWork(wt.path, "nothing");
+    expect(result.committed).toBe(false);
+    expect(result.reason).toContain("No changes");
+  });
+
+  test("merging a branch with no commits ahead is refused", () => {
+    // The V-052 failure: every step reported success while the code never landed, because the
+    // agent's edits were never committed and the merge therefore carried nothing.
+    createAgentWorktree(repo, { agentId: "a", branch: "agent/nothing", baseBranch: "main" });
+    expect(() =>
+      mergeAgentBranch(repo, { branch: "agent/nothing", target: "main", approvedBy: "user" }),
+    ).toThrow(/nothing to merge/);
+  });
+
+  test("after committing, the merge carries the work onto the target", () => {
+    const wt = createAgentWorktree(repo, { agentId: "a", branch: "agent/real", baseBranch: "main" });
+    writeFileSync(join(wt.path, "landed.ts"), "export const landed = true;\n");
+    commitAgentWork(wt.path, "Add landed.ts");
+
+    const merge = mergeAgentBranch(repo, { branch: "agent/real", target: "main", approvedBy: "user" });
+    expect(merge.merged).toBe(true);
+    expect(git(["show", "main:landed.ts"], repo).stdout).toContain("landed = true");
   });
 });

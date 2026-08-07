@@ -19,7 +19,7 @@ beforeEach(() => {
   sh("git config user.email t@e.com", repo);
   sh("git config user.name T", repo);
   writeFileSync(join(repo, "README.md"), "# Fixture repo\n");
-  writeFileSync(join(repo, "app.ts"), "export const x = 1;\n");
+  writeFileSync(join(repo, "app.ts"), "export const x = 8317;\n");
   sh("git add .", repo);
   sh("git commit -m initial", repo);
 });
@@ -84,8 +84,9 @@ describe("V-032: agent can modify code in its worktree", () => {
         "Read the file app.ts in the current directory and reply with only the numeric value assigned to x.",
         { timeoutMs: 240_000 },
       );
-      expect(reply.text).toContain("1");
-      expect(reply.toolCalls.length).toBeGreaterThan(0);
+      // 8317 appears nowhere but that file, so answering it IS the proof of a read. Asserting a
+      // tool call fired was flaky — the model does not always surface one in session updates.
+      expect(reply.text).toContain("8317");
     } finally {
       conn.stop();
     }

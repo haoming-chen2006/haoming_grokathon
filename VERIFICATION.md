@@ -4,10 +4,10 @@ Evidence ledger for the checklist in `verifiables.md` (§22, items V-001…V-052
 Maintained by the 30-minute agent loop following `loopdesign.md`.
 Format follows §22.1. Evidence must be reproducible; `NOT TESTED` is never upgraded without a recorded command.
 
-**Last iteration:** 28
+**Last iteration:** 29
 **Last updated:** 2026-08-07
-**Overall result:** FAIL (51/52 PASS; only V-052 remains)
-**Tally:** 51 PASS · 0 FAIL · 0 BLOCKED · 1 NOT TESTED
+**Overall result:** 52/52 items PASS — but two §22.19 completion gates remain unmet (see below)
+**Tally:** 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
 
 > ## B-3 is resolved (iteration 19)
 >
@@ -1853,7 +1853,87 @@ Storage robustness asserted alongside:
 
 | Item | Status | Reason |
 |---|---|---|
-| V-052 Complete coding workflow succeeds | NOT TESTED | Requires V-001…V-051. This is the terminal gate. |
+### V-052: Complete coding workflow succeeds — **PASS** (iteration 29)
+
+All 18 steps of §22.16 run against a live server, real Grok agents and a real git repository
+containing an intentionally incomplete feature. Script: `scratchpad/v052.mjs`.
+
+```text
+ 1. Opened repository — branch main
+ 2. Imported design document — document v1
+ 3. Generated requirements — GREET-01
+ 4. Launched Planner — plan created as "draft"
+    launch before approval correctly refused: PLAN_NOT_APPROVED
+ 5. Approved the implementation plan — approvedBy user
+ 6. Created isolated worktree — agent/greet
+ 7. Launched Grok agent — session 019fdb5e-4315-7ea3-84c1-e6570be885de
+ 8. Agent implemented the feature in its worktree
+    committed bf770db57421 — greet.ts
+ 9. Structured handoff — linked to [artifact, task, requirement, branch]
+10. Design suggestion submitted (state pending)
+11. Suggestion accepted — document now v2
+12. Ran tests — 1/1 passing (npm run test)
+13. Submitted code for review — 1 file changed
+14. Revision requested → task returned to "working" → revised submission created
+15. Approved and merged — commit 9e2c0801e54d
+16. Requirement complete — all five completion gates true
+17. Restarted the application (fresh process)
+18. Project and sessions remain visible
+```
+
+**Required final evidence**
+
+```text
+Repository:             a git repo whose greet() threw "not implemented"
+Feature:                greet(name) — unimplemented
+Requirements completed: 1 of 1 (GREET-01)
+Agents used:            Planner, Backend Engineer, Reviewer
+Branches created:       agent/greet
+Tests passed:           1/1   (the fixture began at 0 pass / 1 fail)
+Design suggestions:     1 submitted, 1 accepted (document v1 → v2)
+Code reviews:           1 submission, 1 revision requested, 1 revised submission approved
+Merge commit:           9e2c0801e54d596167c90d740fbf90d07404de57
+Total cost:             $0.00 of $10.00   ← see the completion gate note below
+Persistence result:     after restart — document v2, requirement complete, task complete,
+                        plan approved, 1 accepted suggestion, 2 submissions, 2 messages,
+                        1 artifact, agent retains acpSessionId and currentTaskId
+```
+
+**The code genuinely landed**, which is what the whole test exists to prove:
+
+```text
+main:greet.ts →  export function greet(name: string): string {
+                   return `Hello, ${name}!`;
+                 }
+main test suite: 1 pass, 0 fail        (fixture started at 0 pass / 1 fail)
+merge commit:    9e2c080 Merge agent/greet into main (approved by user)
+```
+
+#### The first run of V-052 FAILED, and that is why this test exists
+
+Every one of the 18 steps reported success — and the implementation never reached `main`:
+
+```text
+merged code on main: 0 lines implementing the greeting
+main test suite:     0 pass
+```
+
+The agent edited files but nothing ever **committed** them, so the branch had no commits ahead of
+`main` and the merge carried nothing while still returning a commit id. A missing product
+capability, not a scripting slip: there was no path that commits an agent's work.
+
+Fixed by adding `commitAgentWork()` and a guard that **refuses a merge when the branch has no
+commits ahead of the target**, so this failure cannot recur silently:
+
+```text
+mergeAgentBranch(branch with no commits) →
+  "Branch \"agent/nothing\" has no commits ahead of \"main\"; there is nothing to merge.
+   Commit the agent's work before merging."
+```
+
+Both are covered by regression tests.
+
+
 
 ## §22.17 UI Acceptance Checklist — **21 of 22 rendered; 1 blocked by B-3**
 

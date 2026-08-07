@@ -10,6 +10,7 @@ import { MissingRecipientError, UnlinkedMessageError } from "../services/messagi
 import { getControlRoomBus } from "../services/controlRoomEvents";
 import { CompletionGateError, IncompleteSubmissionError } from "../services/codeReview";
 import { getAcpSessionManager } from "../services/acpSessionManager";
+import { detectTestCommand, runTests } from "../services/testRunner";
 import type { Actor } from "../types/project";
 
 export const projectRoutes = new Hono();
@@ -333,6 +334,49 @@ projectRoutes.post("/:id/tasks/:taskId/launch", async (c) => {
     const session = await getAcpSessionManager().open(task.assignedAgentId);
     store.updateTask(projectId, taskId, { status: "working" }, { kind: "user", id: "user" });
     return c.json({ taskId, agentId: task.assignedAgentId, session }, 201);
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/** V-034/V-035: run the project's tests for a task and record the result. */
+projectRoutes.post("/:id/tasks/:taskId/tests", async (c) => {
+  try {
+    const projectId = c.req.param("id");
+    const taskId = c.req.param("taskId");
+    const body = await c.req.json().catch(() => ({}));
+    const store = getProjectStore();
+    const project = store.getProject(projectId);
+
+    // Tests run in the agent's worktree when it has one, so a failing suite is attributed to the
+    // branch that caused it rather than to the shared checkout.
+    const cwd = body?.worktree || project.repositoryPath;
+    const detected = detectTestCommand(cwd, body?.command);
+    if (!detected) {
+      return c.json({ error: `No test command configured or detected in ${cwd}`, code: "NO_TEST_COMMAND" }, 400);
+    }
+
+    const run = runTests(cwd, detected.command);
+    const recorded = store.recordTestRun(projectId, taskId, {
+      command: detected.command,
+      passed: run.passed,
+      failed: run.failed,
+      total: run.total,
+      parsed: run.parsed,
+      exitCode: run.exitCode,
+      ranByAgentId: body?.agentId ?? "user",
+      outputExcerpt: run.output.slice(-2000),
+    });
+
+    getControlRoomBus().publish(projectId, {
+      type: "task_status",
+      taskId,
+      status: recorded.task.status,
+      effectiveStatus: recorded.task.status,
+      unblocked: [],
+    });
+
+    return c.json({ run: { ...run, output: undefined }, source: detected.source, blocked: recorded.blocked, reason: recorded.reason });
   } catch (err) {
     return fail(c, err);
   }

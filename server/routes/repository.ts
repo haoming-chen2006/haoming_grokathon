@@ -5,6 +5,7 @@ import {
   NotARepositoryError,
   ProtectedBranchError,
   agentChangedFiles,
+  commitAgentWork,
   createAgentWorktree,
   getDiff,
   listWorktrees,
@@ -99,6 +100,18 @@ repositoryRoutes.get("/diff", (c) => {
     return c.json({
       diff: getDiff(worktree, { baseBranch: c.req.query("base") ?? undefined, file: c.req.query("file") ?? undefined }),
     });
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/** Commit an agent's work on its branch so a later merge actually carries it. */
+repositoryRoutes.post("/commit", async (c) => {
+  try {
+    const body = await c.req.json();
+    if (!body?.worktree) return c.json({ error: "worktree is required" }, 400);
+    if (!body?.message) return c.json({ error: "message is required" }, 400);
+    return c.json(commitAgentWork(body.worktree, body.message, body.author));
   } catch (err) {
     return fail(c, err);
   }

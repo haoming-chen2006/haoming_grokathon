@@ -274,6 +274,43 @@ export function assertAgentCanWrite(
   return branch;
 }
 
+export interface CommitResult {
+  committed: boolean;
+  commit: string | null;
+  files: string[];
+  /** Set when there was nothing to commit — an empty branch cannot be merged meaningfully. */
+  reason?: string;
+}
+
+/**
+ * Commit an agent's working-tree changes on its own branch.
+ *
+ * Without this, an agent's edits stay uncommitted and a later merge carries nothing: the flow
+ * reports success at every step while the code never lands. Returns `committed: false` rather
+ * than creating an empty commit when there is nothing to record.
+ */
+export function commitAgentWork(worktreePath: string, message: string, author = "openui-agent"): CommitResult {
+  const changed = listChangedFiles(worktreePath);
+  if (changed.length === 0) {
+    return { committed: false, commit: null, files: [], reason: "No changes to commit" };
+  }
+
+  gitOrThrow(["add", "-A"], worktreePath, "Staging agent changes");
+  const commit = git(
+    ["-c", `user.name=${author}`, "-c", `user.email=${author}@openui.local`, "commit", "-m", message],
+    worktreePath,
+  );
+  if (!commit.ok) {
+    throw new GitCommandError(`Commit failed: ${commit.stderr.trim()}`, commit.stderr, commit.exitCode);
+  }
+
+  return {
+    committed: true,
+    commit: git(["rev-parse", "HEAD"], worktreePath).stdout.trim(),
+    files: changed.map((f) => f.path),
+  };
+}
+
 export interface MergeResult {
   merged: boolean;
   commit: string;
@@ -295,6 +332,18 @@ export function mergeAgentBranch(
     throw new ProtectedBranchError(
       `Merging "${params.branch}" into "${params.target}" requires explicit approval; no approver was supplied.`,
       params.target,
+    );
+  }
+
+  // A branch with nothing ahead of the target would produce a merge that changes no code while
+  // still returning a commit — exactly the failure V-052 exists to catch.
+  const ahead = git(["rev-list", "--count", `${params.target}..${params.branch}`], repoRoot);
+  if (ahead.ok && ahead.stdout.trim() === "0") {
+    throw new GitCommandError(
+      `Branch "${params.branch}" has no commits ahead of "${params.target}"; there is nothing to merge. ` +
+        `Commit the agent's work before merging.`,
+      "",
+      1,
     );
   }
 
