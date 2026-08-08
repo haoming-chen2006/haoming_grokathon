@@ -11,10 +11,20 @@
  * — never an empty list, never a spinner, never a plausible-looking zero.
  */
 import type { PageDescriptor, ToolsPanelComponent } from "./contract";
+import { AssetsInspector, AssetsNavigator, AssetsPage } from "../assets";
 
 export const PAGES: PageDescriptor[] = [
   { id: "agents", label: "Agents", segment: "agents", rank: "headline", builtBy: "01-agents" },
-  { id: "assets", label: "Assets", segment: "assets", rank: "headline", builtBy: "02-assets" },
+  {
+    id: "assets",
+    label: "Assets",
+    segment: "assets",
+    rank: "headline",
+    builtBy: "02-assets",
+    main: AssetsPage,
+    navigator: AssetsNavigator,
+    inspector: AssetsInspector,
+  },
   { id: "designdocs", label: "Design Documents", segment: "designdocs", rank: "headline", builtBy: "03-design-docs" },
   { id: "users", label: "Users", segment: "users", rank: "secondary", builtBy: "08-users-x" },
   { id: "x", label: "X", segment: "x", rank: "secondary", builtBy: "08-users-x" },
