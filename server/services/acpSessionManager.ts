@@ -360,13 +360,22 @@ let manager: AcpSessionManager | null = null;
 export function getAcpSessionManager(): AcpSessionManager {
   if (!manager) {
     manager = new AcpSessionManager((agentId) => {
-      // An agent works in its own worktree when it has one; otherwise the project repository.
+      // An agent works in its own worktree; failing that, its project's repository.
+      //
+      // This used to end at `process.cwd()`, which is the directory the *server* was started from
+      // — this repository. An agent with no worktree was therefore given write access to OpenUI's
+      // own source instead of the project it was hired for. Falling back to the project repository
+      // is wrong too (it is not isolated), but it is at least the right repository, and the launch
+      // route now creates a worktree so this path is a backstop rather than the norm.
       try {
         const agent = getAgentRegistry().get(agentId);
-        return agent.worktree || process.env.LAUNCH_CWD || process.cwd();
+        if (agent.worktree) return agent.worktree;
+        const project = getProjectStore().getProject(agent.projectId);
+        if (project.repositoryPath) return project.repositoryPath;
       } catch {
-        return process.env.LAUNCH_CWD || process.cwd();
+        // Fall through to the last resort below.
       }
+      return process.env.LAUNCH_CWD || process.cwd();
     });
   }
   return manager;

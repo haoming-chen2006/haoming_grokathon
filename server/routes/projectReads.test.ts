@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
@@ -431,5 +431,56 @@ describe("a project whose repository is gone says so (found by using the product
     const dead = store.createProject({ name: "Dead", goal: "g", repositoryPath: "/path/to/repo" }).id;
     const gone = await req("GET", `/api/projects/${dead}`);
     expect(gone.json.repositoryExists).toBe(false);
+  });
+});
+
+describe("launching gives the agent an isolated worktree (§9, V-009)", () => {
+  function launchable() {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const agent = getAgentRegistry().create({ projectId, name: "Backend", role: "Backend Engineer" });
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "t-iso", objective: "o", assignedAgentId: agent.id }, USER);
+    store.approvePlan(projectId, USER);
+    return { store, agent };
+  }
+
+  test("an agent with no worktree gets one in the project's repository", async () => {
+    // Launching only opened a session, whose cwd is agent.worktree || process.cwd() — so an agent
+    // without one ran in the directory the server was started from, with write access to it.
+    const { agent } = launchable();
+    expect(getAgentRegistry().get(agent.id).worktree).toBeUndefined();
+
+    await req("POST", `/api/projects/${projectId}/tasks/t-iso/launch`, {});
+
+    const after = getAgentRegistry().get(agent.id);
+    expect(after.worktree, "no worktree was created for the agent").toBeTruthy();
+    // Compared canonically: git reports the worktree under the repository's realpath, and on macOS
+    // the fixture lives under /var, a symlink to /private/var — the same trap as iteration 43.
+    expect(
+      realpathSync(after.worktree!).startsWith(realpathSync(repo)),
+      "the worktree is outside the project repository",
+    ).toBe(true);
+    expect(after.worktree).not.toBe(process.cwd());
+    expect(existsSync(after.worktree!)).toBe(true);
+  });
+
+  test("the worktree is on its own branch, leaving the base branch alone", async () => {
+    const { agent } = launchable();
+    await req("POST", `/api/projects/${projectId}/tasks/t-iso/launch`, {});
+
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: getAgentRegistry().get(agent.id).worktree!,
+    }).toString().trim();
+    expect(branch).not.toBe("main");
+    expect(execSync("git rev-parse --abbrev-ref HEAD", { cwd: repo }).toString().trim()).toBe("main");
+  });
+
+  test("an existing worktree is reused rather than recreated", async () => {
+    const { agent } = launchable();
+    await req("POST", `/api/projects/${projectId}/tasks/t-iso/launch`, {});
+    const first = getAgentRegistry().get(agent.id).worktree;
+
+    await req("POST", `/api/projects/${projectId}/tasks/t-iso/launch`, {});
+    expect(getAgentRegistry().get(agent.id).worktree).toBe(first);
   });
 });

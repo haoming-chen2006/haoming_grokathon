@@ -18,6 +18,7 @@ import type { Actor } from "../types/project";
 import { estimateCost } from "../services/usageAccounting";
 import { getPromptLibrary, rulesForAgent } from "../services/promptLibrary";
 import { existsSync } from "fs";
+import { createAgentWorktree } from "../services/repository";
 
 export const projectRoutes = new Hono();
 
@@ -432,9 +433,29 @@ projectRoutes.post("/:id/tasks/:taskId/launch", async (c) => {
     const store = getProjectStore();
 
     // Throws PlanNotApprovedError or TaskBlockedError, mapped to 409 by fail().
+    const project = store.getProject(projectId);
     const task = store.assertTaskLaunchable(projectId, taskId);
     if (!task.assignedAgentId) {
       return c.json({ error: `Task ${taskId} has no assigned agent to launch`, code: "NO_AGENT" }, 400);
+    }
+
+    // Give the agent an isolated worktree before opening a session.
+    //
+    // Launching only opened a session, and the session's cwd is `agent.worktree || process.cwd()`.
+    // An agent without one therefore ran in whatever directory the *server* was started from —
+    // this repository — with write access to it. Every existing test and the acceptance script
+    // created the worktree by hand first, so nothing exercised the path a user actually takes.
+    // §9 and V-009 require isolation; this is where it has to be established.
+    const registry = getAgentRegistry();
+    const agent = registry.get(task.assignedAgentId);
+    if (!agent.worktree) {
+      const branch = agent.branch || `agent/${taskId}`;
+      const created = createAgentWorktree(project.repositoryPath, {
+        agentId: agent.id,
+        branch,
+        baseBranch: project.baseBranch,
+      });
+      registry.assignTask(agent.id, taskId, { branch, worktree: created.path });
     }
 
     const session = await getAcpSessionManager().open(task.assignedAgentId);

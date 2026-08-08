@@ -4492,6 +4492,63 @@ the product did.** Every test that launches a task had built the task itself.
 
 ---
 
+## Launch gave the agent no worktree — and the wrong directory (iteration 74)
+
+Following the demo, the obvious question was whether the flow works when a *user* drives it rather
+than a script. It did not.
+
+**The launch route only opened a session.** The session's working directory is:
+
+```ts
+agent.worktree || process.env.LAUNCH_CWD || process.cwd()
+```
+
+Nothing in the launch path created a worktree, so an agent launched from the Control Room fell
+through to `process.cwd()` — **the directory the server was started from, which is this
+repository**. An agent hired for someone else's project would have been given write access to
+OpenUI's own source. Demonstrated directly:
+
+```text
+agent.worktree:            (none)
+cwd the agent would get:   /Users/haoming/openui
+the project repository is: /tmp/some-real-repo
+```
+
+**Nothing caught it because every test and the acceptance script create the worktree by hand
+first**, exactly as the earlier demo did. The path a user actually takes — approve, click Launch —
+was the one path never exercised. That is the third time this shape has appeared: the code that
+serves a *user* being the code nothing tested (assignedAgentId in iteration 73, the Planner's
+attribution in 70).
+
+**Two fixes.** The launch route creates an isolated worktree when the agent has none, on its own
+branch off the project's base branch, and reuses an existing one. And the fallback no longer ends
+at the server's directory: an agent with no worktree gets its *project's* repository, which is
+still not isolated but is at least the right repository.
+
+Verified through the route a user takes, with nothing prepared:
+
+```text
+POST /tasks/t1/launch
+  → branch agent/t1 created
+  → worktree …/demo-todo/.agents/agent-t1
+  → main still holds: throw new Error("not implemented")
+```
+
+Three tests cover it: a worktree is created inside the project repository, it is on its own branch
+with the base branch untouched, and a second launch reuses it. Removing the creation turns the
+first red.
+
+**One test assertion of mine was wrong before the code was.** It compared the worktree path against
+the fixture path directly, and failed because git reports the canonical path while the fixture
+lives under `/var`, a symlink to `/private/var` — the same trap as iteration 43. The comparison is
+canonical now.
+
+```text
+bun run verify → exit 0, 735 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4588,7 +4645,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 95 ahead of main
+commits 98 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller
