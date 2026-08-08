@@ -360,7 +360,15 @@ function Slot({
   props: WorkspacePageProps;
 }) {
   if (!component) return <NotMergedYet what={what} branch={page.builtBy} />;
-  return component(props);
+  // `<Component {...props} />`, never `component(props)`.
+  //
+  // Calling it runs its body inside THIS component's render, so its hooks join the shell's own hook
+  // list. Switching from a page whose slot uses no hooks to one that does then changes the shell's
+  // hook count between two renders, React throws, and the whole tree unmounts — the page goes blank
+  // and only a reload brings it back, because a fresh mount starts from a consistent list. That was
+  // the "pages blank when I switch" bug, and it was in all three slots.
+  const Component = component;
+  return <Component {...props} />;
 }
 
 export function WorkspaceShell() {
@@ -455,7 +463,9 @@ export function WorkspaceShell() {
             <div className="h-px bg-border" />
             <SectionLabel>{page.label}</SectionLabel>
             {page.navigator ? (
-              page.navigator(pageProps)
+              // Rendered as an element, not called — see Slot. A navigator with hooks called inline
+              // would put them on the shell's hook list and blank the page on the next switch.
+              <Slot component={page.navigator} page={page} what={`${page.label}'s list`} props={pageProps} />
             ) : (
               <p className="text-[13px] text-ink-faint">
                 This page's list arrives with {page.builtBy ?? "its branch"}.
@@ -508,7 +518,7 @@ export function WorkspaceShell() {
             className="flex shrink-0 flex-col gap-3.5 overflow-y-auto px-3.5 py-4"
           >
             {page.inspector ? (
-              page.inspector(pageProps)
+              <Slot component={page.inspector} page={page} what={`${page.label}'s inspector`} props={pageProps} />
             ) : (
               <>
                 <SectionLabel>Inspector</SectionLabel>
