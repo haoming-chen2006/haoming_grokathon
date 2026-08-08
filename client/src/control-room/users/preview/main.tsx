@@ -31,7 +31,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { WorkspaceShell } from "../../shell/WorkspaceShell";
 import { PAGES } from "../../shell/pages";
-import { applyTheme, resolveTheme } from "../../shell/theme";
+import { THEME_STORAGE_KEY, applyTheme, resolveTheme } from "../../shell/theme";
 import { USERS_PAGE_SLOTS } from "../index";
 import "../../../index.css";
 
@@ -46,8 +46,13 @@ const params = new URLSearchParams(location.search);
 const person = params.get("person");
 history.replaceState(null, "", person ? `/users/${encodeURIComponent(person)}` : "/users");
 
+// Pinning writes the same localStorage key the theme toggle writes, rather than only stamping the
+// class: `WorkspaceShell` calls `useTheme()`, which re-resolves on mount and would immediately
+// overwrite a class this harness set behind its back. Going through the stored choice means the
+// harness pins a theme the way a user pins one, and the shell agrees with it.
 const pinned = params.get("theme");
-applyTheme(pinned === "dark" || pinned === "light" ? pinned : resolveTheme());
+if (pinned === "dark" || pinned === "light") localStorage.setItem(THEME_STORAGE_KEY, pinned);
+applyTheme(resolveTheme());
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
