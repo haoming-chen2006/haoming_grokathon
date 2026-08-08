@@ -222,7 +222,7 @@ tiers are decided from the row, not from the path.
 
 ```text
 TOOL: 0 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED   (TOOL-001…TOOL-012)
-COST: 1 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED   (COST-001 PASS; COST-002…015 NOT TESTED)
+COST: 2 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED   (COST-001, COST-002 PASS)
 Gate: RED, and not from this loop's work. 943 tests across 50 files (3 added this iteration).
       Three runs: 935/940 on the parent commit before any change, then 939/943 and 938/943.
       Every failure is a 5000-6700ms timeout in server/routes/projectReads.test.ts or
@@ -420,11 +420,11 @@ Consequences, in order of size:
   not per-protocol, so `pricing` must be decided per row from whether the field is present — never
   from which code path wrote the row.
 
-One limit of the new entry, stated so COST-002 inherits it rather than discovering it: xAI doubles
-all three grok-4.5 figures at or above 200k prompt tokens, `ModelRate` cannot express a tier, and
-grok-4.5's context window is 500k. A session that long under-prices by 2x. The billed
-`costUsdTicks` is the backstop — it is right regardless of tier — which is a second reason COST-004
-should record it.
+One limit of the new entry, found on iteration 1 and **closed by COST-002 on iteration 2**: xAI
+doubles all three grok-4.5 figures at or above 200k prompt tokens and grok-4.5's context window is
+500k, so a long session under-priced by 2x. `ModelRate` now carries an optional `longPrompt` tier
+and `estimateCost` selects on `inputTokens`. The billed `costUsdTicks` remains the backstop — it is
+right regardless of tier — which is a second reason COST-004 should record it.
 
 `resolveRate` (`:64-71`) returns `null` for an unknown model. `estimateCost` (`:77-79`) then returns
 `{ costUsd: 0, estimated: true, rateKey: null }` — described in its own comment as "an honest zero
@@ -468,6 +468,23 @@ Say "per turn" in the UI and mean it; do not label a turn's cost as a tool's.
 
 All of this is read from published documentation on 2026-08-08 and **not observed on this machine**,
 because no xAI credential exists here. Record the source and the date beside every rate you enter.
+
+**Re-read from `https://docs.x.ai/docs/models` on 2026-08-08 while doing COST-002.** Every figure
+below is confirmed. Three corrections the block does not carry:
+
+* transcription is **$0.10 / hr REST and $0.20 / hr streaming** — the block gives only the REST
+  figure, and a streaming transcript priced at the REST rate is half the bill;
+* realtime speech has model ids, and they are the rate keys: `grok-voice-think-fast-1.0` at
+  $0.05 / min and `grok-voice-think-fast-2.0` at $0.08 / min. "$0.05-0.08 / minute" is a range, and
+  a range cannot be a rate;
+* each speech-to-speech model also lists **"$0.004 / text input"**, and the page does not say what
+  one text input is. That component is deliberately unpriced — a realtime charge meters the audio
+  minutes and is knowingly incomplete by that amount. It is the one thing on this page that still
+  needs a source.
+
+Text-to-speech and speech-to-text are listed as **services with no model id**, so their rate keys
+(`tts`, `stt`, `stt-streaming`) are this product's own and `04-generation` must pass them
+explicitly rather than expect a provider id to resolve.
 
 ```text
 images   POST /v1/images/generations      grok-imagine-image          $0.02  / image
@@ -1506,10 +1523,15 @@ restating a known blocker.
 branch     pivot/tools-cost
 handoff    loops/handoff/pivot-tools-cost.md
 
-types      CostEvent, CostEventInput, Pricing, UnitKind, Rollup, Preflight
+types      CostEvent, CostEventInput, Pricing, Rollup, Preflight
            InjectionKind, InjectionRequest, InjectionPayload, SkillMount
            exported from server/services/costLedger.ts and server/services/promptLibrary.ts
            (they cannot live in server/types/*.ts — hot; re-export requested in the handoff)
+
+           UnitKind, MediaUnitKind, UnitRate, UnitCharge, ModelRate, TokenTier, RateSource
+           exported from server/services/usageAccounting.ts, not costLedger.ts: the rate table
+           defines what a unit is, and costLedger imports pricing rather than the reverse.
+           costLedger re-exports UnitKind so §4.1's row type reads from one place.
 
 api        GET    /api/library/skills | /prompts | /workflows          existing
            POST   /api/library/skills | /prompts | /workflows          existing

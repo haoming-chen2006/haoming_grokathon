@@ -186,3 +186,85 @@ remains blocked. The turn path is not blocked and was never blocked in the way �
 two loops that spend real money; without the approval threshold and the per-operation-kind retry
 cap, a failing job can loop through $50 with nothing to stop it. Neither item is started. This is
 the one ordering constraint that is about dollars rather than conflicts.
+
+---
+
+## Iteration 2 — 2026-08-08
+
+Item worked: **COST-002**. It passes. Nothing outside this loop's rows was edited; no new hot-file
+request. S2 is done, so S3 (the ledger) is unblocked.
+
+### 1. COST-002 — evidence, for VERIFICATION.md
+
+```text
+Rate keys (token, server/services/usageAccounting.ts DEFAULT_RATES):
+    grok-4.5      $2.00 in / $0.30 cached / $6.00 out  per million, and a longPrompt tier at
+                  >=200k input tokens of $4.00 / $0.60 / $12.00
+    gpt-4o        $2.50 / $1.25 / $10.00
+    gpt-4o-mini   $0.15 / $0.075 / $0.60
+    gpt-4.1       $2.00 / $0.50 / $8.00
+    `grok models` lists three configured text models: grok-4.5, gpt-4o, hf-qwen-coder.
+    The first two are priced; the third is deliberately absent, below.
+
+Per-unit rates (DEFAULT_UNIT_RATES, a second non-token code path via meterCost):
+    grok-imagine-image          $0.02  / image
+    grok-imagine-image-quality  $0.05  / image
+    grok-imagine-video          $0.050 / video second
+    grok-imagine-video-1.5      $0.080 / video second
+    tts                         $15.00 / 1M characters, held per-character
+    stt                         $0.10  / audio hour   (REST)
+    stt-streaming               $0.20  / audio hour   (streaming)
+    grok-voice-think-fast-1.0   $0.05  / realtime minute
+    grok-voice-think-fast-2.0   $0.08  / realtime minute
+
+Source and date on each: a required `source: { url, readOn }` on every rate, enforced by a test
+    that walks both tables. https://docs.x.ai/docs/models for the xAI rates and
+    https://developers.openai.com/api/docs/pricing for the OpenAI ones, both read 2026-08-08.
+    Each figure was re-read from the live page this iteration, not copied from §2.5.
+
+Deliberately absent rates (UNPRICED_BY_DESIGN, each with a reason and the page to check):
+    hf-qwen-coder    configured for the binary, but Hugging Face publishes no fixed per-token
+                     price — it passes through whatever third-party provider serves the request,
+                     so there is nothing to tabulate. Page quoted: "we just pass through the
+                     provider costs directly."
+    sandbox_minutes  05-software has not named a provider, so there is no published rate to read.
+    A test asserts both resolve to null through both resolvers, so a guessed number cannot be
+    added without deleting the test.
+
+Also deliberately unpriced, inside a rate that does exist: xAI lists "$0.004 / text input" beside
+    each speech-to-speech model and does not say what one text input is. A realtime charge is
+    metered on audio minutes and is knowingly incomplete by that component.
+
+Tests: server/services/usageAccounting.test.ts, describe "COST-002: …" — 9 tests. All fail on the
+    parent commit (the four new exports do not exist). Two of them price the documents' own
+    worked examples: §4.3's 60-second workflow asset at $5.12 video + $0.40 images = $5.52, and
+    6,000 characters of narration at $0.09.
+```
+
+### 2. For 04-generation — the call shape, so it is not invented twice
+
+```text
+meterCost({ rateKey, unit, count }) -> {
+  costUsd: number | null,          // null, never 0, when nothing could price it
+  pricing: "metered" | "unknown",
+  rateKey: string | null,
+  units: { kind, count },          // exact whether or not the price is known
+}
+```
+
+Two things about it that are deliberate and matter to a caller:
+
+* **the caller declares the unit** and a resolved rate must agree. A key whose unit disagrees comes
+  back `unknown` rather than priced, because pricing video seconds off the image rate would be
+  wrong in the direction nobody notices. Pass `unit: "video_seconds"` with a video key;
+* **`tts`, `stt` and `stt-streaming` are this product's keys, not xAI model ids.** The pricing page
+  lists those two as services and names no model. Pass the key explicitly; nothing will resolve
+  from a provider id.
+
+### 3. For 05-software — one number is needed from you
+
+`sandbox_minutes` is in the unit vocabulary and has **no rate**, so every sandbox charge will price
+as "price unknown" until that loop names the provider and its published rate. That is the honest
+state and it is not a blocker for the ledger, but the demo's software asset will show an incomplete
+total until it is answered. `https://e2b.dev/docs/pricing` is recorded as the page to read *if* E2B
+is the choice; it is a placeholder for where to look, not a decision.

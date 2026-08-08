@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_RATES, estimateCost, extractUsage, resolveRate } from "./usageAccounting";
+import {
+  DEFAULT_RATES,
+  DEFAULT_UNIT_RATES,
+  UNPRICED_BY_DESIGN,
+  estimateCost,
+  extractUsage,
+  meterCost,
+  resolveRate,
+  resolveUnitRate,
+} from "./usageAccounting";
 
 describe("V-045: token usage is extracted exactly", () => {
   test("reads the shape grok actually returns", () => {
@@ -131,5 +140,107 @@ describe("COST-001: the model a live turn reports has a rate", () => {
 
   test("a dated grok-4.5 id still resolves, as gpt-4o's does", () => {
     expect(resolveRate("grok-4.5-0709")?.[0]).toBe("grok-4.5");
+  });
+});
+
+describe("COST-002: every model and medium the product can call has a rate, or is deliberately unpriced", () => {
+  test("every text model configured for the grok binary is named", () => {
+    // `grok models` on 2026-08-08 lists exactly these three. hf-qwen-coder is the third and it is
+    // deliberately unpriced — see the UNPRICED_BY_DESIGN case below.
+    expect(resolveRate("grok-4.5")?.[0]).toBe("grok-4.5");
+    expect(resolveRate("gpt-4o")?.[0]).toBe("gpt-4o");
+  });
+
+  test("every rate carries the page it was read from and the date", () => {
+    // A rate with no provenance cannot be re-checked when it drifts (§7). The rate-table editor
+    // (COST-009) and the drift report (COST-014) render these; this test is what keeps a rate from
+    // being added without one.
+    for (const [key, rate] of Object.entries(DEFAULT_RATES)) {
+      expect(rate.source.url, `${key} has no source url`).toMatch(/^https:\/\//);
+      expect(rate.source.readOn, `${key} has no read date`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+    for (const [key, rate] of Object.entries(DEFAULT_UNIT_RATES)) {
+      expect(rate.source.url, `${key} has no source url`).toMatch(/^https:\/\//);
+      expect(rate.source.readOn, `${key} has no read date`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  test("a per-unit price exists for each medium the product can call", () => {
+    expect(resolveUnitRate("grok-imagine-image")?.[1]).toMatchObject({ unit: "images", perUnitUsd: 0.02 });
+    expect(resolveUnitRate("grok-imagine-image-quality")?.[1]).toMatchObject({ unit: "images", perUnitUsd: 0.05 });
+    expect(resolveUnitRate("grok-imagine-video")?.[1]).toMatchObject({ unit: "video_seconds", perUnitUsd: 0.05 });
+    expect(resolveUnitRate("grok-imagine-video-1.5")?.[1]).toMatchObject({ unit: "video_seconds", perUnitUsd: 0.08 });
+    expect(resolveUnitRate("tts")?.[1]).toMatchObject({ unit: "characters" });
+    expect(resolveUnitRate("stt")?.[1]).toMatchObject({ unit: "audio_hours", perUnitUsd: 0.1 });
+    expect(resolveUnitRate("grok-voice-think-fast-2.0")?.[1]).toMatchObject({ unit: "realtime_minutes", perUnitUsd: 0.08 });
+  });
+
+  test("the 60-second workflow asset in §4.3 prices at the figure the document quotes", () => {
+    // Eight 8-second clips at grok-imagine-video-1.5 plus one quality source image each.
+    const video = meterCost({ rateKey: "grok-imagine-video-1.5", unit: "video_seconds", count: 8 * 8 });
+    const images = meterCost({ rateKey: "grok-imagine-image-quality", unit: "images", count: 8 });
+    expect(video.costUsd).toBeCloseTo(5.12, 6);
+    expect(images.costUsd).toBeCloseTo(0.4, 6);
+    expect(video.costUsd! + images.costUsd!).toBeCloseTo(5.52, 6);
+    expect(video.pricing).toBe("metered");
+  });
+
+  test("narration prices per character, not per million", () => {
+    // §4.3: 6,000 characters of narration at $15.00/1M is $0.09.
+    expect(meterCost({ rateKey: "tts", unit: "characters", count: 6000 }).costUsd).toBeCloseTo(0.09, 6);
+  });
+
+  test("a medium with no rate is priced null and unknown, never zero", () => {
+    const charge = meterCost({ rateKey: "e2b-sandbox", unit: "sandbox_minutes", count: 30 });
+    expect(charge.costUsd).toBeNull();
+    expect(charge.pricing).toBe("unknown");
+    expect(charge.rateKey).toBeNull();
+    // The count is still exact and must survive — only the price is unknown.
+    expect(charge.units).toEqual({ kind: "sandbox_minutes", count: 30 });
+  });
+
+  test("a key whose unit disagrees with the caller's is unknown, not mispriced", () => {
+    // Pricing video seconds off the image rate would be wrong in the cheap direction.
+    const charge = meterCost({ rateKey: "grok-imagine-image", unit: "video_seconds", count: 64 });
+    expect(charge.costUsd).toBeNull();
+    expect(charge.pricing).toBe("unknown");
+  });
+
+  test("the rates that are deliberately absent are absent, and say why", () => {
+    for (const [key, entry] of Object.entries(UNPRICED_BY_DESIGN)) {
+      expect(resolveRate(key), `${key} must not be priced`).toBeNull();
+      expect(resolveUnitRate(key), `${key} must not be priced`).toBeNull();
+      expect(entry.reason.length).toBeGreaterThan(0);
+      expect(entry.checkAt).toMatch(/^https:\/\//);
+    }
+    // The two the documents name: a sandbox meter no one has chosen a provider for (§2.6), and a
+    // Hugging Face model whose price is whatever third party serves the request (§8).
+    expect(Object.keys(UNPRICED_BY_DESIGN)).toContain("hf-qwen-coder");
+    expect(Object.keys(UNPRICED_BY_DESIGN)).toContain("sandbox_minutes");
+  });
+
+  test("a prompt at or above 200k tokens is priced at the tier xAI actually charges", () => {
+    // xAI doubles all three grok-4.5 figures at 200k, and its context window is 500k, so this is
+    // reachable. Pricing it at the short-prompt tier would understate the bill by half.
+    const long = estimateCost({
+      inputTokens: 200_000, outputTokens: 1_000, totalTokens: 201_000,
+      cachedReadTokens: 0, reasoningTokens: 0, modelId: "grok-4.5",
+    });
+    expect(long.costUsd).toBeCloseTo((200_000 / 1e6) * 4 + (1_000 / 1e6) * 12, 6);
+
+    const short = estimateCost({
+      inputTokens: 199_999, outputTokens: 1_000, totalTokens: 200_999,
+      cachedReadTokens: 0, reasoningTokens: 0, modelId: "grok-4.5",
+    });
+    expect(short.costUsd).toBeCloseTo((199_999 / 1e6) * 2 + (1_000 / 1e6) * 6, 6);
+    expect(long.costUsd).toBeGreaterThan(short.costUsd * 1.9);
+  });
+
+  test("a model with no long-prompt tier keeps one price at any length", () => {
+    const est = estimateCost({
+      inputTokens: 400_000, outputTokens: 0, totalTokens: 400_000,
+      cachedReadTokens: 0, reasoningTokens: 0, modelId: "gpt-4o",
+    });
+    expect(est.costUsd).toBeCloseTo((400_000 / 1e6) * 2.5, 6);
   });
 });
