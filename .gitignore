@@ -39,3 +39,6 @@ yarn-error.log*
 
 # Reference repos cloned from loopdesign.md §5 (read-only, not part of this project)
 .refs/
+
+# Any .env variant, including backups — these hold real credentials.
+.env*
