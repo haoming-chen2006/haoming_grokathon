@@ -17,6 +17,7 @@ import {
   DesignDocumentsNavigator,
   DesignDocumentsPage,
 } from "../designdoc";
+import { USERS_PAGE_SLOTS } from "../users";
 
 export const PAGES: PageDescriptor[] = [
   { id: "agents", label: "Agents", segment: "agents", rank: "headline", builtBy: "01-agents" },
@@ -40,7 +41,9 @@ export const PAGES: PageDescriptor[] = [
     navigator: DesignDocumentsNavigator,
     inspector: DesignDocumentInspector,
   },
-  { id: "users", label: "Users", segment: "users", rank: "secondary", builtBy: "08-users-x" },
+  // 08-users-x, mounted. The row keeps its id, label, segment and rank — those are the shell's —
+  // and gains only the three components, which is why the page exports them as one object.
+  { id: "users", label: "Users", segment: "users", rank: "secondary", builtBy: "08-users-x", ...USERS_PAGE_SLOTS },
   { id: "x", label: "X", segment: "x", rank: "secondary", builtBy: "08-users-x" },
 ];
 
