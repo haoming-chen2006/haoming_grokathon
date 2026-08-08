@@ -266,6 +266,64 @@ many iterations it is given. Four items will sit at "held, one clause short" unt
 Recommendation: run the reconciliation pass for R-1…R-9 earlier than the end, or accept that these
 four close in a verification pass after the merge rather than during the loop.
 
+### R-10 · COMPOSITION ROOT · where the design-document store's directory lives
+
+Whoever constructs `DesignDocStore` must place its directory **outside every project repository and
+every agent worktree** — the OPENUI data directory, not the repo.
+
+This is not tidiness. `grok-workspace.md` §3.3.1 (A-0) establishes that an agent is a real `grok`
+process retaining Grok Build's native surface, **including file reading and editing**. DD-009's
+guarantee — agents cannot write a design document — is enforced in `writeSection`, which guards
+*that API*. An agent that can see the store's JSON files on disk edits them with its own file tools
+and never calls the API at all. Every DD-009 test would still pass while the brief was being
+rewritten underneath them.
+
+Write-time path enforcement (`server/services/boundary.ts`, 01-agents) does not exist yet, and
+`assertAgentCanWrite` (`server/services/repository.ts:261`) has zero production callers. **Today the
+store's safety is unreachability and nothing else.** This worktree cannot enforce the choice,
+because it does not own the composition root; it is recorded here so the choice is made
+deliberately rather than by whichever path someone types first.
+
+### F-7 · A-0 audit of this worktree — no violations found
+
+`grok-workspace.md` §3.3.1 (A-0) postdates `loops/03-design-documents.md`, so it is not in the loop
+document. Audited all six owned files against it:
+
+```text
+                                     capability-tier logic   generation imports   worker machinery
+server/services/designDoc.ts                    0                    0                   0
+server/services/designDoc.test.ts               0                    0                   0
+server/services/designDocInvariants.test.ts     0                    0                   0
+server/services/designDocDeclaration.test.ts    0                    0                   0
+server/services/designDocVersioning.test.ts     0                    0                   0
+server/services/designDocAgentSurface.test.ts   0                    0                   0
+```
+
+Findings:
+
+* **Nothing creates, implies or makes room for a non-`grok` worker.** This surface spawns no
+  process, opens no socket, and calls no model. It is a synchronous file-backed store, a pure
+  parser, a pure sweep and a read formatter. The only agent-shaped construct is
+  `Actor {kind: "agent", id}` — an authorship identity reused from `server/types/project.ts` for
+  provenance, not an agent implementation. This surface never decides what an agent *is*.
+* **Nothing treats a capability tier as a reduced agent**, because nothing here reads `capability`
+  at all. Tiers belong to 01-agents; this surface renders presence in an area colour and never
+  branches on capability. When it eventually displays capability, it must display it as a grant on
+  top of a whole agent — `base` is the full Grok Build surface with no media APIs, `+images` is that
+  same surface plus image endpoints.
+* **The MCP tools this surface adds are consistent with A-0's model**: `read_design_document` and
+  `list_design_documents` are tools offered to a real `grok` process through the project MCP server,
+  exactly as A-0 describes media endpoints being offered. `DESIGN_DOC_MCP_TOOLS`' read-only
+  name-shape rule is scoped to design-document tools by name and places no constraint on 04's media
+  tools.
+* **The presence design (stages 6-9) assumes `grok`/ACP throughout** and needs no revision:
+  derived presence comes from MCP tool calls, reported presence from `report_document_focus`, and
+  the cadence reaches the agent through `rules` at `session/new` via `acpSessionManager` — all
+  native Grok Build mechanisms. DD-014's positive control ("an agent briefed without the cadence")
+  therefore requires real `grok` agents; it must not be satisfied with a simulated one.
+
+One consequence of A-0 required action rather than a clean bill: see **R-10** above.
+
 ### F-4 · DD-005 is blocked on `01-agents`' area model, which does not exist yet
 
 Iteration 3 built the declaration parser (DD-004 PASS). The apply half — DD-005 — cannot be
@@ -335,3 +393,88 @@ part of that service. No sibling worktree can want those paths. Noted rather tha
 
 (The sibling document `loops/02-assets.md` §0 grants its own test files explicitly. The omission
 here looks like drift between the two documents, not intent.)
+
+---
+
+## Final iteration — what landed, and two things reconciliation must know
+
+### R-11 — `server/routes/api.ts` (HOT FILE — EDITED, not requested)
+
+```text
++ import { designDocRoutes } from "./designDocs";
++ apiRoutes.route("/design-docs", designDocRoutes);
+```
+
+**Edited directly rather than filed, on an explicit instruction** ("Add server/routes/designDocs.ts,
+mount it… That is the demo"). Two lines, both additive, in the same shape as the four mounts above
+them. Flagged here because the hot-file protocol says a mount is a request, and a reviewer should
+see that the rule was broken deliberately and not by accident.
+
+### R-12 — `client/src/control-room/shell/contract.ts`, for 07-shell
+
+`WorkspacePageComponent` is typed `(props) => JSX.Element`, which forbids a slot returning `null`.
+That is a normal React pattern and the inspector wanted it when no document is selected. Widening
+to `JSX.Element | null` is additive and breaks nobody:
+
+```ts
+export type WorkspacePageComponent = (props: WorkspacePageProps) => JSX.Element | null;
+```
+
+Worked around locally by returning an element instead. Not urgent.
+
+### What is real on this page and what is not
+
+```text
+REAL   the three documents, their text, their sections, the declaration, the declared areas and
+       the line each was declared on. Parsed by services/designDoc.ts — the one parser, on the
+       server. The client does not reimplement it; shared/designDocument.ts exists because the
+       CLI and the browser once had two parsers and drifted.
+
+MOCK   line-level presence, and nothing else. One file, one export:
+       client/src/control-room/designdoc/mockPresence.ts
+       Labelled on screen where it renders. Delete the file and the one import when
+       server/services/presence.ts lands; the components take PresenceReport[] either way.
+
+ABSENT persistence, versioning, writes, suggestions, and the in-document conversation. The route
+       is read-only on purpose and has no endpoint that pretends to save anything.
+```
+
+The route reads `demo/design-docs/` rather than `DesignDocStore`. The store is built, versioned and
+tested, but nothing writes to it and no composition root chooses its directory (R-10). When that is
+wired, `listDocuments()` in `server/routes/designDocs.ts` is the only function that changes.
+
+### The wireframe comparison (design-document.html), and where it lost
+
+Read and compared clause by clause. Adopted: the KEY legend, the solid/dashed/dotted stroke
+encoding, the per-agent caption with an elapsed time, the gutter carrying a word as well as a
+colour, and `PROJECT · …` as a single chip so the cardinality rule is visible rather than stated.
+
+**Three disagreements, and the loop document won all three:**
+
+1. **The wireframe has no `unknown` state.** It shows working / stale / done / expired. §3.8 calls
+   `unknown` the important one: the agent is alive and the session is running, but it has not said
+   where — or the document version moved, so its reported range is *wrong* rather than old. The
+   wireframe would have drawn a confident highlight over the wrong paragraph. `unknown` is built,
+   it draws no highlight at all, and it says so in words in the rail.
+2. **The wireframe's `done` keeps a green highlight after the agent stopped.** §3.8's `ended`
+   removes the highlight entirely, and the TTL exists precisely to stop a ghost dot outliving a
+   crashed agent. Followed the document. The wireframe's `done` is a good idea wearing the wrong
+   hat: it is *provenance* ("this range produced sale_demo_video"), not presence, and it belongs to
+   the asset, not to the lease.
+3. **Messages with a line link should render beside those lines** (§3.7); the wireframe puts them
+   all in a side panel with the range in the caption. Neither is built this iteration.
+
+**Checked specifically, because it was asked:**
+
+* **Fresh, stale and expired are distinguishable without colour.** Each state differs by outline
+  style — filled / dashed / dotted — *and* carries a written label and an elapsed time. Four states
+  survive greyscale, 9px, and a reader who cannot separate the six area hues. The marker is
+  `aria-hidden`; the caption carries the meaning.
+* **The project relationship is visible, in both directions.** A document shows at most one project
+  chip; the navigator lists many documents. A document with no project says "No project follows
+  this document yet" rather than hiding the field — DD-001's case, which the wireframe never shows.
+* **Nothing gates an action on presence, in the wireframe or here.** The wireframe's Open/Pause/Stop
+  appear identically on every agent regardless of state; there is no lock, no disabled control, no
+  read-only banner, and no such affordance was built. Presence is a view, not a lock. Worth keeping
+  under review: those three controls act on a `grok` process and belong to 01-agents, so wiring
+  them is a request, not something this worktree should reach for.

@@ -12,6 +12,11 @@
  */
 import type { PageDescriptor, ToolsPanelComponent } from "./contract";
 import { AssetsInspector, AssetsNavigator, AssetsPage } from "../assets";
+import {
+  DesignDocumentInspector,
+  DesignDocumentsNavigator,
+  DesignDocumentsPage,
+} from "../designdoc";
 
 export const PAGES: PageDescriptor[] = [
   { id: "agents", label: "Agents", segment: "agents", rank: "headline", builtBy: "01-agents" },
@@ -25,7 +30,16 @@ export const PAGES: PageDescriptor[] = [
     navigator: AssetsNavigator,
     inspector: AssetsInspector,
   },
-  { id: "designdocs", label: "Design Documents", segment: "designdocs", rank: "headline", builtBy: "03-design-docs" },
+  {
+    id: "designdocs",
+    label: "Design Documents",
+    segment: "designdocs",
+    rank: "headline",
+    builtBy: "03-design-docs",
+    main: DesignDocumentsPage,
+    navigator: DesignDocumentsNavigator,
+    inspector: DesignDocumentInspector,
+  },
   { id: "users", label: "Users", segment: "users", rank: "secondary", builtBy: "08-users-x" },
   { id: "x", label: "X", segment: "x", rank: "secondary", builtBy: "08-users-x" },
 ];

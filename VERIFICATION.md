@@ -7325,6 +7325,32 @@ no failures and no summary — because the wrapper function swallowed it. Read n
 like three controls passing, i.e. three checks that cannot fail. Re-running each mutation directly
 showed all three do fail. Second time this loop has hit a probe-harness defect; see F-5.
 
+## A-0 audit (grok-workspace.md §3.3.1) — no violations
+
+A-0 postdates `loops/03-design-documents.md`. Audited all six owned files: zero capability-tier
+logic, zero generation imports, zero worker machinery in every one.
+
+```text
+Does anything create, imply or make room for a non-grok worker?   NO
+  This surface spawns no process, opens no socket and calls no model. It is a synchronous
+  file-backed store, a pure parser, a pure sweep and a read formatter. Actor{kind:"agent"}
+  is an authorship identity for provenance, not an agent implementation.
+
+Does anything treat a capability tier as a reduced agent?          NO
+  Nothing here reads `capability` at all. Tiers belong to 01-agents.
+
+Are the MCP tools consistent with A-0?                             YES
+  read_design_document and list_design_documents are tools offered to a real grok process
+  through the project MCP server. There is no write tool by construction (DD-009).
+```
+
+**One consequence required action.** DD-009's guarantee is enforced in `writeSection`, which guards
+that API — but A-0 establishes that an agent retains native file reading and editing. An agent that
+can see the store's JSON on disk edits it directly and never calls the API, and every DD-009 test
+would still pass while the brief was rewritten underneath them. The store's directory must therefore
+live outside every repository and agent worktree. Documented at the constructor and filed as R-10,
+because this worktree does not own the composition root that chooses the path.
+
 ## Five items now cannot reach PASS from inside this worktree
 
 This is a property of the partition, not of the work, and it is stated here because §8 defines done
