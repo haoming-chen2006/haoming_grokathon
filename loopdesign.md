@@ -29,7 +29,14 @@ bun run audit                             # expect: 0 orphans, every endpoint co
 ```
 
 `bun run verify` runs, in order: server typecheck → client typecheck → all tests → production
-build. **A red gate is always the highest-priority work**, ahead of any checklist item.
+build → the four audits. **A red gate is always the highest-priority work**, ahead of any
+checklist item.
+
+**Capture verify's output to a file, never `>/dev/null`.** The commit guard is
+`bun run verify > <file> 2>&1; if [ $? -eq 0 ]; then git commit …`. Discarding the output means a
+red gate cannot be diagnosed without re-running it — and with a live-agent flake at roughly one in
+five, the re-run is usually green and the evidence is gone. This is the same mistake as asserting
+an effect while throwing away the reply.
 
 ### Model backend
 
@@ -55,7 +62,7 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 61
+## 2. State as of iteration 62
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
