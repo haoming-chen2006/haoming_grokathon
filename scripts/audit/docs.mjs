@@ -23,7 +23,7 @@ const ROOT = process.cwd();
  * (`src/auth/session.ts` and the like). Those are not claims about this repository, so checking
  * them would produce noise and train the reader to ignore this audit.
  */
-const DOCS = ["VERIFICATION.md", "loopdesign.md", "README.md"];
+const DOCS = ["VERIFICATION.md", "loopdesign.md", "README.md", "HANDOFF.md"];
 
 /** Scripts are checked everywhere, since a documented command either exists or it does not. */
 const SCRIPT_DOCS = [...DOCS, "product-design.md", "verifiables.md"];
