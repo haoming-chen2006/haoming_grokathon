@@ -10,6 +10,7 @@ import { projectRoutes } from "./projects";
 import { repositoryRoutes } from "./repository";
 import { agentRoutes } from "./agents";
 import { libraryRoutes } from "./library";
+import { designDocRoutes } from "./designDocs";
 import { spawnSync } from "bun";
 import { join, dirname } from "path";
 import { homedir } from "os";
@@ -30,6 +31,9 @@ apiRoutes.route("/repository", repositoryRoutes);
 apiRoutes.route("/coding-agents", agentRoutes);
 // Reusable skills, prompt templates and workflows (loopdesign.md §14).
 apiRoutes.route("/library", libraryRoutes);
+
+// 03-design-docs. Read-only today; see the header of routes/designDocs.ts.
+apiRoutes.route("/design-docs", designDocRoutes);
 
 const IS_REMOTE = !!process.env.SSH_CONNECTION;
 
