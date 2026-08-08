@@ -333,6 +333,51 @@ export class AssetStore {
     });
     return this.persist(asset);
   }
+
+  /**
+   * Mark every declaration read against an older version of `designDocId` as stale.
+   *
+   * Line numbers move. This sets the flag and changes nothing else: the range and the version it
+   * was read against stay exactly as recorded, so the page can say "declared by lines 40–52 of
+   * *Q3 deck brief*, as of version 7 — the document has since changed". **Nothing re-anchors the
+   * range.** A re-anchored range that guesses wrong is worse than a stale one that says so, and
+   * the guess is unfalsifiable once made.
+   *
+   * The flag only ever goes true. The document did move past the version this range was read
+   * against, and rolling the version back does not make that untrue.
+   *
+   * This is `DesignSuggestion`'s `baseVersion`/`stale` behaviour (`server/types/project.ts`, swept
+   * in `server/services/projectStore.ts`) reused rather than reinvented.
+   *
+   * **Its caller lives in another worktree.** 03-design-docs owns the design document and its
+   * version counter, so the version bump is what must call this. Until that is wired, no asset is
+   * ever marked stale in production — a link nobody populates is a link nobody can trust, which is
+   * exactly what happened to `Requirement.designSection`. The request is R-6 in
+   * `loops/handoff/pivot-assets.md` and the gap is stated in `VERIFICATION.md` rather than hidden.
+   */
+  sweepDeclarations(
+    projectId: string,
+    designDocId: string,
+    currentVersion: number,
+  ): { assetId: string; designDocId: string; designDocVersion: number }[] {
+    const changed: { assetId: string; designDocId: string; designDocVersion: number }[] = [];
+
+    for (const asset of this.listAssets(projectId, { includeDeleted: true })) {
+      const declaration = asset.declaredBy;
+      if (!declaration || declaration.designDocId !== designDocId) continue;
+      if (declaration.stale || declaration.designDocVersion >= currentVersion) continue;
+
+      declaration.stale = true;
+      this.persist(asset);
+      changed.push({
+        assetId: asset.id,
+        designDocId,
+        designDocVersion: declaration.designDocVersion,
+      });
+    }
+
+    return changed;
+  }
 }
 
 const MIME_EXT: Record<string, string> = {

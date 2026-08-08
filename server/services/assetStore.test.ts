@@ -173,3 +173,140 @@ describe("AS-002 every store mutation is synchronous", () => {
     expect(store.getAsset(asset.id).files.map((f) => f.id)).toEqual([descriptor.id]);
   });
 });
+
+describe("AS-006 declaredBy points at a design document and goes stale honestly", () => {
+  const declaredBy = {
+    designDocId: "doc_1",
+    designDocVersion: 7,
+    lineStart: 40,
+    lineEnd: 52,
+    stale: false,
+  };
+
+  function declared() {
+    return store.createAsset({
+      projectId: "proj_1",
+      type: "slides",
+      title: "Q3 deck",
+      origin: "generated",
+      authorId: "agent_1",
+      producedByAgentId: "agent_1",
+      declaredBy: { ...declaredBy },
+    });
+  }
+
+  test("the range and the version it was read against are recorded at creation", () => {
+    const asset = declared();
+    expect(asset.declaredBy).toEqual(declaredBy);
+    // Reread from disk: a field the envelope drops on write is a field nobody can trust.
+    expect(store.getAsset(asset.id).declaredBy).toEqual(declaredBy);
+  });
+
+  test("the document advancing past that version marks the range stale", () => {
+    const asset = declared();
+    const changed = store.sweepDeclarations("proj_1", "doc_1", 8);
+
+    expect(changed).toEqual([{ assetId: asset.id, designDocId: "doc_1", designDocVersion: 7 }]);
+    expect(store.getAsset(asset.id).declaredBy!.stale).toBe(true);
+  });
+
+  test("nothing re-anchors the range", () => {
+    // A re-anchored range that guesses wrong is worse than a stale one that says so.
+    const asset = declared();
+    store.sweepDeclarations("proj_1", "doc_1", 99);
+    const after = store.getAsset(asset.id).declaredBy!;
+
+    expect(after.lineStart).toBe(40);
+    expect(after.lineEnd).toBe(52);
+    expect(after.designDocVersion).toBe(7);
+    expect(after).toEqual({ ...declaredBy, stale: true });
+  });
+
+  test("an asset declared against the current version is left alone", () => {
+    const asset = declared();
+    expect(store.sweepDeclarations("proj_1", "doc_1", 7)).toEqual([]);
+    expect(store.getAsset(asset.id).declaredBy!.stale).toBe(false);
+  });
+
+  test("staleness never reverses, and the sweep is idempotent", () => {
+    const asset = declared();
+    store.sweepDeclarations("proj_1", "doc_1", 8);
+    // A second sweep reports no change, and rolling the version back does not un-stale it: the
+    // document did move, and that fact does not become untrue.
+    expect(store.sweepDeclarations("proj_1", "doc_1", 8)).toEqual([]);
+    expect(store.sweepDeclarations("proj_1", "doc_1", 7)).toEqual([]);
+    expect(store.getAsset(asset.id).declaredBy!.stale).toBe(true);
+  });
+
+  test("a sweep for one document does not touch another's assets", () => {
+    const mine = declared();
+    const other = store.createAsset({
+      projectId: "proj_1",
+      type: "document",
+      title: "elsewhere",
+      origin: "generated",
+      authorId: "agent_1",
+      declaredBy: { ...declaredBy, designDocId: "doc_2" },
+    });
+
+    store.sweepDeclarations("proj_1", "doc_1", 8);
+    expect(store.getAsset(mine.id).declaredBy!.stale).toBe(true);
+    expect(store.getAsset(other.id).declaredBy!.stale).toBe(false);
+  });
+
+  test("an undeclared asset is not given a declaration by the sweep", () => {
+    const plain = create("document");
+    store.sweepDeclarations("proj_1", "doc_1", 8);
+    expect(store.getAsset(plain.id).declaredBy).toBeUndefined();
+  });
+});
+
+describe("AS-003 a document asset is not a design document", () => {
+  const src = readFileSync(join(import.meta.dir, "assetStore.ts"), "utf8");
+
+  test("the store exposes nothing that declares work", () => {
+    // Enumerated rather than pattern-matched: an allowlist fails when a method is *added*, which
+    // is the direction the mistake comes from. A `promoteToDesignDocument` lands here first.
+    //
+    // TypeScript's `private` is compile-time only, so the three internal methods are on the
+    // prototype at runtime and are listed. Hiding them behind a filter would mean a private
+    // `promoteToDesignDocument` slipped through the check that exists to catch it.
+    const methods = Object.getOwnPropertyNames(AssetStore.prototype)
+      .filter((name) => name !== "constructor")
+      .sort();
+
+    expect(methods).toEqual([
+      "assetDir",
+      "attachFile",
+      "createAsset",
+      "envelopePath", // private
+      "filesDir",
+      "getAsset",
+      "listAssets",
+      "persist", // private
+      "readIfPresent", // private
+      "sweepDeclarations",
+    ]);
+  });
+
+  test("the link runs one way: the asset points at the document, never the reverse", () => {
+    // The asset side carries the back-pointer.
+    expect(src).toContain("declaredBy");
+
+    // The design-document side carries no list of assets. Checked against the real declaration
+    // rather than asserted in prose, so 03-design-docs adding one fails here.
+    const projectTypes = readFileSync(join(import.meta.dir, "../types/project.ts"), "utf8");
+    const designDocument = projectTypes.slice(
+      projectTypes.indexOf("export interface DesignDocument {"),
+      projectTypes.indexOf("}", projectTypes.indexOf("export interface DesignDocument {")),
+    );
+    expect(designDocument).not.toContain("asset");
+    expect(designDocument).not.toContain("Asset");
+  });
+
+  test("the sweep is the only writer of stale, and it only ever sets it", () => {
+    const body = src.slice(src.indexOf("sweepDeclarations("), src.indexOf("\n}\n", src.indexOf("export class AssetStore {")));
+    expect(body).toContain("stale = true");
+    expect(body).not.toContain("stale = false");
+  });
+});

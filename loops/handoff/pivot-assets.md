@@ -102,6 +102,8 @@ server/services/assetStore.ts
     getAsset(assetId): Asset                  throws AssetNotFoundError
     listAssets(projectId, {type?, q?, includeDeleted?}): Asset[]     derived from disk, no index
     attachFile(assetId, file, {authorId, changeSummary?}): Asset     appends a version
+    sweepDeclarations(projectId, designDocId, currentVersion): {assetId, designDocId,
+                                              designDocVersion}[]   iteration 2; see R-6
 
   async persistFile(input: PersistFileInput, store: AssetStore): Promise<AssetFile>
   getAssetStore(): AssetStore                 rooted at $OPENUI_DATA_DIR/assets
@@ -119,9 +121,10 @@ Two departures from §9's sketch, both deliberate, both needed by 04-generation 
   so it can be pointed at a test directory. `persistFile(input, getAssetStore())` is the production
   call.
 
-Not built yet, and named here so nobody assumes otherwise: `recordCharge`, the write lease, the
-`declaredBy` staleness sweep, secret scanning on text writes, `expectedVersion` conflict detection,
-restore, soft delete, the preview, and every HTTP and MCP surface.
+Not built yet, and named here so nobody assumes otherwise: `recordCharge`, the write lease, secret
+scanning on text writes, `expectedVersion` conflict detection, restore, soft delete, the preview,
+and every HTTP and MCP surface. The staleness sweep exists as of iteration 2 but has no caller — see
+R-6; treat it as unwired, not as working.
 
 ---
 
@@ -177,3 +180,138 @@ reconciliation knows the omission was deliberate, not an oversight.
 `loops/02-assets.md` §1 says to expect `grok 0.2.118`. The binary at `./node_modules/.bin/grok`
 reports `grok 1.0.0 (3cd0d0cbcebe)`. Not a blocker for this loop — nothing in stage 1 calls it — but
 any loop document asserting the version is stale, and 04-generation should not plan against 0.2.118.
+
+---
+
+## Iteration 2 — §4.11 stage 2, store side (AS-003, AS-006 held)
+
+Added `AssetStore.sweepDeclarations()` and ten tests. Both items stay NOT TESTED: their remaining
+clauses are about what the page renders, and the page is stage 9. Details in `VERIFICATION.md` §23.
+
+### R-6 · 03-design-docs — call the staleness sweep from the version bump
+
+**Reason.** `sweepDeclarations` has no caller. An asset's `declaredBy.stale` is therefore never set
+in production, which makes it exactly the failure `loops/02-assets.md` §6a names: a link declared,
+accepted, stored, and populated by nothing — `Requirement.designSection` (`server/types/project.ts`)
+after 52 passing checklist items. The mechanism is built and tested; naming its caller is the part
+this worktree cannot do.
+
+**Change.** Wherever 03-design-docs commits a new design-document version, after the version is
+persisted:
+
+```ts
+getAssetStore().sweepDeclarations(projectId, designDocId, newVersion);
+```
+
+**Signature.**
+
+```ts
+sweepDeclarations(
+  projectId: string,
+  designDocId: string,
+  currentVersion: number,
+): { assetId: string; designDocId: string; designDocVersion: number }[]
+```
+
+Synchronous, idempotent, and returns only the assets it changed — so the caller can publish an
+`asset_changed` event per entry without diffing anything. It sets one boolean. It never re-anchors
+`lineStart`/`lineEnd`, never rewrites `designDocVersion`, and never sets `stale` back to false.
+
+**Open question for 03, from `loops/02-assets.md` §9.** This loop assumed staleness is computed by
+*pushing* from the version bump. The alternative is this loop *pulling* the current version on read.
+Push was chosen because it needs no dependency from 02 onto 03, and the dependency direction
+elsewhere is 04 → 02. If 03 would rather emit an event, the sweep is equally callable from a
+subscriber and nothing here changes. **Confirm which at reconciliation.**
+
+### A note on a hot file this worktree did not modify
+
+Proving the one-way link required checking that `DesignDocument` has no asset list. The positive
+control for that check adds `assetIds: string[]` to `DesignDocument` in `server/types/project.ts`,
+which is hot. It was applied to a scratch copy, the test was observed to fail, and the file was
+restored; `git status` is clean on that path and the commit does not touch it. Recorded because
+"I edited a hot file and put it back" is exactly the claim that should never be silent.
+
+---
+
+## The generated Assets page design — read, compared, not built against
+
+A page design was generated at `assets-page.html` in the main checkout (bundled React, 258 KB; the
+markup is in its `__bundler/template` script). Read and compared against `loops/02-assets.md`. The
+MAIN region — left rail, centre card grid, right inspector — is this loop's. The title bar and the
+Agents/Assets/Design Documents/Users/X/Tools nav are `07-shell`'s and are not rebuilt here.
+
+Its provenance treatment is close to §4.4 and worth keeping: agent chip, capability chip and cost on
+the card face, with Made by / Capability / Cost / Declared by / Updated in the inspector. Four facts,
+no click. The disagreements below are recorded so they are settled before any of it is built.
+
+### D-1 · An asset and a design document share a name and a row  — §2
+
+The left rail lists `chair_launch_plan` as `document · Scribe · $0.31` — a searchable asset with a
+producing agent and a cost. The inspector then renders `overall_sale_doc` as "Declared by →
+chair_launch_plan". Either an asset declares work, or design documents are being mixed into asset
+search results. Both are §2 violations. This is the confusion §2 exists to prevent, and it appears
+in the first design of the page.
+
+### D-2 · Every cost is a bare figure  — §4.5, AS-016
+
+`$0.31 · $1.05 · $0.12 · $4.06 · $5.52`, each rendered with full confidence and no `costSource`,
+no `cost unknown`, and nowhere to surface a model that could not be priced. `DEFAULT_RATES`
+(`server/services/usageAccounting.ts`) has three OpenAI keys and no Grok model, so built as drawn
+this page shows `$0.00` for every Grok asset. The tile needs a cost *and* its source, or the words
+`cost unknown` with the model id.
+
+### D-3 · "READ BY — Reel — now" implies presence the store cannot supply  — §4.7
+
+§4.7: the lease "only ever means writing… do not label your lease 'reading'". Reads are point-in-time
+`read_asset` calls, not a lease, so there is no honest source for a live read indicator. "Last read
+by Reel, 4 min ago", from a recorded tool call, is supportable. "now" is not.
+
+### D-4 · "Declared by" shows a name only  — AS-006
+
+No line range, no version, no staleness. AS-006 requires "declared by lines 40–52 of *Q3 deck
+brief*, as of version 7 — the document has since changed". This is the clause held NOT SATISFIED in
+iteration 2; the design confirms nothing renders it.
+
+### D-5 · No `preview unavailable` state  — §4.8, AS-011
+
+Every card carries a rich preview. This page ships before three of the five renderers exist, so on
+day one most assets are `preview.kind: "none"` with a reason. The design has no visual for the state
+that will be true at launch, which is the one state §4.1 says must never be an empty box.
+
+### D-6 · "Feed to an agent"  — §2 rule 1
+
+Sits close to "no action that starts work". Needs defining as *attach as context to an existing
+agent's next turn*, not *dispatch*. If it dispatches, it is prohibited.
+
+### D-7 · Smaller ones
+
+```text
+capability chips   "BASE + IMAGES + VOICE" invents a fifth value; the four are
+                   base | images | voice | voice+images
+listing columns    §4.1 asks for word count + last writer (document), narrated y/n (slides),
+                   framework (software); the design shows pages, slide count, file count
+search-first       "Nothing is listed until you ask" against AS-011's "five types appear on one
+                   page, filterable by type"
+```
+
+### The three gaps, and what this loop does about each
+
+```text
+tables      A DESIGN OMISSION, and a shallow one. Tables are in the design's model already —
+            "chair_price_list · table · Ledger · $0.12" is in the left rail. Only the chip row
+            omits them, presumably behind "More…". Covered here: the chips become the five types.
+
+workflows   NOT AN OMISSION. The design has answered X-1, and answered it the other way. There is
+            no workflow card. Workflow appears only as "MADE BY WORKFLOW · Script → Storyboard →
+            Render · loop ran 3 times, goals fixed" — agent control logic describing how the video
+            was made — while the filter chip reads "Video", which is not one of the five types.
+            Under that reading §7.3 is explicit: a workflow asset becomes a VIEW onto
+            promptLibrary's workflows, owned by 06-tools-cost, not a row in this store, and §4.1's
+            workflow row changes. §8 lists X-1 as a stop-and-ask. HELD OPEN. Not built either way.
+            06-tools-cost should know its workflow store may acquire a reader on the Assets page.
+
+file tree   SCOPE THIS LOOP MUST STILL COVER. Absent from the design entirely, but §4.9 specifies
+            both trees and AS-012/AS-013 depend on them. The 320px inspector is full, so the least
+            invasive fit is a search ⇄ tree toggle on the left rail rather than a fourth column.
+            Raised with 07-shell only if it needs chrome; it does not.
+```
