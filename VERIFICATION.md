@@ -5408,3 +5408,166 @@ audits  0 orphans; every endpoint has a caller
 
 **The project is complete: YES — subject to Q-2, which is a decision for the owner rather than
 an unfinished piece of work.**
+
+---
+
+# §23 ASSETS — the AS-0NN ledger
+
+Loop `loops/02-assets.md`, branch `pivot/assets`. This section is appended by that loop alone. The
+`V-0NN` rows above belong to the retired coding product and are not this loop's to update or delete.
+
+```text
+2 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED     (AS-001…AS-016)
+Gate: bun run verify exit 0 — 949 tests across 51 files, both typechecks, the production build,
+      four audits. 940 → 949 tests; the 9 added are this loop's.
+```
+
+Iteration 1 built §4.11 stage 1 only: the envelope, the five types, directory-backed persistence
+and the synchronous-mutation invariant. Stages 2–10 are untouched, so AS-003…AS-016 are NOT TESTED
+rather than FAIL — nothing has been attempted for them.
+
+### AS-001: An asset exists in five types and persists — **PASS**
+
+Implementation: `server/services/assetStore.ts`. Tests: `server/services/assetStore.test.ts`.
+
+```text
+Created types:
+  $ bun test server/services/assetStore.test.ts
+    9 pass / 0 fail / 26 expect() calls
+  "all five types can be created and are listed back" creates one asset of each of
+  document, slides, table, workflow, software and asserts listAssets returns all five.
+```
+
+The restart clause is proved across a real process boundary, not by re-reading an in-memory object.
+Two separate `bun` processes over one OPENUI_DATA_DIR:
+
+```text
+$ D=$(mktemp -d)
+$ OPENUI_DATA_DIR=$D bun -e '<create five assets; attach body, figure-1, figure-2 to the document>'
+  refusal: UnknownAssetTypeError | Unknown asset type "spreadsheet". The five types are
+           document, slides, table, workflow, software.
+  pid 46402 created: document, slides, table, workflow, software
+  documentId: asset_mskrzo8x1n1rzwg
+
+$ OPENUI_DATA_DIR=$D bun -e '<list and read back>'
+  pid 46403 listed: document, slides, table, workflow, software | count 5
+  file order: body → figure-1 → figure-2
+  currentVersion: 4 | versions: 1:created, 2:attach body, 3:attach figure-1, 4:attach figure-2
+  version authors: user
+  last version fileIds match files: true
+  sha256 of body: a7fe4f7ae30ccfb1… | bytes 10 | path files/file_mskrzo8z6l3t6mq.txt
+```
+
+Different pids, so the second process read cold from disk. Order, version history, authors and the
+version→file mapping all survived.
+
+```text
+Restart round-trip (on disk after the two processes):
+  <data>/assets/asset_mskrzo8x1n1rzwg/asset.json
+  <data>/assets/asset_mskrzo8x1n1rzwg/files/file_mskrzo8z6l3t6mq.txt   (+ .json sidecar)
+  <data>/assets/asset_mskrzo8x1n1rzwg/files/file_mskrzo907vvyeqx.txt   (+ .json sidecar)
+  <data>/assets/asset_mskrzo8x1n1rzwg/files/file_mskrzo9089xj9h2.txt   (+ .json sidecar)
+  <data>/assets/asset_mskrzo8x2dgnwzy/asset.json                        slides
+  <data>/assets/asset_mskrzo8x313ymce/asset.json                        table
+  <data>/assets/asset_mskrzo8x4wkrgh9/asset.json                        workflow
+  <data>/assets/asset_mskrzo8y5jattlx/asset.json                        software
+
+Refusal on unknown type:
+  UnknownAssetTypeError, thrown before anything is written. 5 asset directories exist after a
+  create of "spreadsheet" was attempted alongside the 5 valid ones — the refused type left
+  nothing behind. The check is a runtime membership test against ASSET_TYPES, not the type
+  system, because an HTTP body and an MCP argument both arrive as unvalidated JSON.
+```
+
+The listing is derived from the directories on every call — there is no index. Proved negatively:
+deleting an asset's directory removes it from `listAssets` immediately, so nothing can disagree with
+disk the way `listRepositoryFiles` (`server/services/repository.ts`) does with `git ls-files`.
+
+Positive control — the check fails on demand:
+
+```text
+Refusal deleted from createAsset →
+  (fail) AS-001 … > an unknown type is refused, and nothing is stored
+         Expected constructor: UnknownAssetTypeError
+  8 pass / 1 fail
+```
+
+### AS-002: Every store mutation is synchronous — **PASS**
+
+Modelled on `server/services/projectStoreInvariants.test.ts`, with the extra clause that loop
+`loops/02-assets.md` §6 requires: deleting the *explanation* must also fail.
+
+```text
+Invariant test:
+  server/services/assetStore.test.ts, describe "AS-002 every store mutation is synchronous"
+    · no method on the store returns a Promise    — walks AssetStore.prototype for AsyncFunction
+    · the class body contains no await            — scans the source between the class opening
+                                                    and its column-0 closing brace, so the free
+                                                    persistFile() below it may legally await
+    · the reason is written where someone would break it
+    · byte persistence happens outside the store
+    · the bytes are on disk before the store is told about them
+  All 5 pass.
+```
+
+Each was made to fail before being believed:
+
+```text
+Deliberate async method → test output:
+  getAsset made `async getAsset(): Promise<Asset>` →
+    (fail) AS-002 … > no method on the store returns a Promise
+           an async method reintroduces the interleaving that loses one of two concurrent
+           writes — see persist()
+    6 pass / 3 fail
+
+Deliberate await in the class body → test output:
+  A bare `await` in a synchronous method does NOT reach this check: it is a parse error, so the
+  file never loads. The case the scan actually exists to catch is an async arrow inside a
+  synchronous method, which compiles and is invisible to the prototype walk. Injecting
+    const flush = async () => { await writeFile(...) }; void flush();
+  into persist() →
+    (fail) AS-002 … > the class body contains no await
+    6 pass / 3 fail
+
+Explanation removed → test output:
+  The "must stay synchronous" paragraph deleted from persist()'s doc comment →
+    (fail) AS-002 … > the reason is written where someone would break it
+           Expected to contain: "Every mutation on this class must stay synchronous"
+    8 pass / 1 fail
+  Matched against the comment prose with line wrapping stripped, so reflowing the paragraph is
+  not a failure but deleting it is.
+
+Where the await lives:
+  persistFile(input, store) — a free async function below the class, not a method. It computes
+  the sha256, writes the bytes and writes the provenance sidecar, then returns a descriptor the
+  synchronous store attaches. Asserted two ways: persistFile.constructor.name === "AsyncFunction",
+  and the source below the class contains "await" while the class body contains none.
+  The test "the bytes are on disk before the store is told about them" asserts the file exists on
+  disk while asset.files is still empty, and only becomes a record on attachFile.
+```
+
+### AS-003…AS-016 — **NOT TESTED**
+
+Nothing has been attempted. Stage 1 of the §4.11 build order is done; stages 2–10 are not started.
+Per-item status is unchanged from iteration 0.
+
+### Two findings this loop cannot act on
+
+```text
+1. The gate is load-sensitive, and it is not this loop's code.
+   server/routes/projectReads.test.ts fails intermittently with 5000ms timeouts on the tests that
+   launch real grok worktrees, and server/services/acpClient.test.ts V-007 fails intermittently
+   because it asserts a live model recalls the number 4242 across a session resume.
+   Measured, with the loop's two new files moved out of the tree entirely:
+     control run 1 (without the new files): 938 pass / 2 fail   — same tests
+     control run 2 (without the new files): 937 pass / 3 fail   — same tests
+     with the new files:                    945 pass / 4 fail   — same tests
+     final run, load average 26:            949 pass / 0 fail   — green, recorded above
+   Both files are outside this worktree's row, so the timeout constant is not this loop's to
+   change. Filed in loops/handoff/pivot-assets.md.
+
+2. VERIFICATION.md is not in any worktree's row and not in the hot-file list, yet §5 of every
+   loop document instructs its worktree to append to it. Eight worktrees appending to one file
+   will conflict at reconciliation. This loop appends only at the end of the file, under one
+   heading, and never edits a line above it. Filed in the handoff as a partition gap.
+```
