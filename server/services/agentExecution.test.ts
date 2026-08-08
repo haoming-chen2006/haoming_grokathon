@@ -87,16 +87,19 @@ describe("V-032: agent can modify code in its worktree", () => {
       // which passed on three re-runs. Prose is not a stable interface. Writing the value to a
       // file is: the agent can only produce 8317 by having read app.ts, and the check is then a
       // string comparison against a real file rather than against a sentence.
-      await conn.prompt(
+      const reply = await conn.prompt(
         "Read the file app.ts in the current directory. Create a file named found.txt in the same " +
           "directory containing only the numeric value assigned to x, and nothing else. " +
           "Reply with only DONE when finished.",
         { timeoutMs: 240_000 },
       );
+      const why =
+        `stopReason=${reply.stopReason} toolCalls=${reply.toolCalls.length} ` +
+        `reply=${JSON.stringify(reply.text.slice(0, 300))}`;
 
       const found = join(wt.path, "found.txt");
-      expect(existsSync(found), "the agent did not create found.txt").toBe(true);
-      expect(readFileSync(found, "utf8")).toContain("8317");
+      expect(existsSync(found), `the agent did not create found.txt — ${why}`).toBe(true);
+      expect(readFileSync(found, "utf8"), why).toContain("8317");
     } finally {
       conn.stop();
     }
@@ -134,16 +137,23 @@ describe("V-033: agent can run repository commands", () => {
       // The observed exit code is written to a file rather than spoken, for the same reason as
       // the read test above: a reply is prose and prose is not a stable interface. 37 is chosen
       // because "3" would match most replies by chance.
-      await conn.prompt(
+      const reply = await conn.prompt(
         "Run the shell command `exit 37` in the current directory. Then create a file named " +
           "code.txt containing only the numeric exit code you observed, and nothing else. " +
           "Reply with only DONE when finished.",
         { timeoutMs: 240_000 },
       );
 
+      // Asserting the effect is right, but discarding the reply left a failure with no evidence
+      // of *why* — an earlier run failed here in 5s flat with nothing recorded. The reply and stop
+      // reason go into the message so the next failure diagnoses itself.
+      const why =
+        `stopReason=${reply.stopReason} toolCalls=${reply.toolCalls.length} ` +
+        `reply=${JSON.stringify(reply.text.slice(0, 300))}`;
+
       const codeFile = join(wt.path, "code.txt");
-      expect(existsSync(codeFile), "the agent did not record the exit code").toBe(true);
-      expect(readFileSync(codeFile, "utf8")).toContain("37");
+      expect(existsSync(codeFile), `the agent did not record the exit code — ${why}`).toBe(true);
+      expect(readFileSync(codeFile, "utf8"), why).toContain("37");
     } finally {
       conn.stop();
     }

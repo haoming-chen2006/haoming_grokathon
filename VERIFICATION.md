@@ -3721,6 +3721,56 @@ bun run verify → exit 0, 666 pass / 0 fail, four audits clean
 
 ---
 
+## The flake caught, measured, and made self-diagnosing (iteration 61)
+
+The intermittent failure has now been observed three times across the project and identified twice.
+Rather than wait for it again, the three model-dependent suites were run repeatedly:
+
+```text
+5 runs of acpClient + agentExecution + skillsAndRecovery (26 tests each)
+  runs 1-4   26 pass / 0 fail
+  run 5      25 pass / 1 fail
+             V-033: a failing command surfaces its failure rather than being reported as success
+```
+
+So the observed rate is roughly **one failure in five runs of the live suites** — worth recording as
+a number rather than an impression.
+
+**The failure, and what was missing from it.** The agent did not create `code.txt` at all, and the
+turn ended in 5.0 seconds — far short of a normal turn. The test could say nothing more than that,
+because iteration 56's conversion to an effect-based assertion **discarded the reply**. Asserting
+the effect was right; throwing away the evidence was not. A flaky test that cannot explain itself
+is worse than one that can.
+
+Both effect-based tests now carry the reply, stop reason and tool-call count into the failure
+message:
+
+```text
+expect(existsSync(codeFile), `the agent did not record the exit code — ${why}`).toBe(true)
+where why = stopReason=… toolCalls=… reply="…"
+```
+
+**A hypothesis tested and disproved.** The 5-second turn suggested the command might be refused by
+the shell-safety classifier, which would end the turn without work. It is not:
+
+```text
+classifyShellCommand("exit 37")   -> { restricted: false }
+classifyShellCommand("rm -rf /")  -> { restricted: true, action: "destructive_shell", … }
+```
+
+The classifier behaves correctly and is not the cause. Recorded because a disproved hypothesis is
+worth as much as a confirmed one here — it removes the most plausible explanation.
+
+**Not reproduced in six subsequent runs of that suite.** The honest state: the cause is still
+unknown, the rate is measured, and the next occurrence will carry its own evidence. No claim is
+made that it is fixed.
+
+```text
+bun run verify → exit 0, 666 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3817,7 +3867,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 65 ahead of main
+commits 67 ahead of main
 build   bun run build exit 0
 tests   666 pass / 0 fail across 37 files
 audits  0 orphans; every endpoint has a caller
