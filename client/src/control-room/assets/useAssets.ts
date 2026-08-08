@@ -5,18 +5,51 @@
  * When `server/routes/assets.ts` exists this becomes a fetch of `GET /api/assets?projectId=…` and
  * `mockAssets.ts` is deleted; no component below changes, because none of them imports the mock.
  */
-import { MOCK_ASSETS, TYPE_ORDER, type MockAsset, type MockAssetType } from "./mockAssets";
+import { useEffect, useState } from "react";
+import { TYPE_ORDER, type MockAsset, type MockAssetType } from "./mockAssets";
 
 export interface AssetsView {
   assets: MockAsset[];
   /** Present only while the data is fake, so the page can say so on the page itself. */
   usingMockData: boolean;
+  loading: boolean;
+  error: string | null;
 }
 
-export function useAssets(_projectId: string): AssetsView {
-  // The project id is accepted and ignored on purpose: the mock is a single project's worth of
-  // deliverables. When this becomes a fetch, it is the query parameter.
-  return { assets: MOCK_ASSETS, usingMockData: true };
+/**
+ * `GET /api/assets?projectId=…`, which is `server/routes/assets.ts`.
+ *
+ * The store's `Asset` and the page's `MockAsset` are the same shape by construction — the mock was
+ * copied from `server/services/assetStore.ts` structurally, precisely so that wiring this seam
+ * changed no component below it. `usingMockData` is now always false: an empty project renders an
+ * empty page, which is the truth, rather than borrowing fake deliverables to look populated.
+ */
+export function useAssets(projectId: string): AssetsView {
+  const [assets, setAssets] = useState<MockAsset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!projectId) {
+      setAssets([]);
+      setLoading(false);
+      return;
+    }
+    let live = true;
+    setLoading(true);
+    fetch(`/api/assets?projectId=${encodeURIComponent(projectId)}`)
+      .then(async (res) => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+        return body as MockAsset[];
+      })
+      .then((list) => { if (live) { setAssets(list); setError(null); } })
+      .catch((err) => { if (live) setError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [projectId]);
+
+  return { assets, usingMockData: false, loading, error };
 }
 
 /** Deliverables of one type, in the navigator's order. Empty types are still listed, with a zero. */
