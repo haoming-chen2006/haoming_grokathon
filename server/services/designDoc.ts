@@ -320,6 +320,62 @@ export function parseDeclaration(text: string): DeclarationResult {
 }
 
 /**
+ * The design-document tools an agent may call, and the complete list of them.
+ *
+ * **There is no write tool, and its absence is the design.** §3.9: an agent may read, may report
+ * where it is looking, and may suggest — nothing else. `DELIBERATELY_USER_ONLY`
+ * (`server/services/projectMcpServer.ts:692`) is the precedent: an agent cannot approve its own
+ * work, and by the same reasoning it cannot rewrite the brief its work is judged against.
+ *
+ * Exported as a constant so a test can assert the surface rather than trusting a reading of the
+ * registration code — a tool added later shows up here or fails the check.
+ */
+export const DESIGN_DOC_MCP_TOOLS = ["read_design_document", "list_design_documents"] as const;
+
+/** Tool names that would let an agent change a document. None of these may ever be registered. */
+export const DESIGN_DOC_FORBIDDEN_TOOLS = [
+  "write_design_document",
+  "write_design_section",
+  "update_design_document",
+  "edit_design_document",
+  "apply_declaration",
+  "create_project_from_document",
+  "follow_document",
+  "unfollow_document",
+  "promote_to_design_document",
+] as const;
+
+/**
+ * A document rendered for an agent to read, with **line numbers in the output**.
+ *
+ * That is not a convenience. An agent cannot report a line range it was never shown, so a tool that
+ * returns bare prose guarantees every subsequent focus report is the model counting newlines — and
+ * it will be wrong. §3.8.2.
+ */
+export function numberedDocument(
+  doc: DesignDoc,
+  opts: { fromLine?: number; toLine?: number } = {},
+): { title: string; manifestVersion: number; totalLines: number; fromLine: number; toLine: number; text: string } {
+  const all = renderDocument(doc).split("\n");
+  // The trailing newline from renderDocument produces a final empty element that is not a line.
+  if (all.length > 0 && all[all.length - 1] === "") all.pop();
+
+  const from = Math.max(1, opts.fromLine ?? 1);
+  const to = Math.min(all.length, opts.toLine ?? all.length);
+  const slice = from > to ? [] : all.slice(from - 1, to);
+  const width = String(to).length;
+
+  return {
+    title: doc.title,
+    manifestVersion: doc.manifestVersion,
+    totalLines: all.length,
+    fromLine: from,
+    toLine: to,
+    text: slice.map((line, i) => `${String(from + i).padStart(width, " ")}  ${line}`).join("\n"),
+  };
+}
+
+/**
  * The shape this sweep needs from a suggestion. Structural on purpose: the record is
  * `DesignSuggestion` (`server/types/project.ts:95-118`), owned by the project store, and this
  * worktree does **not** write a second suggestion system (§3.9). The three target fields are the
@@ -698,6 +754,22 @@ export class DesignDocStore {
     params: { body: string; expectedVersion: number; changeSummary?: string; fromSuggestionId?: string },
     actor: Actor,
   ): DesignDoc {
+    // §3.9: agents never write a design document. Not through a tool, not inside their own area,
+    // and NOT with a scoped grant — `Actor.canWriteDocument` (`server/types/project.ts:45-46`) is
+    // deliberately not consulted here, because the design document is where the human states
+    // intent, and an agent that can rewrite the brief can rewrite the brief to match what it
+    // already did. The agent's entire write surface is the suggestion path.
+    //
+    // A user accepting a suggestion is still a user write — it carries `fromSuggestionId` and the
+    // accepting user's id — so provenance survives without opening a second door.
+    if (actor.kind !== "user") {
+      throw new PermissionDeniedError(
+        `Agents cannot write a design document. Submit a suggestion instead: ` +
+          `submit_design_suggestion with targetDocId "${docId}" and targetSectionAnchor "${anchor}". ` +
+          `A user reviews it, and accepting it produces the new version.`,
+      );
+    }
+
     const doc = this.load(docId);
     const section = this.sectionOf(doc, anchor);
 

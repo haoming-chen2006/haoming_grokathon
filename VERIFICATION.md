@@ -5418,41 +5418,32 @@ an unfinished piece of work.**
 > share this file and none owns it; see the partition gap recorded in
 > `loops/handoff/pivot-design-docs.md`.
 
-**Iteration:** 4 · **Tally:** 5 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED
+**Iteration:** 5 · **Tally:** 5 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED (DD-009 now 4 of 5 clauses)
 
-**Gate (`bun run verify`), iteration 4: RED — exit 1, on one known flaky test.**
+**Gate (`bun run verify`), iteration 5: RED — exit 1, on four known flaky tests.**
 
 ```text
 1. server typecheck   tsc --noEmit                       exit 0
 2. client typecheck   cd client && tsc --noEmit          exit 0
-3. tests              bun test server/ client/src …      exit 1 — 999 pass, 1 fail, 54 files
+3. tests              bun test server/ client/src …      exit 1 — 1006 pass, 4 fail, 55 files
 4. build              (not reached — verify short-circuits)
 5. audits             (not reached)
 ```
 
-The single failure is F-1 again:
-
-```text
-(fail) launching gives the agent an isolated worktree (§9, V-009)
-         > an agent with no worktree gets one in the project's repository   [5247ms / 5000ms]
-```
-
-`server/routes/projectReads.test.ts`, at load 40. The three-iteration record now reads:
+All four are F-1, all in `server/routes/projectReads.test.ts`, all at ~5.13-5.17s against a 5000ms
+budget, at load 55. The record across five iterations:
 
 ```text
 iteration 1  load 117  → 3 fail;  re-run → 0 fail
 iteration 2  load 117  → 5 fail;  re-run at load 50 → 5 fail
 iteration 3  load  24  → 0 fail
 iteration 4  load  40  → 1 fail
+iteration 5  load  55  → 4 fail
 ```
 
-Monotonic in load, always the same file, always at ~5.1-5.2s against a 5000ms budget, never touched
-by this worktree. It is a timeout, not a regression, and it is not fixable from inside this
-boundary. Build and audits were green on iteration 3's identical tree plus this iteration's
-additions, which are 16 tests in one new file that nothing outside itself imports.
-
-**Read "PASS" below as "these clauses are evidenced by re-runnable commands", not as "the suite was
-green".** Recorded rather than worked around; escalated as F-1 in the handoff.
+Load-dependent, same file every time, never touched by this worktree, and 41/41 green at
+`--timeout 60000`. **Read "PASS" below as "these clauses are evidenced by re-runnable commands",
+not as "the suite was green".**
 
 Stage 1 of §3.11 is done: the store, the synchronous invariant, and sections with minted anchors.
 Stage 2 is done for DD-002; DD-003 is held one clause short. Stage 3 is done for DD-004, the strict
@@ -5755,7 +5746,12 @@ Uploaded/created case:
   half-created document.
 
 Agent-originated write:
-  Refused identically (actor.kind "agent"), same message, version unchanged.
+  CORRECTED IN ITERATION 5. This line previously read "refused identically, same message".
+  That was wrong. Since DD-009, an agent cannot write a section at all: the permission
+  check fires before the secret check, so a direct agent write is refused with
+  PERMISSION_DENIED, not SecretExposureError. Agent-authored text reaches the store only
+  as a user accepting a suggestion, and that path IS scanned — the clause is carried by
+  the suggestion-accept case below, not by a direct agent write.
 
 Suggestion-accept path refusal:
   Accepting a suggestion IS a section write carrying fromSuggestionId — there is no second
@@ -5834,7 +5830,88 @@ DD-017  export to a document asset           NOT TESTED — depends on 02-assets
                                              neither the route nor the button exists, deliberately.
 ```
 
-## Four items now cannot reach PASS from inside this worktree
+## DD-009: An agent cannot write a design document, and suggests instead — HELD (4 of 5)
+
+Reproduce: `bun test server/services/designDocAgentSurface.test.ts` (10 pass, 0 fail).
+
+**This item began by reproducing a real defect in this worktree's own code.** Before the fix, an
+agent could rewrite the user's brief through the store:
+
+```text
+§3.9: "Agents never write a design document. Not through a tool, not inside their own
+       area, not with a scoped grant."
+
+DEFECT: the agent write SUCCEEDED.
+  body now: "REWRITTEN BY THE AGENT"
+  version: 2, authorId: agent-research
+```
+
+Stages 1-4 had accepted any actor on `writeSection`. The stage-4 ledger entry even recorded an
+"agent-originated write" as passing, which it did — for the wrong reason, because that test
+happened to carry a credential and was refused by the secret check. Corrected above.
+
+```text
+Direct write attempt → refusal text:
+  PermissionDeniedError code=PERMISSION_DENIED
+  "Agents cannot write a design document. Submit a suggestion instead:
+   submit_design_suggestion with targetDocId "doc_…" and targetSectionAnchor "sec_…".
+   A user reviews it, and accepting it produces the new version."
+  The refusal names the path AND the ids to use, because a refusal that does not say what
+  to do instead produces an agent that retries the same call until its budget is gone.
+  After the refusal: body is still "the user's own words", version 1, one version record.
+
+  The scoped grant does not help. Actor.canWriteDocument (server/types/project.ts:45-46)
+  is deliberately not consulted, and an agent holding it is refused even on a section
+  assigned to its own area — "not inside their own area, not with a scoped grant".
+
+  Every structural mutation is closed to agents too: followDocument, unfollowDocument,
+  writeSection.
+
+Tool surface:
+  DESIGN_DOC_MCP_TOOLS = ["read_design_document", "list_design_documents"]
+  There is no write tool, and its absence is the design. A test asserts the exact list,
+  asserts every name matches /^(read|list|report)_/, and greps the source for nine
+  forbidden registrations (write_design_section, apply_declaration,
+  create_project_from_document, promote_to_design_document, …) — so a tool added later
+  fails the check rather than passing unnoticed.
+  Precedent: DELIBERATELY_USER_ONLY (projectMcpServer.ts:692) — an agent cannot approve
+  its own work, and by the same reasoning cannot rewrite the brief it is judged against.
+
+Read output carries line numbers (§3.8.2):
+  numberedDocument() returns right-aligned ABSOLUTE line numbers, and a ranged read still
+  numbers absolutely:
+    "5  ## Slides" / "6  deck"   for fromLine 5, toLine 6
+  An agent cannot report a line range it was never shown; a tool returning bare prose
+  guarantees every later focus report is the model counting newlines, and it will be
+  wrong. Out-of-range, inverted and negative ranges clamp rather than throw.
+
+FAILING CLAUSES — not claimable from here:
+  "a suggestion carries targetDocId, targetSectionAnchor, lineRange and baseVersion" and
+  "accepting it produces a new section version with fromSuggestionId set and
+  originalProposedText retained" — the suggestion record is DesignSuggestion in
+  server/types/project.ts, and the three target fields are handoff R-3. The accept half is
+  proven insofar as writeSection records fromSuggestionId (DD-007 evidence), but the
+  record it would come from cannot exist yet.
+
+  "the suggestion renders in the margin beside the lines it names" — needs the document
+  view, which is stage 11. No client code exists in this worktree yet.
+  Item held.
+```
+
+Positive controls:
+
+```text
+let agents write sections                     → 6 pass, 4 fail
+renumber read output from 1 (relative)        → 8 pass, 2 fail
+add write_design_section to the tool surface  → 8 pass, 2 fail
+```
+
+A note on the harness, again: the first run of these three controls printed **no output at all** —
+no failures and no summary — because the wrapper function swallowed it. Read naively that looks
+like three controls passing, i.e. three checks that cannot fail. Re-running each mutation directly
+showed all three do fail. Second time this loop has hit a probe-harness defect; see F-5.
+
+## Five items now cannot reach PASS from inside this worktree
 
 This is a property of the partition, not of the work, and it is stated here because §8 defines done
 as all seventeen items PASS:
@@ -5842,7 +5919,8 @@ as all seventeen items PASS:
 ```text
 DD-003  needs ProjectStore.deleteProject to call unfollowProject          (hot; R-8)
 DD-005  needs the agent↔area binding in workArea.ts                       (01-agents; F-4)
-DD-007  needs the section sweep invoked from projectStore's sweep         (hot; R-3 + F-6)
+DD-007  needs the section sweep invoked from projectStore's sweep         (hot; R-3 + R-9)
+DD-009  needs the suggestion target fields, and the margin rendering      (hot R-3; stage 11)
 DD-017  needs assetStore                                                  (02-assets; X-3)
 ```
 

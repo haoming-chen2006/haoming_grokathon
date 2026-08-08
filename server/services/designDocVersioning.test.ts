@@ -197,12 +197,16 @@ describe("DD-008: a credential cannot be written into a design document", () => 
     expect(section.versions).toHaveLength(1);
   });
 
-  test("an agent-originated write is refused on the same path", () => {
+  test("agent-authored text is scanned when it arrives, which is via an accepted suggestion", () => {
+    // An agent cannot write a section at all (DD-009), so "agent-originated write" reaches the
+    // store only as a user accepting the agent's proposed text. That accept carries
+    // fromSuggestionId and is scanned on the same path — proven in the next test.
+    // Here: the direct attempt is refused before any secret check runs, for permission.
     const { doc, research } = twoSections();
 
     expect(() =>
       store.writeSection(doc.id, research, { body: `token ${FAKE_GITHUB}`, expectedVersion: 1 }, AGENT),
-    ).toThrow(/Refusing to store a credential/);
+    ).toThrow(/Agents cannot write a design document/);
     expect(store.getDocument(doc.id).sections[0].currentVersion).toBe(1);
   });
 
