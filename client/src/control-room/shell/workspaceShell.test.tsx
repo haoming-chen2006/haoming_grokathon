@@ -389,13 +389,37 @@ describe("the toolbar", () => {
 });
 
 describe("a workspace with no project", () => {
-  test("renders the shell's own state rather than a page with a blank id", async () => {
+  /**
+   * The shell used to substitute one screen for MAIN whenever there was no project, and this test
+   * asserted that. After a purge it meant every tab showed the same thing: clicking Assets or Users
+   * changed the navigator and nothing else, so the tabs read as broken. A shell that overrides every
+   * page with one page has stopped being a shell.
+   *
+   * What it guards now is that the pages still mount and still differ. Where the front door belongs
+   * — AGENTS and DESIGN DOCUMENTS — the page shows it itself.
+   */
+  test("still mounts each page, so the tabs do not all show one screen", async () => {
     stubServer({ projects: [] });
+    atUrl(workspaceUrl("assets"));
     render(<WorkspaceShell />);
-    const empty = await screen.findByTestId("no-project");
-    expect(empty.textContent).toContain("design document");
-    // No page slot was mounted, so no page had to handle an empty projectId.
-    expect(screen.queryByTestId("not-merged-yet")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("main")).toBeDefined());
+
+    // The page, not a shell-wide substitute.
+    expect(screen.queryByTestId("no-project")).toBeNull();
+    const assetsText = screen.getByTestId("main").textContent ?? "";
+    cleanup();
+
+    atUrl(workspaceUrl("users"));
+    render(<WorkspaceShell />);
+    await waitFor(() => expect(screen.getByTestId("main")).toBeDefined());
+    expect(screen.getByTestId("main").textContent).not.toBe(assetsText);
+  });
+
+  test("the front door is on the page where starting a project belongs", async () => {
+    stubServer({ projects: [] });
+    atUrl(workspaceUrl("agents"));
+    render(<WorkspaceShell />);
+    expect((await screen.findByTestId("start-project")).textContent).toContain("design document");
   });
 });
 

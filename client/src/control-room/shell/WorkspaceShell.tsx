@@ -19,7 +19,6 @@ import { useEffect, useState } from "react";
 import type { PageDescriptor, ToolsSection, WorkspacePageProps } from "./contract";
 import { NotMergedYet } from "./NotMergedYet";
 import { SlotBoundary } from "./SlotBoundary";
-import { StartProject } from "../agents";
 import { PAGES, TOOLS_PANEL } from "./pages";
 import { INSPECTOR, NAVIGATOR, RAIL, layout, useRegion } from "./regions";
 import { useWorkspaceRoute } from "./router";
@@ -574,18 +573,18 @@ export function WorkspaceShell() {
         />
 
         <main data-testid="main" className="relative min-w-0 flex-1 overflow-auto">
-          {project ? (
-            <Slot component={page.main} page={page} what={page.label} props={pageProps} />
-          ) : (
-            // The empty state IS the front door, not a notice about one. It said "a project starts
-            // by writing a design document" and then offered nowhere to write it, which left a new
-            // user with a correct sentence and no way to act on it.
-            <div data-testid="no-project" className="h-full overflow-auto">
-              <SlotBoundary what="Starting a project">
-                <StartProject />
-              </SlotBoundary>
-            </div>
-          )}
+          {/*
+            The page renders whether or not a project exists, and decides its own empty state.
+
+            The shell used to substitute the front door for MAIN whenever there was no project.
+            After a purge that meant every tab showed the same screen — clicking Assets, Users or X
+            changed the navigator and nothing else, so the tabs read as broken. A shell that
+            overrides every page with one page is a shell that has stopped being a shell.
+
+            AGENTS and DESIGN DOCUMENTS show the paste box themselves, which is where starting a
+            project belongs. The others say what they hold, which with no project is nothing.
+          */}
+          <Slot component={page.main} page={page} what={page.label} props={pageProps} />
           {route.tools ? (
             <ToolsOverlay
               section={route.tools}
