@@ -1,107 +1,32 @@
 /**
- * DESIGN DOCUMENTS — the page where work is declared and watched.
+ * DESIGN DOCUMENTS — the page where work is declared and watched. The product's centre.
  *
- * Mounted through the shell's published contract (`shell/contract.ts`): three components, one per
- * region, each taking `WorkspacePageProps`. Nothing here reaches into the shell — no toolbar, no
- * theme, no routing. Colours are the published tokens and there is not one hex in this directory.
+ * Rebuilt from `design/mockups/design-document.html`: a rail of documents with the open one and
+ * what is inside it, the document itself with presence drawn over the lines being worked, and an
+ * inspector that states what the document costs, who is in it, and what it declares.
  *
  * What is real: every document, its text, its sections, its declaration, the declared areas and
- * their line numbers. All of it comes from `GET /api/design-docs`, parsed by the one server-side
- * parser in `services/designDoc.ts`.
+ * their line numbers, and the team of whatever project follows it. All of it from endpoints that
+ * exist.
  *
- * What is not: line-level presence, which is quarantined in `mockPresence.ts` and clearly labelled
- * on screen. `server/services/presence.ts` does not exist yet.
+ * What was DELETED: `mockPresence.ts`, four invented agents that made this page look inhabited on
+ * a machine where nothing was running. Presence is now derived from what agents actually report
+ * (`reportsFromAgents`), which yields real entries with no line range — so the inspector lists
+ * them and the body highlights nothing, which is the truth. The range is filed in
+ * loops/handoff/pivot-frontend.md; the highlight machinery is built and waiting for it.
  */
 import { useEffect, useMemo, useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
-import { mockPresence } from "./mockPresence";
-import {
-  PRESENCE_ENCODING,
-  drawsHighlight,
-  elapsed,
-  presenceCaption,
-  presenceState,
-  type PresenceReport,
-  type PresenceState,
-} from "./presence";
+import { Money } from "../agents/AgentCard";
+import { StartProject } from "../agents";
+import { DesignDocsRail, NEW_DOCUMENT } from "./DesignDocsRail";
+import { DocumentSurface } from "./DocumentSurface";
+import { PresenceEntry, PresenceKey, areaBorder, areaGutter, areaText } from "./PresenceEntry";
+import { presenceState, type PresenceReport } from "./presence";
+import { useDesignDocs } from "./useDesignDocs";
 
-// ─────────────────────────────────────────────────────────────────── the server's shape
-
-interface DeclaredArea {
-  name: string;
-  description?: string;
-  line: number;
-}
-interface ProjectDeclaration {
-  name: string;
-  category: string;
-  budget?: number;
-  areas: DeclaredArea[];
-  blockStart: number;
-  blockEnd: number;
-}
-interface DeclarationResult {
-  ok: boolean;
-  declaration?: ProjectDeclaration;
-  errors: Array<{ line: number; message: string }>;
-}
-interface DocSectionView {
-  title: string;
-  body: string;
-  firstLine: number;
-}
-export interface DesignDocView {
-  id: string;
-  title: string;
-  text: string;
-  lineCount: number;
-  sections: DocSectionView[];
-  declaration: DeclarationResult;
-  followedByProjectId?: string;
-}
-
-/** One fetch, shared by all three regions, so they cannot disagree about what is on screen. */
-function useDesignDocs(): { docs: DesignDocView[]; loading: boolean; error?: string } {
-  const [state, setState] = useState<{ docs: DesignDocView[]; loading: boolean; error?: string }>({
-    docs: [],
-    loading: true,
-  });
-
-  useEffect(() => {
-    let live = true;
-    void (async () => {
-      try {
-        const res = await fetch("/api/design-docs");
-        if (!res.ok) throw new Error(`GET /api/design-docs returned ${res.status}`);
-        const body = await res.json();
-        // Checked, not asserted. `as DesignDocView[]` is a claim about a value that arrived over a
-        // network, and when the body was anything else — an error object, a stubbed fetch in a test
-        // — `docs.map` threw during render. With no error boundary above, that unmounted the whole
-        // shell: the page went blank and only a reload brought it back.
-        if (!Array.isArray(body)) {
-          throw new Error(
-            `GET /api/design-docs returned ${typeof body === "object" && body && "error" in body
-              ? String((body as { error: unknown }).error)
-              : "something that is not a list of documents"}`,
-          );
-        }
-        if (live) setState({ docs: body as DesignDocView[], loading: false });
-      } catch (e) {
-        // Stated, never swallowed into an empty list: "no documents" and "could not load
-        // documents" are different facts and the page must not conflate them.
-        if (live) setState({ docs: [], loading: false, error: String((e as Error).message ?? e) });
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  return state;
-}
-
-const useDoc = (docs: DesignDocView[], selectionId?: string) =>
-  docs.find((d) => d.id === selectionId) ?? docs[0];
+export type { DesignDocView } from "./useDesignDocs";
+export { NEW_DOCUMENT } from "./DesignDocsRail";
 
 function Label({ children }: { children: string }) {
   return (
@@ -109,280 +34,170 @@ function Label({ children }: { children: string }) {
   );
 }
 
-const AREA_TEXT = ["text-area-1", "text-area-2", "text-area-3", "text-area-4", "text-area-5", "text-area-6"];
-const AREA_BORDER = [
-  "border-area-1",
-  "border-area-2",
-  "border-area-3",
-  "border-area-4",
-  "border-area-5",
-  "border-area-6",
-];
-const AREA_GUTTER = [
-  "bg-gutter-area-1",
-  "bg-gutter-area-2",
-  "bg-gutter-area-3",
-  "bg-gutter-area-4",
-  "bg-gutter-area-5",
-  "bg-gutter-area-6",
-];
-
-// ─────────────────────────────────────────────────────────────────────── presence marker
+/**
+ * The clock the whole page reads.
+ *
+ * One value, ticking on an interval, rather than `Date.now()` at each call site: two components
+ * computing "8s" and "9s" from the same report in the same paint is the kind of detail that makes
+ * a user stop believing the rest of the numbers.
+ */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
 
 /**
- * The 9px marker.
+ * What this document has cost: the sum of what the agents inside it have spent.
  *
- * Colour says *which agent*; the stroke says *what state*. Filled, dashed and dotted are three
- * different shapes at 9px, so the four states survive greyscale, and every one of them is written
- * out in words beside it. The marker itself is aria-hidden — the caption carries the meaning.
+ * The mockup prints $6.88 over three agents at $0.31, $1.05 and $5.52, so the figure is a sum of
+ * the entries below it and not a separate ledger. Absent prices are not summed as zero — see
+ * `Money`, which says "unknown" for a figure nobody computed.
  */
-function Marker({ state, areaIndex }: { state: PresenceState; areaIndex: number }) {
-  const enc = PRESENCE_ENCODING[state];
-  const stroke =
-    enc.stroke === "filled" ? "border-solid" : enc.stroke === "dashed" ? "border-dashed" : "border-dotted";
+export function documentSpend(reports: PresenceReport[]): number | undefined {
+  const priced = reports.map((r) => r.costUsd).filter((c): c is number => typeof c === "number");
+  return priced.length === 0 ? undefined : priced.reduce((sum, c) => sum + c, 0);
+}
+
+// ───────────────────────────────────────────────────────────────────────── NAVIGATOR
+
+export function DesignDocumentsNavigator({ selectionId, onSelect }: WorkspacePageProps) {
+  const { docs, doc, reports, loading, error } = useDesignDocs(selectionId);
+  if (loading) return <p className="text-[13px] text-ink-faint">Loading design documents…</p>;
+  if (error) return <p className="text-[13px] text-status-failed">{error}</p>;
   return (
-    <span
-      aria-hidden="true"
-      className={`inline-block h-[9px] w-[9px] shrink-0 rounded-full border ${stroke} ${
-        AREA_BORDER[areaIndex - 1]
-      } ${enc.filled ? "bg-current " + AREA_TEXT[areaIndex - 1] : ""}`}
+    <DesignDocsRail
+      docs={docs}
+      open={selectionId === NEW_DOCUMENT ? undefined : doc}
+      agentsInside={reports.length}
+      onSelect={onSelect}
     />
   );
 }
 
-/** The legend. The wireframe carries one and it is the reason its encoding reads at a glance. */
-function PresenceKey() {
-  const rows: PresenceState[] = ["live", "stale", "unknown", "ended"];
-  return (
-    <div data-testid="presence-key" className="flex flex-col gap-1.5 border-t border-border pt-3">
-      <Label>Key</Label>
-      {rows.map((s) => (
-        <div key={s} className="flex items-center gap-2 text-[12px] text-ink-faint">
-          <Marker state={s} areaIndex={1} />
-          <span>
-            {PRESENCE_ENCODING[s].label} — {PRESENCE_ENCODING[s].stroke}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+// ───────────────────────────────────────────────────────────────────────────── MAIN
 
-// ─────────────────────────────────────────────────────────────────────── the document
-
-/**
- * The document itself, line-numbered, with presence in the gutter.
- *
- * The text is rendered exactly as written — never re-serialised — because a document the product
- * rewrote on the way to the screen is a document the user cannot trust. Line numbers are computed
- * on read; a stored line number is a line number that goes wrong on the next edit.
- */
-function DocumentSurface({
-  doc,
-  reports,
-  now,
-}: {
-  doc: DesignDocView;
-  reports: PresenceReport[];
-  now: number;
-}) {
-  const lines = doc.text.split("\n");
-  const decl = doc.declaration.declaration;
-
-  // Only live and stale claim a position. ended and unknown deliberately draw nothing here.
-  const claims = reports
-    .map((r) => ({ report: r, state: presenceState(r, 1, now) }))
-    .filter((c) => drawsHighlight(c.state) && c.report.lines);
-
-  const claimFor = (lineNo: number) =>
-    claims.find((c) => lineNo >= c.report.lines!.from && lineNo <= c.report.lines!.to);
-
-  /**
-   * Which declared area, if any, was declared on this line.
-   *
-   * This is the one place the document and the inspector are visibly the same object: area 3 in
-   * the list and the line that declares area 3 carry the same colour, so "what this document
-   * declares" is legible without reading the inspector at all. The index is the area's position in
-   * the declaration, which is exactly what the inspector uses, so the two cannot disagree.
-   */
-  const areaOnLine = (lineNo: number) => {
-    const i = decl?.areas.findIndex((a) => a.line === lineNo) ?? -1;
-    return i >= 0 ? { area: decl!.areas[i], index: i } : undefined;
-  };
-
-  return (
-    <div data-testid="document-surface" className="min-w-0 flex-1 overflow-auto px-6 py-5">
-      <div className="mb-4 flex flex-col gap-1.5">
-        <h1 className="text-[20px] text-ink">{doc.title}</h1>
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-faint">
-          {/* The cardinality rule, made visible: at most one project, ever. */}
-          {doc.followedByProjectId ? (
-            <span className="rounded border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-muted">
-              project · {doc.followedByProjectId}
-            </span>
-          ) : (
-            <span
-              data-testid="not-followed"
-              className="rounded border border-border px-2 py-0.5 text-[12px] text-ink-faint"
-            >
-              No project follows this document yet
-            </span>
-          )}
-          <span>
-            {doc.lineCount} lines · {doc.sections.length} sections
-          </span>
-        </div>
-      </div>
-
-      <div className="font-mono text-[12px] leading-[1.7]">
-        {lines.map((line, i) => {
-          const lineNo = i + 1;
-          const claim = claimFor(lineNo);
-          const inDeclaration = decl && lineNo >= decl.blockStart && lineNo <= decl.blockEnd;
-          const declared = areaOnLine(lineNo);
-          const enc = claim ? PRESENCE_ENCODING[claim.state] : undefined;
-          const rule =
-            enc?.stroke === "filled" ? "border-solid" : enc?.stroke === "dashed" ? "border-dashed" : "";
-          // Presence wins the rule when both apply: a live agent is the more urgent fact, and the
-          // declared area keeps its colour on the text itself.
-          const edge = claim
-            ? `${AREA_BORDER[claim.report.areaIndex - 1]} ${rule} ${AREA_GUTTER[claim.report.areaIndex - 1]}`
-            : declared
-              ? `${AREA_BORDER[declared.index % 6]} border-solid ${AREA_GUTTER[declared.index % 6]}`
-              : "border-transparent";
-          return (
-            <div
-              key={lineNo}
-              data-testid={
-                claim ? `line-${lineNo}-presence` : declared ? `line-${lineNo}-area` : undefined
-              }
-              className={`flex gap-3 border-l-[3px] pl-3 ${edge}`}
-            >
-              <span className="w-8 shrink-0 select-none text-right text-ink-ghost">{lineNo}</span>
-              {/* The gutter word: the state is legible without reading the colour. */}
-              <span className="w-24 shrink-0 truncate text-[10px] uppercase tracking-[0.06em] text-ink-faint">
-                {claim && claim.report.lines?.from === lineNo
-                  ? `${claim.report.agentName} · ${PRESENCE_ENCODING[claim.state].label}`
-                  : declared
-                    ? `area · ${declared.area.name}`
-                    : ""}
-              </span>
-              <span
-                className={`min-w-0 whitespace-pre-wrap ${
-                  inDeclaration ? "text-ink" : "text-ink-muted"
-                }`}
-              >
-                {line || " "}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────── the regions
-
-/** NAVIGATOR — every design document, and which project follows it. */
-export function DesignDocumentsNavigator({ selectionId, onSelect }: WorkspacePageProps) {
-  const { docs, loading, error } = useDesignDocs();
-  if (loading) return <p className="text-[13px] text-ink-faint">Loading design documents…</p>;
-  if (error) return <p className="text-[13px] text-status-failed">{error}</p>;
-
-  return (
-    <div className="flex flex-col gap-1">
-      <Label>All documents</Label>
-      {docs.map((doc) => {
-        const active = doc.id === (selectionId ?? docs[0]?.id);
-        const decl = doc.declaration.declaration;
-        return (
-          <button
-            key={doc.id}
-            type="button"
-            data-testid={`doc-${doc.id}`}
-            onClick={() => onSelect(doc.id)}
-            className={`flex flex-col gap-0.5 rounded-md px-2.5 py-2 text-left ${
-              active ? "bg-surface-active text-ink" : "text-ink-muted hover:bg-surface-hover"
-            }`}
-          >
-            <span className="truncate text-[14px]">{doc.title}</span>
-            <span className="truncate text-[12px] text-ink-faint">
-              {decl ? `declares ${decl.areas.length} areas · ${decl.category}` : "declares nothing yet"}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** MAIN — the document, with live per-agent line highlighting. */
 export function DesignDocumentsPage({ selectionId }: WorkspacePageProps) {
-  const { docs, loading, error } = useDesignDocs();
-  const doc = useDoc(docs, selectionId);
-  const now = useMemo(() => Date.now(), []);
-  // Clamped to the document being viewed: the mock's ranges are fixed, and a claim on line 24 of
-  // a 20-line document would be a highlight pointing at nothing. Clamping is what the real
-  // presence layer will do anyway when a document shrinks under a running agent.
-  const reports = useMemo(
-    () => (doc ? mockPresence(now, 1).filter((r) => !r.lines || r.lines.to <= doc.lineCount) : []),
-    [now, doc],
+  const { docs, doc, reports, loading, error } = useDesignDocs(selectionId);
+  const now = useNow();
+  const stateOf = useMemo(
+    () => (report: PresenceReport) => presenceState(report, report.documentVersion ?? 0, now),
+    [now],
   );
 
   if (loading) return <Centered>Loading design documents…</Centered>;
   if (error) return <Centered>{error}</Centered>;
-  if (!doc) return <Centered>No design documents yet. A project starts by writing one.</Centered>;
 
-  const live = reports.map((r) => ({ report: r, state: presenceState(r, 1, now) }));
+  // The paste box is the front door, both when the rail asks for a new document and when there is
+  // no document at all. An empty state that only describes the way in is not a way in.
+  if (selectionId === NEW_DOCUMENT || (!doc && docs.length === 0)) {
+    return (
+      <div data-testid="documents-empty" className="h-full overflow-auto">
+        <StartProject />
+      </div>
+    );
+  }
+  if (!doc) return <Centered>That document is gone. Pick another from the list.</Centered>;
+
+  const spend = documentSpend(reports);
 
   return (
-    <div className="flex h-full min-h-0">
-      <DocumentSurface doc={doc} reports={reports} now={now} />
+    <div data-testid="design-document" className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-[18px] py-2.5">
+        <span data-testid="doc-title" className="truncate text-[17px] text-ink">
+          {doc.title}
+        </span>
+        {/* The cardinality rule, made visible: at most one project follows a document, ever. */}
+        {doc.followedByProjectId ? (
+          <span
+            data-testid="doc-project"
+            className="shrink-0 rounded-full border border-border-strong px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.05em] text-ink-faint"
+          >
+            project · {doc.followedByProjectId}
+          </span>
+        ) : (
+          <span data-testid="doc-not-followed" className="shrink-0 text-[12px] text-ink-faint">
+            No project follows this document yet
+          </span>
+        )}
+        <span className="flex-1" />
+        <span
+          data-testid="doc-summary"
+          className="flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-faint"
+        >
+          This document <Money usd={spend} /> · {reports.length}{" "}
+          {reports.length === 1 ? "agent" : "agents"} inside
+        </span>
+      </div>
 
-      <aside className="flex w-64 shrink-0 flex-col gap-3 overflow-y-auto border-l border-border px-3 py-4">
-        <Label>Agents in this document</Label>
-        {live.map(({ report, state }) => (
-          <div key={report.agentId} className="flex flex-col gap-1">
-            <div className="flex items-baseline gap-2">
-              <span className={`text-[14px] ${AREA_TEXT[report.areaIndex - 1]}`}>{report.agentName}</span>
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-ink-faint">
-              <Marker state={state} areaIndex={report.areaIndex} />
-              <span>{presenceCaption(report, state, now)}</span>
-            </div>
-            {report.activity ? (
-              <span className="text-[12px] text-ink-ghost">{report.activity}</span>
-            ) : null}
-          </div>
-        ))}
-        <PresenceKey />
-        <p data-testid="mock-warning" className="text-[11px] leading-snug text-ink-ghost">
-          Presence above is mock data — <code>designdoc/mockPresence.ts</code>. The document, its
-          sections and its declaration are real. Ages shown: {elapsed(now - 8000, now)} to{" "}
-          {elapsed(now - 22 * 60000, now)}.
-        </p>
-      </aside>
+      <div className="flex min-h-0 flex-1">
+        <DocumentSurface doc={doc} reports={reports} stateOf={stateOf} />
+      </div>
     </div>
   );
 }
 
-/** INSPECTOR — what this document declares. Properties only, never navigation. */
-export function DesignDocumentInspector({ selectionId }: WorkspacePageProps) {
-  const { docs } = useDesignDocs();
-  const doc = useDoc(docs, selectionId);
+// ───────────────────────────────────────────────────────────────────────── INSPECTOR
+
+export function DesignDocumentInspector({ selectionId, onSelect }: WorkspacePageProps) {
+  const { doc, reports } = useDesignDocs(selectionId);
+  const now = useNow();
   // Not `null`: WorkspacePageComponent is typed `=> JSX.Element`, so a slot cannot opt out of
   // rendering. Filed for 07-shell as an additive widening to `JSX.Element | null`.
-  if (!doc) return <Label>Declaration</Label>;
+  if (!doc) return <Label>Design document</Label>;
 
-  const { declaration, errors, ok } = {
-    declaration: doc.declaration.declaration,
-    errors: doc.declaration.errors,
-    ok: doc.declaration.ok,
-  };
+  const spend = documentSpend(reports);
+  const declaration = doc.declaration?.declaration;
+  const errors = doc.declaration?.errors ?? [];
 
   return (
     <>
+      <Label>Project</Label>
+      <p data-testid="inspector-project" className="text-[13px] text-ink-muted">
+        {doc.followedByProjectId ?? "No project follows this document yet."}
+      </p>
+
+      <div className="flex justify-between text-[13px]">
+        <span className="text-ink-faint">This document</span>
+        <span data-testid="inspector-spend" className="font-mono text-[12px]">
+          <Money usd={spend} />
+        </span>
+      </div>
+      <div className="flex justify-between text-[13px]">
+        <span className="text-ink-faint">Agents inside</span>
+        <span data-testid="inspector-inside" className="font-mono text-[12px] text-ink-muted">
+          {reports.length}
+        </span>
+      </div>
+
+      <div className="h-px bg-border" />
+
+      <Label>Agents in this document</Label>
+      {reports.length === 0 ? (
+        <p data-testid="presence-empty" className="text-[13px] leading-snug text-ink-faint">
+          Nobody is in this document. An agent appears here when its own reported activity names
+          this file — nothing else puts it here, and nothing is shown that no agent claimed.
+        </p>
+      ) : (
+        <>
+          {reports.map((report) => (
+            <PresenceEntry
+              key={report.agentId}
+              report={report}
+              state={presenceState(report, report.documentVersion ?? 0, now)}
+              now={now}
+              onOpen={(agentId) => onSelect(agentId)}
+            />
+          ))}
+          <PresenceKey />
+        </>
+      )}
+
+      <div className="h-px bg-border" />
+
       <Label>Declaration</Label>
       {!declaration ? (
         <p className="text-[13px] text-ink-faint">
@@ -393,13 +208,18 @@ export function DesignDocumentInspector({ selectionId }: WorkspacePageProps) {
         <>
           <div className="text-[16px] text-ink">{declaration.name}</div>
           <Row label="Category" value={declaration.category} />
-          <Row
-            label="Budget"
-            value={declaration.budget !== undefined ? `$${declaration.budget.toFixed(2)}` : "not stated"}
-          />
+          <div className="flex justify-between text-[13px]">
+            <span className="text-ink-faint">Budget</span>
+            <span className="font-mono text-[12px]">
+              {declaration.budget === undefined ? (
+                <span className="text-ink-faint">not stated</span>
+              ) : (
+                <Money usd={declaration.budget} />
+              )}
+            </span>
+          </div>
           <Row label="Declared on" value={`lines ${declaration.blockStart}–${declaration.blockEnd}`} />
 
-          <div className="mt-1 h-px bg-border" />
           <Label>Areas</Label>
           {declaration.areas.length === 0 ? (
             <p className="text-[12px] text-ink-faint">
@@ -411,11 +231,11 @@ export function DesignDocumentInspector({ selectionId }: WorkspacePageProps) {
                 <div className="flex items-baseline gap-2">
                   <span
                     aria-hidden="true"
-                    className={`inline-block h-2 w-2 rounded-sm border ${AREA_BORDER[i % 6]} ${
-                      AREA_GUTTER[i % 6]
-                    }`}
+                    className={`inline-block h-2 w-2 rounded-sm border ${areaBorder(
+                      (i % 6) + 1,
+                    )} ${areaGutter((i % 6) + 1)}`}
                   />
-                  <span className={`text-[14px] ${AREA_TEXT[i % 6]}`}>{area.name}</span>
+                  <span className={`text-[14px] ${areaText((i % 6) + 1)}`}>{area.name}</span>
                   <span className="ml-auto font-mono text-[10px] text-ink-ghost">line {area.line}</span>
                 </div>
                 {area.description ? (
@@ -427,9 +247,9 @@ export function DesignDocumentInspector({ selectionId }: WorkspacePageProps) {
         </>
       )}
 
-      {!ok && errors.length > 0 ? (
+      {doc.declaration && !doc.declaration.ok && errors.length > 0 ? (
         <>
-          <div className="mt-1 h-px bg-border" />
+          <div className="h-px bg-border" />
           <Label>Refused</Label>
           {errors.map((e) => (
             <p key={`${e.line}-${e.message}`} className="text-[12px] text-status-failed">
@@ -458,3 +278,9 @@ function Centered({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+export const DESIGNDOCS_PAGE_SLOTS = {
+  main: DesignDocumentsPage,
+  navigator: DesignDocumentsNavigator,
+  inspector: DesignDocumentInspector,
+};

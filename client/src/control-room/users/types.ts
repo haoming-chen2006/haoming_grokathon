@@ -51,7 +51,14 @@ export interface CapabilityGrant {
 
 export interface WorkspaceUser {
   id: string;
-  email: string;
+  /**
+   * OPTIONAL, and absent for the only row this page can currently produce.
+   *
+   * Nobody signs in, so there is no address to show for whoever opened the workspace. An empty
+   * string would render as an empty line under their name, and a placeholder address would be an
+   * invented identity on the one page whose entire subject is identity.
+   */
+  email?: string;
   displayName: string;
   role: Role;
   capabilities: CapabilityGrant;

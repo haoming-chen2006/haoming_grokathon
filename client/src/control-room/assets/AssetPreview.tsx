@@ -10,13 +10,13 @@
  * there are no real files yet. Every one of them is deliberately drawn in tokens with no imagery,
  * so nothing here can be mistaken for a rendered artefact.
  */
-import type { MockAsset, MockBody, MockFile } from "./mockAssets";
+import type { AssetView, AssetBody, AssetFile } from "./types";
 
 /** The bytes of a file on a deliverable — `server/routes/assets.ts` serves these. */
 const fileUrl = (assetId: string, fileId: string) => `/api/assets/${assetId}/files/${fileId}`;
 
 /** Pick the file a preview should show: the source a user uploaded, else the first one there is. */
-function primaryFile(asset: MockAsset): MockFile | undefined {
+function primaryFile(asset: AssetView): AssetFile | undefined {
   const files = asset.files ?? [];
   return files.find((f) => f.role === "source") ?? files[0];
 }
@@ -32,7 +32,7 @@ function primaryFile(asset: MockAsset): MockFile | undefined {
  * Four kinds are shown directly, which is what the owner asked for: PDF, slides, video and audio.
  * Anything else states what it is and offers to open it, rather than rendering a broken frame.
  */
-export function FilePreview({ asset }: { asset: MockAsset }) {
+export function FilePreview({ asset }: { asset: AssetView }) {
   const file = primaryFile(asset);
   if (!file) return null;
   const src = fileUrl(asset.id, file.id);
@@ -95,7 +95,7 @@ function Line({ w, strong }: { w: string; strong?: boolean }) {
 
 const WIDTHS = ["96%", "88%", "92%", "78%", "84%"];
 
-export function AssetPreview({ body }: { body?: MockBody }) {
+export function AssetPreview({ body }: { body?: AssetBody }) {
   // An uploaded asset has no structural body. Undefined here used to throw on `body.kind` and take
   // the region down; callers now prefer FilePreview, and this stays defensive because the shape
   // arrives over a network.

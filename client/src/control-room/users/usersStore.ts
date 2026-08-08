@@ -17,24 +17,47 @@
  * `x-openui-actor-doc-write` (`server/routes/projects.ts:27-38`, `server/routes/mcp.ts:23-25`).
  */
 import { useSyncExternalStore } from "react";
-import { MOCK_USERS } from "./mockUsers";
 import type { CapabilityGrant, Role, WorkspaceUser } from "./types";
 
 /**
  * Where the rows come from, stated on screen.
  *
- * When `GET /api/users` exists this becomes `"server"` and the notice the page renders disappears
- * with it. Until then a reader has to be told, every time they look, that these four people are
- * invented — otherwise the page is indistinguishable from a workspace that really has four.
+ * It used to be `"fixture"`, and `mockUsers.ts` held four invented people with plausible names and
+ * `.example` addresses. They are deleted. A table of invented colleagues is the one fabrication
+ * this page could least afford: it is the page whose entire subject is who may do what, and a
+ * reader had no way to tell four fictional people from four real ones.
+ *
+ * What is left is the truth about this product's access model, and it is exactly one row — see
+ * `THIS_MACHINE`. When `GET /api/users` exists this becomes `"server"`.
  */
-export type UsersSource = "fixture" | "server";
+export type UsersSource = "unauthenticated" | "server";
 
-export const SOURCE: UsersSource = "fixture";
+export const SOURCE: UsersSource = "unauthenticated";
 
 export const SOURCE_NOTE =
-  "These four people are invented, and edits to them are held in this browser tab only. " +
-  "There is no user record and no /api/users to save them to — that is stage 1 of this loop, and " +
-  "this page is stage 7.";
+  "There is no user record and no /api/users, so nobody can be listed here who has not signed " +
+  "in — and nobody signs in. Edits below are held in this browser tab only.";
+
+/**
+ * The one person this product can honestly say is here: whoever opened the workspace.
+ *
+ * Not a placeholder and not a fixture. It follows from two facts the banner above the table
+ * already states — there is no sign-in, and there must always be exactly one owner (§3.4). With
+ * nobody authenticated, the person looking at the screen holds every capability, which is what an
+ * owner is. So the row is real; what it lacks is a NAME, and it does not invent one.
+ */
+export const THIS_MACHINE: WorkspaceUser = {
+  id: "owner_this_machine",
+  displayName: "You",
+  role: "owner",
+  capabilities: { images: true, video: true, voice: true, publishToX: true },
+  // No cap on the owner: §3.4 gives them everything below them, and a cap the same person can
+  // raise is a note to self rather than a control. Rendered as "no cap", never as $0.
+  budgetUsd: undefined,
+  disabled: false,
+  createdAt: "",
+  updatedAt: "",
+};
 
 export type RoleFilter = Role | "all";
 
@@ -45,7 +68,7 @@ interface UsersState {
 }
 
 let state: UsersState = {
-  users: MOCK_USERS,
+  users: [THIS_MACHINE],
   query: "",
   roleFilter: "all",
 };
@@ -106,7 +129,7 @@ export function setCapability(id: string, key: keyof CapabilityGrant, value: boo
 const matches = (user: WorkspaceUser, query: string): boolean => {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return user.displayName.toLowerCase().includes(q) || user.email.toLowerCase().includes(q);
+  return user.displayName.toLowerCase().includes(q) || (user.email ?? "").toLowerCase().includes(q);
 };
 
 export function visibleUsers(s: UsersState): WorkspaceUser[] {
