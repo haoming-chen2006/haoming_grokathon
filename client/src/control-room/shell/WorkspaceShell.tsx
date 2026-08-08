@@ -310,7 +310,7 @@ function ToolsOverlay({
         data-testid="tools-scrim"
         aria-label="Close the Tools panel"
         onClick={onClose}
-        className="absolute inset-0 bg-canvas/60"
+        className="absolute inset-0 bg-scrim/50"
       />
       <section
         role="dialog"

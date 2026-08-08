@@ -99,6 +99,13 @@
   --area-6-border: 224 175 104;
   --area-6-gutter: 49 42 32;
 
+  /*
+   * The scrim behind an overlay. Black in BOTH themes on purpose: a scrim's job is to darken
+   * whatever is under it, so tying it to the ground made it invisible — bg-canvas/60 over a
+   * canvas-coloured page dims nothing, which is what looking at the running Tools overlay showed.
+   */
+  --scrim: 0 0 0;
+
   /* elevation — a drop shadow that only works on a dark ground is a dark value */
   --shadow-node: 0 2px 8px rgb(0 0 0 / 0.3);
   --shadow-node-hover: 0 4px 16px rgb(0 0 0 / 0.4);
@@ -183,6 +190,9 @@
   --area-6-ink: 121 87 6;
   --area-6-border: 121 87 6;
   --area-6-gutter: 226 223 215;
+
+  /* the scrim darkens in both themes; see the dark block */
+  --scrim: 0 0 0;
 
   /* elevation — the dark ramp is invisible on a light ground, so it is chosen too */
   --shadow-node: 0 2px 8px rgb(0 0 0 / 0.12);

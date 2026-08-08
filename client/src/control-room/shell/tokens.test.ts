@@ -228,7 +228,9 @@ describe("tailwind resolves every colour through a token", () => {
     // Exact, not a floor: ten ground spellings + four ink steps + two accents, then three
     // utilities each for six statuses and six areas, then the six gutter washes. A wrong count
     // means a token was added to the config and to nothing else, which a floor would hide.
-    const expected = 10 + INK.length + ACCENT.length + STATUSES.length * 3 + AREAS.length * 3 + AREAS.length;
+    // +1 for the overlay scrim, which is a background and belongs to no published group.
+    const expected =
+      10 + INK.length + ACCENT.length + STATUSES.length * 3 + AREAS.length * 3 + AREAS.length + 1;
     expect(values.length).toBe(expected);
     for (const v of values) expect(v).toMatch(/^rgb\(var\(--[\w-]+\) \/ <alpha-value>\)$/);
   });
