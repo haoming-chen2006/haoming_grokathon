@@ -373,3 +373,133 @@ machine running seven copies of the suite, not a defect in any branch.
 boundary, and it would mask the only signal saying the suite is under-resourced. If reconciliation
 wants it fixed rather than tolerated, the change belongs with whoever owns those tests, and the
 honest form is an explicit per-test timeout on the process-spawning tests rather than a global one.
+
+---
+
+## R-1 addendum (iteration 2) — the token layer is live, and here is how to write against it
+
+R-1.4 published the token **names** on iteration 1 and said the layer itself did not exist yet. It
+exists now: `client/tailwind.config.js` and `client/src/index.css` on `pivot/shell`. Writing
+`bg-surface`, `text-ink-muted`, `text-status-working` or `bg-gutter-area-3` today produces the right
+colour in both themes. Nothing about the published names changed; this only tells you the spellings
+are real.
+
+**54 tokens, defined twice** — once in `:root` (GrokNight, the default) and once in `:root.light`
+(GrokDay). The utility for each:
+
+```text
+ground   bg-canvas · bg-surface · bg-surface-hover · bg-surface-active
+         border-border · border-border-light        (border-light is the strong rule)
+ink      text-ink · text-ink-muted · text-ink-faint · text-ink-ghost
+accent   text-accent · bg-accent · border-accent · text-accent-muted
+status   bg-status-<s> · text-status-<s> · border-status-<s>
+           s ∈ working | waiting | needs-review | complete | idle | failed
+           NOTE the hyphen: needs-review, not needs_review, which is the server's spelling.
+areas    bg-area-N · text-area-N · border-area-N · bg-gutter-area-N     (N = 1…6)
+```
+
+`bg-gutter-area-N` is the one utility whose name differs from its token name (`gutter-area-N`), for
+the mundane reason that a wash is applied as a background.
+
+Opacity utilities still work — every value is `rgb(var(--token) / <alpha-value>)`, so `bg-surface/60`
+and `text-ink/40` mean what they say. Prefer the four `ink` steps to an opacity: the steps are
+measured on both grounds, an arbitrary opacity is not.
+
+**Two things this bought that are worth knowing before you style anything:**
+
+* **Deriving a light colour from a dark one does not work, and the tests say so with numbers.**
+  GrokDay's own GREEN (`#378E23`), ORANGE (`#C3691E`) and YELLOW (`#A27612`) all fall below 4.5:1 on
+  this ground; each was deepened until it cleared AA against both the page and its own fill. If you
+  need a colour, ask — do not compute one.
+* **The warm statuses are the fragile ones.** `waiting` (gold) against `failed` (orange), and
+  `area-4` against `area-6`, are the two pairs that converge as they deepen. They are separated now
+  and `tokens.test.ts` fails if a future edit pushes them back together.
+
+## R-2 — `client/index.html` (now complete, was seeded on iteration 1)
+
+```text
+line 7:  <title>OpenUI - AI Agent Canvas</title>   ->   <title>grok-workspace</title>
+head:    insert this script BEFORE the module script tag, verbatim:
+```
+
+```html
+<script>
+  (function () {
+    try {
+      var stored = localStorage.getItem("grok-workspace-theme");
+      var theme = stored === "light" || stored === "dark"
+        ? stored
+        : window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.classList.add(theme);
+    } catch (e) {
+      document.documentElement.classList.add("dark");
+    }
+  })();
+</script>
+```
+
+**Reason:** the class must be on `<html>` before the first paint. It cannot live in
+`client/src/main.tsx` — the bundle has not run — and without it every load flashes the wrong theme,
+worst for exactly the user the feature exists for.
+
+Four properties, each a bug if it is missing:
+
+* **The stored value wins over the OS in both directions.** A user who chose light keeps light when
+  the OS goes dark. That is why the stored check comes first and why it tests for both spellings
+  rather than for truthiness.
+* **`dark` and `light` are both stamped explicitly**, never "dark is the absence of a class". A
+  class that only appears in one state cannot be toggled off reliably by a provider that did not
+  set it.
+* **The `try` matters.** `localStorage` throws outright in a blocked-cookies context, and an
+  uncaught throw here runs before the bundle and takes the whole page down. The catch stamps the
+  default rather than nothing.
+* **`localStorage` is the boot-time cache, not the record of truth.** The durable setting is
+  `{"theme":"light"}` through `PUT /api/settings`, which merges arbitrary keys into an untyped
+  config and so needs no server change. The provider writes both: the server so the choice survives
+  a cleared browser, `localStorage` so the next load can read it synchronously.
+
+## R-7 — `client/src/control-room/types.ts` (now complete, was seeded on iteration 1)
+
+Replace `STATUS_CLASSES` and `STATUS_DOT` (types.ts:61-77) with:
+
+```ts
+/** Tailwind classes per status. Paired with a label at every call site, never used alone. */
+export const STATUS_CLASSES: Record<AgentRuntimeStatus, string> = {
+  working: "bg-status-working text-status-working border-status-working",
+  waiting: "bg-status-waiting text-status-waiting border-status-waiting",
+  needs_review: "bg-status-needs-review text-status-needs-review border-status-needs-review",
+  complete: "bg-status-complete text-status-complete border-status-complete",
+  idle: "bg-status-idle text-status-idle border-status-idle",
+  failed: "bg-status-failed text-status-failed border-status-failed",
+};
+
+/** The dot takes the label's colour, not the pill's fill, so it reads at 6px on both grounds. */
+export const STATUS_DOT: Record<AgentRuntimeStatus, string> = {
+  working: "bg-current text-status-working",
+  waiting: "bg-current text-status-waiting",
+  needs_review: "bg-current text-status-needs-review",
+  complete: "bg-current text-status-complete",
+  idle: "bg-current text-status-idle",
+  failed: "bg-current text-status-failed",
+};
+```
+
+**Reason:** one file is the single source of status colour for the whole application. Migrating it
+centrally is the difference between 18 edits and 300.
+
+Three notes for whoever applies it:
+
+* **The hue assignment is unchanged** — working green, waiting yellow, needs_review blue, complete
+  gray, idle red, failed orange — so this is mechanical and reviewable line by line. Every one of
+  the twelve strings above resolves to a colour measured against both grounds by
+  `client/src/control-room/shell/tokens.test.ts`.
+* **`needs_review` → `needs-review`** in the class name only. The server's status value keeps its
+  underscore; a Tailwind class cannot.
+* **The `/15` and `/30` opacities are gone on purpose.** Each pill's fill, label and rule are now
+  three chosen colours rather than one colour at three opacities, because an alpha that reads on
+  near-black is invisible on near-white. Do not reintroduce an opacity suffix here.
+
+**The open question stands and this request does not settle it:** `idle` is red and `failed` is
+orange, which reads backwards. The tokens preserve it so the migration stays mechanical. Swapping
+them is a one-line change to the two blocks above *and* to the two `--status-idle-*` /
+`--status-failed-*` groups in `index.css`, on the day the owner says so.

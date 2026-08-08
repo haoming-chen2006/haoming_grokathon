@@ -5416,7 +5416,7 @@ an unfinished piece of work.**
 Branch `pivot/shell`, worktree 07-shell, **merge slot FIRST**. The rows above (V-001…V-052) belong
 to the retired coding product and are not this loop's to update or delete.
 
-**Tally after iteration 1:** 1 PASS · 0 FAIL · 0 BLOCKED · 16 NOT TESTED.
+**Tally after iteration 2:** 2 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED.
 
 ```text
 SHELL-001  PASS         the contract is published
@@ -5427,9 +5427,9 @@ SHELL-005  NOT TESTED   -- ends the flag scan
 SHELL-006  NOT TESTED   a second invocation does not start a second server
 SHELL-007  NOT TESTED   three regions, resizable, addressable
 SHELL-008  NOT TESTED   five page slots and the Tools overlay
-SHELL-009  NOT TESTED   light and dark both render
-SHELL-010  NOT TESTED   no raw colour token can enter shell-owned code
-SHELL-011  NOT TESTED   status is never colour alone, in both themes
+SHELL-009  NOT TESTED   light and dark both render         (1 of 4 clauses evidenced, iteration 2)
+SHELL-010  PASS         no raw colour token can enter shell-owned code
+SHELL-011  NOT TESTED   status is never colour alone       (2 of 5 clauses evidenced, iteration 2)
 SHELL-012  NOT TESTED   no OpenUI string is reachable from the browser
 SHELL-013  NOT TESTED   the package identity is grok-workspace  (will end BLOCKED-ON-RECONCILE, R-5)
 SHELL-014  NOT TESTED   the first-run greeting shows once and is honest
@@ -5599,3 +5599,241 @@ above on their own.
   key and `client/src/index.css` still pins the background on `html, body`.
 * **SHELL-016** — `bun run verify` is green this iteration, but the item requires it every
   iteration, so it is not marked PASS on a single run this early.
+
+## Iteration 2 — the token layer
+
+Row 2 of §3.9, taken because row 1 is PASS. Built before any shell component, so no shell code is
+written twice.
+
+### The failure, reproduced first
+
+```text
+$ grep -c darkMode client/tailwind.config.js
+0
+$ grep -rc "dark:" client/src --include=*.tsx | awk -F: '{s+=$2} END {print s}'
+0
+$ sed -n '17,24p' client/src/index.css
+html, body { … background: #0f0f0f; color: #fafafa; overflow: hidden; }
+$ grep -c '!important' client/src/index.css
+30
+```
+
+No `darkMode` key, so Tailwind 3 defaults to `media` and a `dark:` variant would follow the OS
+rather than a switch; zero `dark:` variants anyway; the background pinned on `html, body` itself,
+which no Tailwind class can beat; three literal-hex palettes and two box-shadows baking
+`rgba(0,0,0,.3)`, which only works on a dark ground.
+
+### What was built
+
+```text
+client/tailwind.config.js   darkMode:'class'; every colour rgb(var(--token) / <alpha-value>);
+                            the ink ramp, the status set, the six area colours, three var-backed
+                            box-shadows. 58 colour entries, no literal.
+client/src/index.css        two :root blocks — GrokNight and GrokDay — and every hardcoded value
+                            below them (html/body pin, React Flow, both scrollbars, the glow
+                            keyframes' fallback) replaced by a token reference.
+client/src/main.tsx         the legacy toggle pill, the one thing the shell renders today, moved
+                            off text-white / border-white/15 / bg-neutral-900 onto tokens.
+client/src/control-room/shell/tokens.test.ts   the instrument: 62 tests, 560 assertions.
+```
+
+Both palettes are Grok Build's own matched first-party pair, so the workspace and the terminal read
+as one product: `groknight.rs` (bg `#0a0a0a`, main bg `#141414`, fg `#e1e1e1`, accent magenta) and
+`grokday.rs` (bg `#f5f5f5`, main `#eeeeee`, fg `#262626`, accent purple).
+
+### The tokens reach the running application
+
+A passing test proves a unit works, not that anything calls it, so this is measured on the built
+bundle rather than on the source:
+
+```text
+$ bun run build && CSSOUT=$(ls client/dist/assets/*.css | head -1)
+$ grep -o -- '--[a-z0-9-]*: [0-9]* [0-9]* [0-9]*' $CSSOUT | wc -l        120
+$ grep -o -- '--[a-z0-9-]*: [0-9]* [0-9]* [0-9]*' $CSSOUT | sed 's/:.*//' | sort -u | wc -l
+                                                                          60
+$ grep -o ':root[^{]*{--canvas' $CSSOUT | wc -l                            2
+$ grep -c '#0f0f0f' $CSSOUT                                                0
+$ grep -o 'html,body{[^}]*}' $CSSOUT
+html,body{…;background:rgb(var(--canvas));color:rgb(var(--ink));overflow:hidden}
+```
+
+54 of those 60 are this loop's, defined once per theme (108 declarations); the other 6 are
+Tailwind's `--tw-*` and React Flow's `--xy-*`. Utility classes are generated on demand from
+`content`, so `bg-status-working` appears in the bundle when a component first uses it — the config
+exposing it is what `tokens.test.ts` asserts.
+
+### SHELL-010 — No raw colour token can enter shell-owned code — **PASS**
+
+```text
+grep counts:
+  $ for f in client/src/control-room/shell/*.ts* client/src/main.tsx; do \
+      printf "%-52s %s\n" "$f" "$(grep -Ec 'text-white|bg-white/|border-white/|divide-white/|bg-neutral-9|#[0-9a-fA-F]{3,6}\b' $f)"; done
+    client/src/control-room/shell/contract.test.tsx      0
+    client/src/control-room/shell/contract.ts            0
+    client/src/control-room/shell/pages.ts               0
+    client/src/control-room/shell/tokens.test.ts         4     ← the checker's own patterns
+    client/src/main.tsx                                  0
+
+Check name and where it runs:
+  "no raw colour token can enter shell-owned code" in
+  client/src/control-room/shell/tokens.test.ts. It runs in `bun test`, which is stage 2 of
+  `bun run verify`. It scans every .ts/.tsx in shell/ plus client/src/main.tsx, excluding only
+  itself — the same self-exclusion scripts/audit/quality.mjs uses, and the reason the probes below
+  are planted in a DIFFERENT shell file.
+
+Planted token, and the failure output:
+  PROBE 5  planted `const planted = "text-white bg-neutral-950";` in shell/pages.ts
+    Expected: "shell/pages.ts: "   Received: "shell/pages.ts: text-white, bg-neutral-9"
+  PROBE 6  planted `const planted = "#bb9af7";` in shell/pages.ts
+    Expected: "shell/pages.ts: "   Received: "shell/pages.ts: a hex literal"
+  Both reverted; the suite returns to green.
+
+Tokens used, against the published list:
+  The shell renders exactly one control today (the legacy view toggle in main.tsx, retired in
+  row 6). It uses border-border, bg-surface/95, text-ink, hover:bg-surface-hover — four published
+  ground/ink tokens — plus shadow-panel, which is an elevation token and not a colour.
+```
+
+### SHELL-009 — Light and dark both render — **NOT TESTED**, 1 of 4 clauses evidenced
+
+```text
+✓ client/src/index.css contains no hardcoded colour outside the two :root blocks.
+    The check strips comments first — the header explains why a fill that reads on near-black is
+    invisible on #f5f5f5, and naming a ground in prose is not painting with it — then removes both
+    token blocks and scans what is left for hex, numeric rgb() and hsl().
+    PROBE 7: planted `outline-color: #ff00ff;` in the .react-flow__pane rule.
+      (fail) index.css states no colour outside the two token blocks
+    A companion test asserts both blocks were actually located, so an empty match cannot report a
+    clean file as clean.
+
+✗ a theme control switches both themes with no reload — NOT BUILT. The provider and the toolbar
+    control belong with the toolbar (row 3, SHELL-007).
+✗ the choice persists across a restart and wins over prefers-color-scheme in both directions —
+    NOT BUILT. The mechanism is specified and filed as R-2: localStorage key
+    "grok-workspace-theme" read synchronously at boot, PUT /api/settings as the durable record.
+✗ no page load flashes the wrong theme — BLOCKED-ON-RECONCILE. The boot script cannot live in
+    main.tsx (the bundle has not run) and client/index.html is hot. R-2 now carries its verbatim
+    text, which iteration 1 could not: the class names and the storage key did not exist yet.
+
+Not claimed: no screenshot of either theme has been taken. The measurements below are arithmetic
+on the shipped token values, which is a different kind of evidence from looking at it, and §5 asks
+for both. SHELL-009 and SHELL-011 stay held until the shell has something to render and both
+themes have been looked at.
+```
+
+### SHELL-011 — Status is never colour alone — **NOT TESTED**, 2 of 5 clauses evidenced
+
+```text
+✓ each of the six statuses has a chosen light pair, and the six are distinguishable in both themes.
+✓ the six area colours are distinguishable on both grounds, including as a low-opacity gutter fill.
+✗ every status pill renders its text label in both themes — the pills are rendered by
+    AgentStatusBadge.tsx and its siblings, which still hold the old classes until R-7 is applied.
+    Not this worktree's files.
+✗ the colour element is aria-hidden — same components, same reason.
+✗ the label still renders with the class attribute blanked — controlRoom.test.tsx:62 already
+    proves this for the current components; it will need re-running after R-7, not before.
+
+Contrast ratios (WCAG 2.1), computed from the values shipped in `client/src/index.css`. The table
+was printed by a scratch script that is not part of the repository, but it is not the evidence —
+the evidence is `client/src/control-room/shell/tokens.test.ts`, which performs the same arithmetic
+on the same file inside `bun run verify`. The thresholds it enforces are in brackets; a figure
+below its bracket is a red gate, not a note.
+
+  ink ramp                    on --surface / on --canvas
+                    floor      dark              light
+    ink             [12:1]     14.09 / 15.14     13.04 / 13.88
+    ink-muted        [7:1]     11.01 / 11.83      8.39 /  8.93
+    ink-faint      [4.5:1]      6.07 /  6.53      5.26 /  5.59
+    ink-ghost        [3:1]      3.51 /  3.77      3.91 /  4.17
+    accent         [4.5:1]      7.96 /  8.56      4.90 /  5.21
+
+  status            label on its own pill / label on the page   [4.5:1 for both]
+                            dark              light
+    working              7.47 / 10.08      4.61 / 5.70
+    waiting              6.96 /  9.21      4.60 / 5.69
+    needs-review         5.78 /  7.32      5.09 / 6.39
+    complete             8.00 / 11.01      6.57 / 8.39
+    idle                 5.57 /  6.96      4.61 / 5.89
+    failed               6.88 /  9.06      4.67 / 5.87
+
+  areas             name on the page  [4.5:1]
+    dark    7.32 · 10.08 · 7.96 · 9.06 · 10.74 · 9.21
+    light   6.39 ·  5.70 · 6.10 · 5.87 ·  5.77 · 5.69
+
+Distinguishability — CIE76 ΔE, chosen over CIEDE2000 because it can be re-derived by hand from
+these numbers, which matters more in an evidence ledger than the last few percent of accuracy.
+Figures are the WORST pair in each set:
+
+                              dark     light    [threshold]
+    six status labels         21.4     29.6     [> 12]
+    six area hues             21.4     24.9     [> 20]
+    six pill fills             3.3      4.3     [> 3]
+    each pill fill vs page    13.1      9.2     [> 3]
+    six gutter washes          3.9      3.0     [> 2]
+    gutter vs page (contrast) 1.247    1.148    [> 1.1]
+    --ink over any gutter     10.6     11.2     [≥ 7]
+
+The two ends were tuned toward each other deliberately: a gutter wash sits at 1.25:1 against the
+dark ground and 1.15:1 against the light one, so the line highlight reads as the same strength of
+hint in both themes rather than shouting in one and vanishing in the other.
+
+The two collisions §3.7 predicted are real, and the numbers are why the light values are not
+GrokDay's own. Deepening converges hue: `waiting` (gold) against `failed` (orange), and area-4
+against area-6, both failed their first measurement. GrokDay's GREEN #378E23, ORANGE #C3691E and
+YELLOW #A27612 each fall below 4.5:1 on this ground outright. Every light value was deepened until
+the instrument stopped complaining, which is the difference between choosing a pair and computing
+one.
+
+  PROBE 10: reverted --status-working-ink to GrokDay's own #378E23 (55 142 35).
+    (fail) light: working reads on its own pill and on the page
+  PROBE 11: copied the dark --ink into the light block.
+    (fail) the dark and light values actually differ — a copied block is not a second theme
+    (fail) light: ink on canvas clears 12:1   (+2 more)
+```
+
+### The checker that passed for the wrong reason
+
+`tokens.test.ts` first asserted `darkMode: 'class'` by matching the config's **text**. PROBE 8
+deleted the actual setting and the test still passed — because the file's own doc comment explains
+why `darkMode: 'class'` is set, and prose about a setting matched the regex for the setting.
+
+```text
+$ sed -i '' "/^  darkMode: 'class',$/d" client/tailwind.config.js
+$ grep -n darkMode client/tailwind.config.js
+12: * `darkMode: 'class'` rather than Tailwind 3's `media` default, …
+$ bun test .../tokens.test.ts        → 62 pass, 0 fail        ← the bug
+```
+
+Fixed by asserting on the loaded config object (`loaded.darkMode === "class"`), which no comment can
+satisfy. Re-run of the same probe against the fixed check:
+
+```text
+Expected: "class"   Received: undefined
+(fail) tailwind resolves every colour through a token > darkMode is 'class', …
+```
+
+This is the fourth audit in this repository to ship with a bug in the checker itself, and the only
+reason it was caught is that §5 requires planting the failure rather than trusting the pass.
+
+### The gate, iteration 2
+
+```text
+tsc --noEmit (server + client)   exit 0
+bun run build                    exit 0 — built in 3.91s
+bun run audit (4 audits)         0 orphans · every endpoint has a caller · 0 unclassified
+                                 indicators · every cited file resolves
+bun test (shell files)           77 pass / 0 fail across 2 files (597 assertions)
+bun test (whole suite)           still carries the contention timeouts recorded under iteration 1;
+                                 unchanged by this work, which touches no server file
+```
+
+### What did not move
+
+* **SHELL-007 (the regions)** — row 3, still blocked on the router decision. It is now the only
+  thing between this worktree and a shell that can be looked at, and looking at it is what
+  SHELL-009 and SHELL-011 are waiting on.
+* **SHELL-002…006** — row 5, still waiting on the owner's answer about PATH shadowing.
+* **The 333 legacy class tokens** in the control room are still legacy class tokens. They are not
+  this worktree's migration (§2.1 item 8): those components are being replaced wholesale by
+  01/02/03, and migrating a dying component is work performed twice and thrown away once. What
+  changed is that the tokens they will be replaced *with* now exist and are measured.

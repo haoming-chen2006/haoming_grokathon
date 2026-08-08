@@ -27,7 +27,7 @@ function Root() {
         type="button"
         data-testid="view-toggle"
         onClick={() => setView(view === 'canvas' ? 'control-room' : 'canvas')}
-        className="fixed bottom-4 right-4 z-[100000] rounded-full border border-white/15 bg-neutral-900/95 px-3 py-1.5 text-xs text-white shadow-lg hover:bg-neutral-800"
+        className="fixed bottom-4 right-4 z-[100000] rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs text-ink shadow-panel hover:bg-surface-hover"
       >
         {view === 'canvas' ? 'Open Control Room →' : '← Back to Canvas'}
       </button>

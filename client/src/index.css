@@ -2,12 +2,205 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The token layer — loops/07-shell.md §3.7.
+ *
+ * TWO blocks hold every colour in this application, and nothing below them may
+ * state a colour of its own. `:root` is GrokNight (dark, the product default);
+ * `:root.light` is GrokDay. The boot script in index.html stamps exactly one of
+ * `dark` / `light` on <html> before the bundle loads, so a light-mode user never
+ * sees a dark flash — the class is on the element before the first paint.
+ *
+ * Both palettes are Grok Build's own matched first-party pair, so the workspace
+ * and the terminal read as one product rather than two:
+ *   .refs/grok-build/crates/codegen/xai-grok-pager-render/src/theme/groknight.rs
+ *   .refs/grok-build/crates/codegen/xai-grok-pager-render/src/theme/grokday.rs
+ *
+ * Values are space-separated RGB triples, not hex, because tailwind.config.js
+ * wraps each one as rgb(var(--token) / <alpha-value>) — which is what keeps the
+ * opacity utilities (bg-surface/60, text-ink/40) working against a variable.
+ *
+ * The four `ink` steps replace seven `text-white/NN` opacities. There is no
+ * mechanical light equivalent of an opacity — text-black/40 on white is a
+ * different perceptual contrast — so both ends of each step are chosen and
+ * measured. contract.test.tsx's sibling, tokens.test.ts, holds the measurements.
+ *
+ * `bg-*` fills and `gutter-*` washes are pre-blended against their own ground
+ * rather than expressed as an alpha, for the same reason: a fill that reads at
+ * 15% against near-black is frequently invisible against #f5f5f5.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+:root {
+  /* GrokNight — the product default. */
+
+  /* ground */
+  --canvas: 10 10 10;
+  --surface: 20 20 20;
+  --surface-hover: 28 28 28;
+  --surface-active: 36 36 36;
+  --border: 44 44 44;
+  --border-strong: 65 65 65;
+
+  /* ink — four steps, measured against --surface */
+  --ink: 225 225 225;
+  --ink-muted: 200 200 200;
+  --ink-faint: 148 148 148;
+  --ink-ghost: 108 108 108;
+
+  /* accent */
+  --accent: 187 154 247;
+  --accent-muted: 157 124 216;
+
+  /* status — hue assignment preserved from control-room/types.ts, see R-7 */
+  --status-working-bg: 41 48 33;
+  --status-working-ink: 158 206 106;
+  --status-working-border: 75 94 54;
+  --status-waiting-bg: 51 43 33;
+  --status-waiting-ink: 224 175 104;
+  --status-waiting-border: 102 82 54;
+  --status-needs-review-bg: 35 41 54;
+  --status-needs-review-ink: 122 162 247;
+  --status-needs-review-border: 61 77 111;
+  --status-complete-bg: 47 47 47;
+  --status-complete-ink: 200 200 200;
+  --status-complete-border: 92 92 92;
+  --status-idle-bg: 54 35 38;
+  --status-idle-ink: 247 118 142;
+  --status-idle-border: 111 59 69;
+  --status-failed-bg: 55 41 32;
+  --status-failed-ink: 255 158 100;
+  --status-failed-border: 114 75 52;
+
+  /* areas — six hues, each with a tile fill, an ink, a rule and a gutter wash */
+  --area-1-bg: 42 51 70;
+  --area-1-ink: 122 162 247;
+  --area-1-border: 122 162 247;
+  --area-1-gutter: 34 40 52;
+  --area-2-bg: 50 61 39;
+  --area-2-ink: 158 206 106;
+  --area-2-border: 158 206 106;
+  --area-2-gutter: 39 46 32;
+  --area-3-bg: 57 50 70;
+  --area-3-ink: 187 154 247;
+  --area-3-border: 187 154 247;
+  --area-3-gutter: 43 39 52;
+  --area-4-bg: 72 50 38;
+  --area-4-ink: 255 158 100;
+  --area-4-border: 255 158 100;
+  --area-4-gutter: 53 39 31;
+  --area-5-bg: 43 61 72;
+  --area-5-ink: 125 207 255;
+  --area-5-border: 125 207 255;
+  --area-5-gutter: 35 46 53;
+  --area-6-bg: 65 54 39;
+  --area-6-ink: 224 175 104;
+  --area-6-border: 224 175 104;
+  --area-6-gutter: 49 42 32;
+
+  /* elevation — a drop shadow that only works on a dark ground is a dark value */
+  --shadow-node: 0 2px 8px rgb(0 0 0 / 0.3);
+  --shadow-node-hover: 0 4px 16px rgb(0 0 0 / 0.4);
+  --shadow-panel: 0 4px 12px rgb(0 0 0 / 0.4);
+}
+
+:root.light {
+  /* GrokDay. */
+
+  /* ground */
+  --canvas: 245 245 245;
+  --surface: 238 238 238;
+  --surface-hover: 228 228 228;
+  --surface-active: 222 222 222;
+  --border: 208 208 208;
+  --border-strong: 178 178 178;
+
+  /* ink */
+  --ink: 38 38 38;
+  --ink-muted: 68 68 68;
+  --ink-faint: 98 98 98;
+  --ink-ghost: 118 118 118;
+
+  /* accent */
+  --accent: 125 75 198;
+  --accent-muted: 108 62 178;
+
+  /*
+   * status — the same six hues in the same six roles, but every value is chosen rather than
+   * derived from the dark set. GrokDay's own accents are tuned for a terminal's foreground and
+   * several of them (GREEN #378E23, ORANGE #C3691E, YELLOW #A27612) fall below 4.5:1 on this
+   * ground, so each is deepened until it clears AA against BOTH the page and its own pill fill.
+   * The fills go the other way — 10% of the hue rather than the dark set's 15% — because a fill
+   * dark enough to read on near-black swallows its own label on near-white.
+   */
+  --status-working-bg: 209 218 206;
+  --status-working-ink: 42 106 26;
+  --status-working-border: 156 183 149;
+  --status-waiting-bg: 220 215 203;
+  --status-waiting-ink: 121 87 6;
+  --status-waiting-border: 189 175 141;
+  --status-needs-review-bg: 208 214 228;
+  --status-needs-review-ink: 36 80 174;
+  --status-needs-review-border: 153 172 211;
+  --status-complete-bg: 212 212 212;
+  --status-complete-ink: 68 68 68;
+  --status-complete-border: 167 167 167;
+  --status-idle-bg: 228 207 211;
+  --status-idle-ink: 174 33 55;
+  --status-idle-border: 211 152 161;
+  --status-failed-bg: 226 211 203;
+  --status-failed-ink: 156 61 7;
+  --status-failed-border: 204 164 141;
+
+  /*
+   * areas — the same six hues on the same rule. `failed` and `waiting` are the pair the dark
+   * theme separates effortlessly and this one does not: orange and gold converge as they deepen,
+   * and area-4 against area-6 is the same collision one rank down. Both were pushed apart until
+   * tokens.test.ts stopped complaining, which is why area-4 is redder here than its GrokDay seed.
+   */
+  --area-1-bg: 208 214 228;
+  --area-1-ink: 36 80 174;
+  --area-1-border: 36 80 174;
+  --area-1-gutter: 218 222 232;
+  --area-2-bg: 209 218 206;
+  --area-2-ink: 42 106 26;
+  --area-2-border: 42 106 26;
+  --area-2-gutter: 218 225 217;
+  --area-3-bg: 218 212 229;
+  --area-3-ink: 108 62 178;
+  --area-3-border: 108 62 178;
+  --area-3-gutter: 225 220 232;
+  --area-4-bg: 226 211 203;
+  --area-4-ink: 156 61 7;
+  --area-4-border: 156 61 7;
+  --area-4-gutter: 230 220 215;
+  --area-5-bg: 204 217 221;
+  --area-5-ink: 9 100 126;
+  --area-5-border: 9 100 126;
+  --area-5-gutter: 215 224 227;
+  --area-6-bg: 220 215 203;
+  --area-6-ink: 121 87 6;
+  --area-6-border: 121 87 6;
+  --area-6-gutter: 226 223 215;
+
+  /* elevation — the dark ramp is invisible on a light ground, so it is chosen too */
+  --shadow-node: 0 2px 8px rgb(0 0 0 / 0.12);
+  --shadow-node-hover: 0 4px 16px rgb(0 0 0 / 0.18);
+  --shadow-panel: 0 4px 12px rgb(0 0 0 / 0.16);
+}
+
 :root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+:root.light {
+  color-scheme: light;
 }
 
 * {
@@ -19,18 +212,18 @@ html, body {
   padding: 0;
   height: 100%;
   width: 100%;
-  background: #0f0f0f;
-  color: #fafafa;
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
   overflow: hidden;
 }
 
 /* React Flow canvas */
 .react-flow {
-  background: #0f0f0f !important;
+  background: rgb(var(--canvas)) !important;
 }
 
 .react-flow__background {
-  background-color: #0f0f0f !important;
+  background-color: rgb(var(--canvas)) !important;
 }
 
 .react-flow__pane {
@@ -54,18 +247,18 @@ html, body {
 }
 
 .react-flow__controls {
-  background: #1a1a1a !important;
-  border: 1px solid #2a2a2a !important;
+  background: rgb(var(--surface)) !important;
+  border: 1px solid rgb(var(--border)) !important;
   border-radius: 8px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  box-shadow: var(--shadow-panel) !important;
   overflow: hidden;
 }
 
 .react-flow__controls-button {
   background: transparent !important;
   border: none !important;
-  border-bottom: 1px solid #2a2a2a !important;
-  color: #666 !important;
+  border-bottom: 1px solid rgb(var(--border)) !important;
+  color: rgb(var(--ink-ghost)) !important;
   width: 28px !important;
   height: 28px !important;
   padding: 6px !important;
@@ -76,8 +269,8 @@ html, body {
 }
 
 .react-flow__controls-button:hover {
-  background: #252525 !important;
-  color: #fff !important;
+  background: rgb(var(--surface-active)) !important;
+  color: rgb(var(--ink)) !important;
 }
 
 .react-flow__controls-button svg {
@@ -87,10 +280,10 @@ html, body {
 }
 
 .react-flow__minimap {
-  background: #1a1a1a !important;
-  border: 1px solid #2a2a2a !important;
+  background: rgb(var(--surface)) !important;
+  border: 1px solid rgb(var(--border)) !important;
   border-radius: 8px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  box-shadow: var(--shadow-panel) !important;
 }
 
 /* Hide edges/connections */
@@ -116,12 +309,12 @@ html, body {
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: #333;
+  background: rgb(var(--border-strong));
   border-radius: 3px;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: #444;
+  background: rgb(var(--ink-ghost));
 }
 
 /* Custom scrollbar */
@@ -135,12 +328,12 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: rgb(var(--border-strong));
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #444;
+  background: rgb(var(--ink-ghost));
 }
 
 /* Animations */
@@ -162,10 +355,10 @@ html, body {
 /* Beautiful glow pulse animation for active agents */
 @keyframes glow-pulse {
   0%, 100% {
-    filter: brightness(1) drop-shadow(0 0 8px var(--glow-color, #22C55E));
+    filter: brightness(1) drop-shadow(0 0 8px var(--glow-color, rgb(var(--accent))));
   }
   50% {
-    filter: brightness(1.02) drop-shadow(0 0 20px var(--glow-color, #22C55E)) drop-shadow(0 0 40px var(--glow-color, #22C55E));
+    filter: brightness(1.02) drop-shadow(0 0 20px var(--glow-color, rgb(var(--accent)))) drop-shadow(0 0 40px var(--glow-color, rgb(var(--accent))));
   }
 }
 
