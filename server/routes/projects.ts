@@ -345,7 +345,11 @@ projectRoutes.post("/:id/plan/generate", async (c) => {
       const resolved = resolveAgentForRole(task.role, team);
       // A role the Planner invented is reported rather than swallowed: the task still gets an
       // owner, but the user is told the assignment was a guess and which wording caused it.
-      if (resolved.match === "fallback" && !unmatchedRoles.includes(task.role)) {
+      //
+      // On a project with no agents every role is unmatchable, and listing all of them buries the
+      // one thing worth saying — that there is no team — under a roster of roles the user cannot
+      // act on. `teamMissing` carries that case alone.
+      if (team.length > 0 && resolved.match === "fallback" && !unmatchedRoles.includes(task.role)) {
         unmatchedRoles.push(task.role);
       }
       try {

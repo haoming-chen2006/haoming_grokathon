@@ -291,6 +291,9 @@ describe("the control: with no team the same script breaks exactly as reported",
 
     const generated = await browser.generatePlan(project.id);
     expect(generated.json.teamMissing).toBe(true);
+    // Not also a list of every role in the plan: with no team none of them can match, and naming
+    // them buries the one fact the user can act on.
+    expect(generated.json.unmatchedRoles).toBeUndefined();
 
     await browser.approvePlan(project.id);
     const { status, json } = await browser.launchTask(project.id, "t1");

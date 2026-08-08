@@ -4991,6 +4991,63 @@ result is usually the audit.
 
 ---
 
+## Four UI↔API shapes nothing was holding (iteration 82)
+
+§3 of `loopdesign.md` says that when the UI gains a call, `uiContract.test.ts` gains a case in the
+same iteration, and that the cheap version of the check is to list what one side produces, list what
+the other consumes, and diff them. Doing that on the twenty-six endpoints `useControlRoom` calls
+found three uncovered — and the checker's own output was wrong about a fourth.
+
+```text
+GAP  /api/coding-agents/:id/session/pause
+GAP  /api/projects/:id/submissions/:id/merge
+GAP  /api/repository/changed-files
+ok   /api/repository/diff          ← wrong; the word "diff" appears elsewhere in the file
+```
+
+Checked one at a time rather than acted on, which is the rule. `merge` is not a gap: the hook awaits
+it and reads nothing from the reply, so it has no shape to guard. The other three are all fields the
+hook dereferences.
+
+`loadDiff` carries a comment saying it adapts "two endpoints [that] answer in different shapes" — a
+bare array from `/changed-files`, a wrapped `{ diff }` from `/diff`. Nothing held either side of
+that asymmetry in place. The control is the tidy-up a server-side change would plausibly make:
+
+```text
+wrap changed-files in { files }, unwrap diff to a bare string → 20 pass / 2 fail
+```
+
+The session controls needed the seam added in iteration 81: `sessionAction` does
+`setSessionState(session.state)` for pause, resume and stop alike, and reaching a *successful* one
+otherwise means spawning a real agent to pause. Substituting the manager also made the failure path
+worth asserting — the real manager answers `409`, the hook lets that throw into the error banner, so
+the body has to carry a message rather than being an empty 409.
+
+### A field that was noise on the one project that most needed it
+
+Covering plan generation turned up a defect in iteration 81's own work. On a project with **no
+agents**, every role is unmatchable, so `unmatchedRoles` came back naming all of them:
+
+```text
+teamMissing: true, unmatchedRoles: ["Backend Engineer"]
+```
+
+The user cannot act on that list — there is no team to reassign within — and it buries the one fact
+that matters. `unmatchedRoles` is now collected only when a team exists; `teamMissing` carries the
+other case alone. Both the contract test and the browser-loop control fail if the guard is removed.
+
+The stale comment this replaced is worth recording, because it was mine and it had been true when
+written: plan generation was skipped here "because it starts a real Grok session, and the UI reads
+nothing from its response". By iteration 81 neither half held — the seam replaced the live turn, and
+the panel renders a notice built from two fields of the reply. **A reason for not testing something
+decays as silently as a test does.**
+
+```text
+bun run verify → exit 0, 925 pass / 0 fail across 50 files, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

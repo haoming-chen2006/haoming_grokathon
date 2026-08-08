@@ -6,8 +6,12 @@ import { join } from "path";
 import { Hono } from "hono";
 import { projectRoutes } from "./projects";
 import { agentRoutes } from "./agents";
+import { repositoryRoutes } from "./repository";
 import { ProjectStore } from "../services/projectStore";
 import { getAgentRegistry } from "../services/agentRegistry";
+import { seedDefaultTeam } from "../services/agentTeam";
+import { setPlannerImplementation } from "../services/planner";
+import { setAcpSessionManager } from "../services/acpSessionManager";
 import type { Actor } from "../types/project";
 
 /**
@@ -86,6 +90,7 @@ beforeEach(() => {
   app = new Hono();
   app.route("/api/projects", projectRoutes);
   app.route("/api/coding-agents", agentRoutes);
+  app.route("/api/repository", repositoryRoutes);
 });
 
 afterEach(() => {
@@ -253,7 +258,119 @@ describe("UI contract: the endpoints the Control Room writes through", () => {
     hasFields(json[0], ["id", "kind", "fromAgentId", "body", "links", "threadId"], "message");
   });
 
-  // POST /plan/generate is deliberately not called here: it starts a real Grok session, which
-  // belongs in `bun run acceptance` rather than in a contract test. Its response shape is read by
-  // the UI only to trigger a reload, so nothing is asserted about it.
+  // POST /plan/generate used to be skipped here on the grounds that it starts a real Grok session
+  // and that the UI read nothing from its response but the fact of it. Both halves stopped being
+  // true: `setPlannerImplementation` replaces the live turn, and the panel now renders a notice
+  // built from two fields of the reply. An uncovered response shape the UI depends on is exactly
+  // what this file exists to catch.
+  test("plan/generate returns the fields the plan notice is built from", async () => {
+    setPlannerImplementation(async () => ({
+      milestones: [],
+      tasks: [
+        { id: "t1", objective: "o", role: "Backend Engineer", requirementId: "REQ-01", dependsOn: [], expectedFiles: [], requiredTests: [] },
+        { id: "t2", objective: "o", role: "Database Administrator", requirementId: "REQ-01", dependsOn: [], expectedFiles: [], requiredTests: [] },
+      ],
+      usage: { totalTokens: 0, inputTokens: 0, outputTokens: 0, cachedReadTokens: 0, reasoningTokens: 0 },
+      raw: "{}",
+    }));
+    try {
+      seedDefaultTeam(projectId, { registry: getAgentRegistry() });
+      const { status, json } = await post(`/api/projects/${projectId}/plan/generate`, {});
+
+      expect(status).toBe(201);
+      // useControlRoom reads exactly these two, and renders nothing when both are absent.
+      expect(json.unmatchedRoles).toEqual(["Database Administrator"]);
+      expect(json.teamMissing).toBeUndefined();
+      expect(json.plan.state).toBe("draft");
+    } finally {
+      setPlannerImplementation(null);
+    }
+  });
+
+  test("plan/generate says the team is missing when there is none", async () => {
+    setPlannerImplementation(async () => ({
+      milestones: [],
+      tasks: [{ id: "t1", objective: "o", role: "Backend Engineer", requirementId: "REQ-01", dependsOn: [], expectedFiles: [], requiredTests: [] }],
+      usage: { totalTokens: 0, inputTokens: 0, outputTokens: 0, cachedReadTokens: 0, reasoningTokens: 0 },
+      raw: "{}",
+    }));
+    try {
+      // The shared fixture project already has an agent, so this needs one of its own. `seedTeam`
+      // is not something the browser sends; it is the only way to reach the teamless state now
+      // that creating a project seeds the team.
+      const created = await post("/api/projects", {
+        name: "Teamless", goal: "g", repositoryPath: repo, seedTeam: false,
+      });
+      const { json } = await post(`/api/projects/${created.json.id}/plan/generate`, {});
+
+      expect(json.teamMissing).toBe(true);
+      expect(json.unmatchedRoles).toBeUndefined();
+    } finally {
+      setPlannerImplementation(null);
+    }
+  });
+
+  /*
+   * Found by diffing the endpoints useControlRoom calls against the ones covered here, which §3 of
+   * loopdesign.md recommends and which has found real bugs four times. Three of the twenty-six were
+   * uncovered, and all three are shapes the hook dereferences rather than merely awaits — the merge
+   * endpoint, also uncovered, reads nothing from its reply and so does not belong in this file.
+   *
+   * `loadDiff` says it adapts "two endpoints [that] answer in different shapes" — a bare array from
+   * one, a wrapped `{ diff }` from the other. That asymmetry is precisely the kind of thing that
+   * gets tidied up server-side by someone who has not read the client.
+   */
+  test("repository/changed-files is a bare array of the fields DiffView renders", async () => {
+    writeFileSync(join(repo, "b.ts"), "export const y = 2;\n");
+    const query = `worktree=${encodeURIComponent(repo)}&base=main`;
+    const { status, json } = await get(`/api/repository/changed-files?${query}`);
+
+    expect(status).toBe(200);
+    expect(Array.isArray(json), "loadDiff maps over this directly — an envelope would break it").toBe(true);
+    expect(json.length).toBeGreaterThan(0);
+    hasFields(json[0], ["path"], "changed file");
+    expect(typeof json[0].path).toBe("string");
+  });
+
+  test("repository/diff wraps its text, and is not the bare string", async () => {
+    writeFileSync(join(repo, "b.ts"), "export const y = 2;\n");
+    const query = `worktree=${encodeURIComponent(repo)}&base=main`;
+    const { status, json } = await get(`/api/repository/diff?${query}`);
+
+    expect(status).toBe(200);
+    hasFields(json, ["diff"], "diff response");
+    expect(typeof json.diff).toBe("string");
+  });
+
+  test("a session control returns the state the drawer switches on", async () => {
+    // sessionAction does `setSessionState(session.state)` for pause, resume and stop alike. A reply
+    // without `state` sets the drawer to undefined, which renders as a session in no state at all.
+    // The manager is substituted because the alternative is spawning a real agent to pause it.
+    const states: string[] = [];
+    setAcpSessionManager({
+      pause: (id: string) => { states.push("pause"); return { agentId: id, state: "paused" }; },
+      resume: (id: string) => { states.push("resume"); return { agentId: id, state: "ready" }; },
+      stop: (id: string) => { states.push("stop"); return { agentId: id, state: "stopped" }; },
+    } as never);
+    try {
+      for (const action of ["pause", "resume", "stop"]) {
+        const { status, json } = await post(`/api/coding-agents/${agentId}/session/${action}`);
+        expect(status, `${action} answered ${status}`).toBe(200);
+        hasFields(json, ["state"], `${action} result`);
+        expect(typeof json.state).toBe("string");
+      }
+      expect(states).toEqual(["pause", "resume", "stop"]);
+    } finally {
+      setAcpSessionManager(null);
+    }
+  });
+
+  test("a control on an agent with no session is an error the shell can show", async () => {
+    // The real manager answers 409 here. useControlRoom lets `json()` throw and puts the message in
+    // the error banner, so the body has to carry one rather than being an empty 409.
+    const { status, json } = await post(`/api/coding-agents/${agentId}/session/pause`);
+    expect(status).toBe(409);
+    expect(typeof json.error).toBe("string");
+    expect(json.error.length).toBeGreaterThan(0);
+  });
 });

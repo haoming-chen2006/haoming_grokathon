@@ -15,7 +15,7 @@ cd /Users/haoming/openui
 set -a; . ./.env; set +a          # OPENAI_API_KEY — the model backend needs it
 export PATH="$HOME/.bun/bin:$PATH"
 
-bun run verify                    # typechecks, 919 tests, build, four audits
+bun run verify                    # typechecks, 925 tests, build, four audits
 bun run dev                       # UI on :6969, API on :6968
 ```
 
@@ -100,7 +100,7 @@ scripts/audit/       reachability, endpoints, quality, docs
 
 ```text
 52 of 52 checklist items PASS
-919 tests across 50 files, 0 fail
+925 tests across 50 files, 0 fail
 four audits clean: 0 orphans, every endpoint has a caller,
                    0 unclassified quality indicators, every doc citation resolves
 bun run acceptance: 20 of 20 steps
