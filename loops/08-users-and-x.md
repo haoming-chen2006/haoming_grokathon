@@ -5,89 +5,162 @@ stop. It is deliberately short; the files it points at hold the detail.
 
 | Document | Role |
 |---|---|
-| `loops/06-users-and-x.md` | This file. The contract for the USERS page and the optional X page, the build order, and the checklist USR-001…USR-010 and XAP-001…XAP-008. |
-| `VERIFICATION.md` | The evidence ledger. Current status of every item, with reproducible proof. |
+| `loops/08-users-and-x.md` | This file. The contract for the USERS page and the optional X page, the build order, and the checklist USR-001…USR-010 and XAP-001…XAP-008. |
+| `grok-workspace.md` | The product contract. What the system must become. |
 | `loopdesign.md` | The house form and the evidence standards every loop document inherits. |
-| `loops/02-dochub.md` | The deliverable and asset model. Everything an X post publishes comes from there. |
-| `loops/03-generation.md` | The generation engine. This worktree calls it and never reimplements it. |
+| `VERIFICATION.md` | The evidence ledger. Current status of every item, with reproducible proof. |
+| `loops/02-assets.md` | The asset model. Everything an X post publishes is an asset from there. |
+| `loops/03-design-documents.md` | The design document — the only thing that declares work. A post is declared there. |
+| `loops/04-generation.md` | The generation engine. This worktree calls it and never reimplements it. |
 
-Two surfaces, one theme: **who is allowed to do the thing, and what happens when the thing cannot be
-taken back.** The USERS page answers the first. The X page is the only place in grok-workspace where
-an action leaves the machine and reaches other people, so it is where the second question stops
-being theoretical.
+**USERS and X are secondary pages, and they come last.** The three headline surfaces are AGENTS,
+ASSETS and DESIGN DOCUMENTS; those are built and robustly tested before anything here ships, and
+this worktree merges after every other one. That is the owner's ordering and this document obeys it
+throughout — see §3.16 and §8.
+
+Secondary does not mean unserious. These two surfaces share one theme: **who is allowed to do the
+thing, and what happens when the thing cannot be taken back.** USERS answers the first. X is the
+only place in grok-workspace where an action leaves the machine and reaches other people, so it is
+where the second question stops being theoretical.
 
 > A post is not a file. It leaves the machine, strangers see it, and deleting it does not unsend it.
 > Everything on the X page is designed backwards from that sentence.
 
-**What these surfaces contribute to the canonical demo.** The demo has one agent working against the
-user's X account, and it ends with assets landing in the Doc Hub — some of which the user will want
-to publish. USERS supplies the named human whose approval gates that publish and whose budget bounds
-the roughly \$5.52 of media the experience agent is about to spend. The X page supplies the account
-connection the X agent reads from, and the one confirmation dialog that stands between a generated
-draft and the user's real followers. Without USERS, "approved by user" is a string literal and the
-demo's approval story is a prop. Without the X page, the second agent in the demo has nothing to
-work against.
+**What these surfaces contribute to the canonical demo.** The demo has one agent working against
+the user's X account, and it ends with every asset landing on the ASSETS page — some of which the
+user will want to publish. USERS supplies the named human whose approval gates that publish and
+whose capability grant bounds the roughly \$5.52 of media the video agent is about to spend. X
+supplies the account connection that agent reads from, and the one confirmation dialog that stands
+between a generated draft and the user's real followers. Without USERS, "approved by user" is a
+string literal and the demo's approval story is a prop. Without X, the second agent in the demo has
+nothing to work against.
+
+Note what the demo says about the X agent: it works **against the user's X account**. Not against a
+workspace bot account, not as an application posting on its own behalf. That single word decides the
+credential model (§3.10) and it is the most consequential requirement in Part Two.
 
 ---
 
 ## 0. Your boundary
 
-This worktree owns identity, authentication and X integration, and nothing else. The other loop
-documents in `loops/` are assigned to other worktrees and are being written and implemented in
-parallel.
-
-**Files and directories you own — create, edit, delete freely:**
-
-```text
-server/types/user.ts            new — User, Role, CapabilityGrant, Session
-server/services/userStore.ts    new — the store; synchronous, atomic, same invariant as projectStore
-server/services/sessionAuth.ts  new — password hashing, session tokens, the fail-closed middleware
-server/routes/users.ts          new — HTTP surface, mounted at /api/users
-server/services/xAccount.ts     new — OAuth connect/disconnect, per-user token records
-server/services/xClient.ts      new — the X HTTP client: read, media upload, post
-server/routes/x.ts              new — HTTP surface, mounted at /api/x
-client/src/users/**             new — the USERS page
-client/src/x/**                 new — the optional X page and the publish confirmation
-loops/06-users-and-x.md         this file
-```
-
-**Files you may read but must not edit.** Each is owned by another worktree; an edit here is a merge
-conflict at best and a silent contradiction at worst:
+**You are in a git worktree, on your own branch, in a checkout that is not the main one.** Seven
+sibling worktrees are running at the same time on sibling branches, editing files right now. You
+will not see their changes and they will not see yours until a single reconciliation pass at the
+end. Everything below exists so that pass is possible.
 
 ```text
-server/services/agentRegistry.ts      agents loop — agent identity, status, per-agent budgets
-server/services/usageAccounting.ts    cost loop — rate tables, the ledger you depend on
-server/services/acpSessionManager.ts  agents loop — sessions, transcripts, cost recording
-server/services/projectMcpServer.ts   agents loop — you request tools, you rename none
-server/hooks/**                       boundary loop — PreToolUse interception
-client/src/control-room/**            agents loop
-client/src/dochub/**                  doc hub loop
+loop:    08-users-x
+branch:  pivot/users-x
+handoff: loops/handoff/pivot/users-x.md
 ```
 
-**Shared files that need a cross-boundary request before you touch them.** Every one of these is a
-one-line edit with product-wide consequences, which is exactly why it is not yours to make alone:
+**The files you own.** Create, edit and delete these freely. Nothing else.
 
 ```text
-server/routes/projects.ts:41-51       actorFrom — the inversion described in §3.2. Every route in
-                                      the product changes behaviour the day this lands. Land it in
-                                      one commit, with the agents worktree in agreement.
-server/routes/mcp.ts:20-31            identity from the URL path — needs the same treatment
-server/routes/repository.ts:188-203   merge's approvedBy must come from the session, not the body
-server/services/repository.ts:324-336 the ProtectedBranchError message that names the approver
-server/services/controlRoomEvents.ts  the event union. You need `scope` to gain `"user"`, which is a
-                                      widening of an existing member, not an addition. Ask.
-server/services/approvals.ts          dead today, zero production callers. You want it. So might the
-                                      boundary worktree. Claim it explicitly before wiring it.
-server/routes/api.ts                  the mount lines for /api/users and /api/x — two lines,
-                                      coordinate them
+server/services/auth.ts               the principal, the credential, the session, the middleware
+server/routes/users.ts                the HTTP surface, mounted at /api/users
+server/services/x/**                  OAuth, the token store, the X client, the publish record,
+                                      and the X HTTP router
+client/src/control-room/users/**      the USERS page, and the X page under users/x/**
+loops/08-users-and-x.md               this file
+loops/handoff/pivot/users-x.md        your handoff file; only you write it
 ```
+
+Tests beside the two server files (`server/services/auth.test.ts`, `server/routes/users.test.ts`)
+and anywhere inside `server/services/x/` are yours. Anything outside that list is not.
+
+**Three places the partition is thinner than the work, and what this loop does about each.** Record
+all three in the handoff so reconciliation knows they were deliberate rather than sloppy:
+
+* **there is no `server/routes/x.ts` row.** The X router is therefore `server/services/x/router.ts`,
+  composed into `server/routes/users.ts` and served at `/api/users/x/*`. That is one fewer hot-file
+  request than mounting a second top-level router, and the URL says who owns the surface. If the
+  owner later wants `/api/x`, it is a one-line move at reconciliation;
+* **there is no client X directory row.** The X page lives at `client/src/control-room/users/x/**`,
+  inside a directory the partition does give this loop;
+* **`server/services/auth.ts` is a file, not a folder.** The principal, the credential, the session
+  and the middleware all live in it. Do not grow it into `server/services/auth/`; the partition
+  names a path and reconciliation matches on that path.
+
+**The files you must not touch, and why.** Each is another worktree's row. An edit here is a merge
+conflict at best and a silent contradiction at worst — two worktrees implementing the same idea with
+different field names, discovered at reconciliation when neither can be backed out.
+
+```text
+server/services/workArea.ts, boundary.ts, agentTeam.ts, agentRegistry.ts   01-agents
+server/routes/agents.ts, client/src/control-room/agents/**                 01-agents
+server/services/assetStore.ts, server/routes/assets.ts                     02-assets
+client/src/control-room/assets/**                                          02-assets
+server/services/designDoc.ts, presence.ts, server/routes/designDocs.ts     03-design-docs
+client/src/control-room/designdoc/**                                       03-design-docs
+server/services/xai/**, server/services/render/**, routes/generation.ts    04-generation
+server/services/software/**, client/src/control-room/software/**           05-software
+server/services/promptLibrary.ts, usageAccounting.ts, costLedger.ts        06-tools-cost
+server/routes/library.ts, client/src/control-room/tools/**                 06-tools-cost
+client/src/main.tsx, index.css, tailwind.config.js, control-room/shell/**   07-shell
+docs/USER-GUIDE.md                                                         guide
+```
+
+Read any of them. You must, in fact — this loop's capability rules depend on 01's agent record, its
+publish record depends on 02's asset ids, and its provenance line depends on 03's document ids.
+
+### The hot-file protocol
+
+These files are shared by everyone and **no worktree may edit them directly**, because an eight-way
+conflict in any one of them costs more than all the feature work put together:
+
+```text
+client/src/control-room/useControlRoom.ts
+client/src/control-room/ControlRoomApp.tsx
+server/services/projectStore.ts
+server/types/*.ts
+server/index.ts
+package.json
+```
+
+When your work needs a change in one of them, **you do not make it.** You append a precise request to
+`loops/handoff/pivot/users-x.md` — a file only you own — stating the file, the exact change, the
+reason, and the signature or event shape other worktrees will depend on. One reconciliation pass
+applies every request at the end.
+
+**This loop needs ten more files that the partition assigns to nobody. Treat every one of them as
+hot.** An unowned file is not a free file; it is a file whose conflicts nobody has agreed to own:
+
+```text
+server/routes/projects.ts             actorFrom (:39-51) — the inversion in §3.2. Every route in the
+                                      product changes behaviour the day this lands.
+server/routes/mcp.ts                  identity from the URL path (:19-33) — needs the same treatment
+server/routes/repository.ts           merge's approvedBy read from the body (:189-204)
+server/services/repository.ts         the ProtectedBranchError that names the approver (:331-336)
+server/services/approvals.ts          the dead ApprovalQueue. You want it; so might 01-agents.
+                                      Claim it in the handoff before wiring it.
+server/services/controlRoomEvents.ts  `scope` gains "user" — a widening of an existing member
+server/services/projectMcpServer.ts   DELIBERATELY_USER_ONLY (:696-703) gains the publish path
+server/services/acpSessionManager.ts  the session rules an X-capable agent is briefed with
+server/services/testSupport.ts        the session fixture every worktree's route tests will need
+server/routes/api.ts                  the mount line for /api/users
+```
+
+**Design your own code so someone else can wire it in with one edit.** Export a clean entry point;
+never reach into the shell. Concretely, for this loop:
+
+* the `User`, `Session` and `CapabilityGrant` types cannot live in `server/types/user.ts` —
+  `server/types/*.ts` is hot. Export them from `server/services/auth.ts` and request the re-export;
+* the middleware is `requireSession(c)`, exported from `server/services/auth.ts`, applied in one line
+  in `server/index.ts` or `server/routes/api.ts`. It is never inlined into a route module;
+* the X read tool is registered by `registerXTools(server, ctx)`, exported from
+  `server/services/x/tools.ts`. Do not edit `server/services/projectMcpServer.ts` to add it;
+* the users page and the X page each export one component from
+  `client/src/control-room/users/index.ts`, taking props and importing no shell internals.
 
 **How to raise a cross-boundary concern.** Do not edit. File a suggestion — this is the mechanism the
 product itself is built on and it already works: `DesignSuggestion` (`server/types/project.ts:95-118`),
 the `submit_design_suggestion` MCP tool, and `SuggestionQueue` in
-`client/src/control-room/ReviewQueues.tsx`. Outside the running product, say it in your iteration
-report with the file, the line and what you believe is wrong, and stop. A worktree that "just fixed"
-a file it does not own is the exact failure this whole product exists to prevent.
+`client/src/control-room/ReviewQueues.tsx`. Outside the running product, write it in your handoff file
+with the file, the line and what you believe is wrong, and stop. A worktree that "just fixed" a file
+it does not own is the exact failure this whole product exists to prevent, demonstrated on itself.
+
+**What you leave behind for reconciliation.** See §8. Write it as you go, not at the end.
 
 ---
 
@@ -107,18 +180,19 @@ bun run audit                        # expect: 0 orphans, every endpoint covered
 
 Capture verify's output to a file, never `>/dev/null`. **A red gate is always the highest-priority
 work, ahead of any checklist item** — including a gate you did not turn red. Every endpoint you add
-to `server/routes/users.ts` or `server/routes/x.ts` needs a caller in the same iteration or
-`bun run audit:endpoints` goes red on you.
+to `server/routes/users.ts` needs a caller in the same iteration or `bun run audit:endpoints` goes
+red on you.
 
 Two credentials this loop needs that do not exist on this machine:
 
 ```text
-XAI_API_KEY   absent. `grok models` reports "You are not authenticated" and ~/.grok/config.toml
-              points at api.openai.com. Not this worktree's credential, but the generation engine
-              you publish from cannot run without it.
-X_CLIENT_ID   absent. No X developer application exists, no OAuth redirect is registered, no access
-X_CLIENT_SECRET  tier is subscribed. Nothing on the X page can be evidenced against the live service
-              until the owner supplies these. See §7 — this is a stop condition, not a mock.
+XAI_API_KEY      absent. `grok models` reports "You are not authenticated" and ~/.grok/config.toml
+                 points at api.openai.com. Not this worktree's credential, but the generation
+                 engine you publish media from cannot run without it.
+X_CLIENT_ID      absent. No X developer application exists, no OAuth redirect is registered, no
+X_CLIENT_SECRET  access tier is subscribed. Nothing on the X page can be evidenced against the live
+                 service until the owner supplies these. See §7 — this is a stop condition, not a
+                 licence to mock.
 ```
 
 Everything on the X page that does not touch the network is still testable, because §3.14 requires a
@@ -138,35 +212,35 @@ What exists today, with the line numbers to read before you change anything:
 
 ```text
 server/index.ts:43                    the CORS allowlist — two localhost origins
-server/index.ts:73-76                 "The server exposes repository and agent control with no
+server/index.ts:72-76                 "The server exposes repository and agent control with no
                                       authentication". The product says it about itself.
-server/routes/projects.ts:28-51       actorFrom — no headers yields {kind:"user", id:"user"}
-server/routes/mcp.ts:20-31            projectId and agentId taken from the URL path
+server/routes/projects.ts:39-51       actorFrom — no headers yields {kind:"user", id:"user"}
+server/routes/mcp.ts:19-33            projectId and agentId taken from the URL path
 server/types/project.ts:42-47         Actor {kind, id, canWriteDocument}
 server/services/projectStore.ts:826   submission.reviewedBy = actor.id
 server/services/projectStore.ts:903   the same, on the approval path
 server/routes/projects.ts:680         plan approvedBy = actor.id
-server/routes/repository.ts:188-203   POST /api/repository/merge — approvedBy read from the body
-server/services/repository.ts:324-336 mergeAgentBranch refuses without a named approver
-server/services/approvals.ts:9-24     RestrictedAction — six actions, including credential_use,
+server/routes/repository.ts:189-204   POST /api/repository/merge — approvedBy read from the body
+server/services/repository.ts:331-336 mergeAgentBranch refuses without a named approver
+server/services/approvals.ts:9-15     RestrictedAction — six actions, including credential_use,
                                       production_deploy, budget_increase
-server/services/approvals.ts:36-50    ApprovalRequest, with resolvedBy
+server/services/approvals.ts:17-24    RESTRICTED_ACTIONS
 server/services/approvals.ts:133,225  ApprovalQueue and getApprovalQueue — zero production callers
 server/services/agentRegistry.ts:17-26  BudgetExceededError, scope "agent"|"task"|"project"
-server/services/agentRegistry.ts:33-34  BudgetSnapshot — the same three scopes
-server/services/agentRegistry.ts:359  agent.costUsd += usage.costUsd ?? 0 — a running total
+server/services/agentRegistry.ts:34     BudgetSnapshot — the same three scopes
+server/services/agentRegistry.ts:359    agent.costUsd += usage.costUsd ?? 0 — a running total
 server/routes/agents.ts:180-217       where budget_warning and budget_exceeded are published
-server/services/controlRoomEvents.ts:29-35  the two budget events in the union
-server/services/usageAccounting.ts:30-34    DEFAULT_RATES — three keys, no Grok model
+server/services/controlRoomEvents.ts:28-35  the two budget events in the union
+server/services/usageAccounting.ts:31-35    DEFAULT_RATES — three keys, no Grok model
 server/services/usageAccounting.ts:79       unknown model → costUsd 0, rateKey null
-server/services/secrets.ts:15-31      SECRET_PATTERNS, including bearer-token and jwt
+server/services/secrets.ts:14-31      SECRET_PATTERNS, including xai-key, bearer-token and jwt
 server/services/secrets.ts:113        assertNoSecrets — refuses rather than redacts, and why
-server/services/projectStore.ts:148-159  the synchronous-mutation invariant. Read this twice.
-server/services/projectMcpServer.ts:695-703  DELIBERATELY_USER_ONLY — the precedent for §3.12
+server/services/projectStore.ts:148-162  the synchronous-mutation invariant. Read this twice.
+server/services/projectMcpServer.ts:696-703  DELIBERATELY_USER_ONLY — the precedent for §3.12
 ```
 
 What exists for X today: **nothing.** No OAuth client, no token store, no HTTP client to any X host,
-no dependency that could serve as one. `package.json:49-54` lists four dependencies —
+no dependency that could serve as one. `package.json` lists four dependencies —
 `@modelcontextprotocol/sdk`, `@xai-official/grok`, `bun-pty`, `hono`. The X page is greenfield in
 every layer.
 
@@ -177,10 +251,13 @@ X-A   whether the workspace is ever served to more than one machine. This docume
       loopback, one workstation, with multi-user meaning several named people sharing that
       workstation or reaching it over an SSH tunnel. Serving it on a network is a different
       product with a TLS story. See §7.
-X-B   the cost ledger does not exist yet (cost loop). USR-009 is blocked on it and says so.
+X-B   the cost ledger does not exist yet (06-tools-cost). USR-009 is blocked on it and says so.
 X-C   whether the owner wants X posting at all in the first release, given it is the only
       irreversible surface in the product. The page is optional by construction (XAP-008), so
       shipping without it costs nothing.
+X-D   whether X's access tier permits posting *as a user* on a product-owned application, and at
+      what price. This is C-4 and C-5 in §3.11, and it is the question that can kill Part Two
+      outright rather than merely delay it.
 ```
 
 ---
@@ -196,20 +273,20 @@ State this before designing anything, because a users page built on top of it is
 The product has no authentication. It is not weak, or partial, or dev-mode. It is absent. The two
 things that look like defences are not defences:
 
-- **Binding 127.0.0.1** (`server/index.ts:76`) limits reach, not privilege. Every process on the
+- **Binding 127.0.0.1** (`server/index.ts:72-76`) limits reach, not privilege. Every process on the
   machine reaches it, including anything an agent runs in a shell. And `OPENUI_HOST=0.0.0.0` turns
   that off with an environment variable, which the same comment invites the user to do.
 - **The CORS allowlist** (`server/index.ts:43`) is a browser convention. `curl` has never read a
   CORS header in its life.
 
-Then the shape of the hole. `actorFrom` (`server/routes/projects.ts:28-51`) resolves the caller from
+Then the shape of the hole. `actorFrom` (`server/routes/projects.ts:39-51`) resolves the caller from
 two request headers and defaults to `{kind: "user", id: "user"}` when neither is present. Its own
 doc comment is honest about the reasoning: headers are trusted only to *narrow* privilege, so an
 agent cannot claim to be the user. That is a correct design — for a world where being the user is not
 worth having. It means the only way to be less privileged is to volunteer, and an attacker never
-volunteers. Sending no headers at all is the maximum-privilege request.
+volunteers. **Sending no headers at all is the maximum-privilege request.**
 
-`server/routes/mcp.ts:20-31` takes both `projectId` and `agentId` from the URL path. Within a session
+`server/routes/mcp.ts:19-33` takes both `projectId` and `agentId` from the URL path. Within a session
 that is a genuine safety property, and the comment explains it well: the agent cannot alter the
 identity it was handed. But the URL is not a secret. Anyone who can reach the port can type any
 project id and any agent id and be that agent.
@@ -223,7 +300,7 @@ server/routes/projects.ts:680         plan.approvedBy      = actor.id    → "us
 scripts/acceptance/v052.mjs:437       merge approvedBy: "user"           ← a string literal
 ```
 
-`mergeAgentBranch` (`server/services/repository.ts:324-336`) refuses to merge without a named
+`mergeAgentBranch` (`server/services/repository.ts:331-336`) refuses to merge without a named
 approver, and the refusal is real — there is no code path around it. But the name it demands is the
 constant `"user"`, supplied by the caller, and the end-to-end acceptance test types it out by hand.
 **The gate exists. The identity does not.** That is the single sentence to keep in mind for the whole
@@ -240,10 +317,10 @@ stage, as §3.16 orders it.
 Four things, and the third is the one that matters.
 
 **(1) A principal.** A `User` record, persisted the way everything else in this product is persisted:
-one JSON file, `atomicWriteJson`, and **every mutation on the store synchronous** — read
-`server/services/projectStore.ts:148-159` twice before writing `userStore.ts`. The safety comes from
-the absence of `await`, not from locking, and the invariant test that protects it fails if the
-explanation is deleted.
+one JSON file, `atomicWriteJson`, and **every mutation synchronous** — read
+`server/services/projectStore.ts:148-162` twice before writing the store half of
+`server/services/auth.ts`. The safety comes from the absence of `await`, not from locking, and the
+invariant test that protects it fails if the explanation is deleted.
 
 ```text
 User {
@@ -273,9 +350,9 @@ after   no valid session        → 401. Nothing else. No default actor.
 
 Everything downstream becomes meaningful the moment that inversion lands, and nothing downstream
 means anything until it does. It is one function body; it is also the most consequential single edit
-in this checklist, and it belongs to another worktree's file (§0). Request it, land it in one commit,
-and expect every route test in the repository to need a session fixture that day. Write that fixture
-first, in `server/services/testSupport.ts`'s style, before you ask.
+in this checklist, and `server/routes/projects.ts` belongs to no worktree (§0). Request it. Expect
+every route test in the repository to need a session fixture the day it lands, and see §8 for why
+that bill arrives during reconciliation rather than now.
 
 The MCP path (`server/routes/mcp.ts`) needs the equivalent: the URL identifies *which* agent, and a
 per-session bearer secret minted at `session/new` and handed to the agent alongside the URL proves it
@@ -292,11 +369,11 @@ value, and this product's market will not forgive it.
 
 Resolve it without weakening (3):
 
-- On first run, the workspace has no users. The first-run greeting — owned by another worktree; you
-  own only the account step inside it — asks for a display name and an email, mints exactly **one**
-  `owner`, and issues a long-lived session cookie to that browser immediately. No password is
-  required to create it, because at that moment anyone who can reach the port is already the owner by
-  physical possession of the machine.
+- On first run, the workspace has no users. The first-run greeting — owned by 07-shell; you own only
+  the account step inside it — asks for a display name and an email, mints exactly **one** `owner`,
+  and issues a long-lived session cookie to that browser immediately. No password is required to
+  create it, because at that moment anyone who can reach the port is already the owner by physical
+  possession of the machine.
 - A password is required from the moment there is a second user, or the moment `OPENUI_HOST` is not a
   loopback address. Both conditions are checkable at startup and the second one must be checked at
   startup, not at sign-in: a workspace that is exposed to a network and has no passwords should refuse
@@ -333,8 +410,9 @@ record. An honest record of a weak approval beats a fabricated strong one.
 ### 3.5 Capability grants — the cheapest budget control in the product
 
 Capability is chosen at agent creation and decides which tools and which `api.x.ai` endpoints that
-agent may call: base Grok, Grok + images, Grok + voice, or Grok + voice + images. The agents loop owns
-that choice. This surface owns **which capabilities a given user is allowed to grant.**
+agent may call: base Grok, Grok + images, Grok + voice, or Grok + voice + images. 01-agents owns that
+choice and the enforcement (`AgentCapabilities` in `server/services/boundary.ts`). This surface owns
+**which capabilities a given user is allowed to grant.**
 
 That is the real spending control, and it is worth more than any dollar figure, because it is a
 boolean and cannot be wrong:
@@ -367,43 +445,48 @@ Two rules the server enforces, not the UI:
 
 - a user cannot grant an agent a capability the user does not hold. Not hidden — refused, with the
   missing capability named;
-- raising a user's capability is a restricted action. `RestrictedAction` in
-  `server/services/approvals.ts:9-24` already has `budget_increase` and `credential_use`; this is the
-  same shape and belongs in the same queue.
+- raising a user's capability is a restricted action. `RestrictedAction`
+  (`server/services/approvals.ts:9-15`) already has `budget_increase` and `credential_use`; this is
+  the same shape and belongs in the same queue.
+
+One reconciliation note: 01-agents' `AgentCapabilities` is `{images, voice}`; this grant has four
+fields. That is not a contradiction — a grant is what a *person* may hand out, an agent capability is
+what an *agent* holds — but the mapping must be written down once, in `server/services/auth.ts`, and
+named in the handoff. Two structures that nearly match are how a field ends up meaning two things.
 
 ### 3.6 Per-user budgets — and why they are blocked, not merely unbuilt
 
-Budgets exist today at three scopes — agent (`server/types/agent.ts:134`), task
-(`server/types/project.ts:158`), project (`server/types/project.ts:288`) — enforced in
-`server/routes/agents.ts:180-217`, which publishes `budget_warning` before the limit and
-`budget_exceeded` at it. The machinery is sound. Add `user` as a fourth scope in `BudgetSnapshot` and
-in the two event members (`server/services/controlRoomEvents.ts:29-35`), and roll a user's spend up
-from the agents they created.
+Budgets exist today at three scopes — agent, task, project — enforced in `server/routes/agents.ts:180-217`,
+which publishes `budget_warning` before the limit and `budget_exceeded` at it. The machinery is sound.
+Add `user` as a fourth scope in `BudgetSnapshot` (`server/services/agentRegistry.ts:34`) and in the
+two event members (`server/services/controlRoomEvents.ts:28-35`), and roll a user's spend up from the
+agents they created.
 
 Then stop, because the meter is broken:
 
-- `DEFAULT_RATES` (`server/services/usageAccounting.ts:30-34`) has exactly three keys — `gpt-4o`,
+- `DEFAULT_RATES` (`server/services/usageAccounting.ts:31-35`) has exactly three keys — `gpt-4o`,
   `gpt-4o-mini`, `gpt-4.1` — and **no Grok model**. An unknown model returns `costUsd: 0` with
   `rateKey: null` (`:79`), and `rateKey: null` is surfaced nowhere in the UI.
 - There is no ledger. `agent.costUsd += usage.costUsd ?? 0` (`server/services/agentRegistry.ts:359`)
   is a running total: no time series, no drill-down, no export, and no source data for a chart.
 - The input/output/cache token split is computed and thrown away.
+- `approvalThreshold` and `maxRetries` are unimplemented — zero occurrences in code.
 
 **A \$50 cap on a meter that reads \$0.00 never trips.** Building the per-user budget on today's
 accounting produces a control that appears to work and silently does not, which is worse than no
 control at all, and is precisely the class of defect this repository's evidence standards exist to
 catch.
 
-So USR-009 is BLOCKED on the cost loop delivering a ledger with a media rate table, and it says so in
-`VERIFICATION.md` rather than being quietly marked PASS against a zero. Until then the users page
-shows a spend column that reads **"not measured"** — never `$0.00`. An absent figure is omitted; a
-fabricated one is a defect (`verifiables.md` §22.18).
+So USR-009 is BLOCKED on 06-tools-cost delivering its ledger (COST-004…006) with a media rate table,
+and it says so in `VERIFICATION.md` rather than being quietly marked PASS against a zero. Until then
+the users page shows a spend column that reads **"not measured"** — never `$0.00`. An absent figure is
+omitted; a fabricated one is a defect (`verifiables.md` §22.18).
 
 The capability grant of §3.5 is the control that ships in the meantime, and it is the honest one.
 
 ### 3.7 The approver comes from the session, never from the request body
 
-`POST /api/repository/merge` (`server/routes/repository.ts:188-203`) reads `approvedBy` from the
+`POST /api/repository/merge` (`server/routes/repository.ts:189-204`) reads `approvedBy` from the
 request body and hands it to `mergeAgentBranch`, which refuses only if it is absent. The caller names
 its own approver. Once sessions exist, that is an escalation with a form field.
 
@@ -412,8 +495,8 @@ The fix, and the rule it generalises to every gate in the product:
 - take the approver from the session;
 - **reject** a body that also supplies one, with a 400, rather than ignoring it. Ignoring it leaves one
   permission with two sources of truth, which is the exact bug this repository has already fixed twice
-  — once for `x-openui-actor-doc-write` in `server/routes/projects.ts:28-51`, once for the same header
-  in `server/routes/mcp.ts:24-31`, both with the comment explaining why. Do not reintroduce it a third
+  — once for `x-openui-actor-doc-write` in `server/routes/projects.ts:27-38`, once for the same header
+  in `server/routes/mcp.ts:23-25`, both with the comment explaining why. Do not reintroduce it a third
   time in a new field;
 - apply it to merge today and to publish tomorrow. Merge may not survive the pivot at all — git as the
   completion mechanism is one of the subsystems being replaced — but the rule outlives the endpoint.
@@ -422,11 +505,14 @@ And wire `ApprovalQueue`. Do not write a second approval system. `server/service
 already models exactly what this page needs — `RestrictedAction` with `credential_use`,
 `production_deploy`, `budget_increase`, and `ApprovalRequest.resolvedBy` — and has had **zero
 production callers** since it was written. Its `resolvedBy` finally gets a real user id instead of a
-string. Claim the file first (§0); it is dead, which makes the claim cheap and the collision expensive.
+string. Claim the file in the handoff first (§0); it is dead, which makes the claim cheap and the
+collision expensive.
 
 ### 3.8 The users page itself
 
-Small, because the product is deliberately less rich than what it replaces.
+Small, because the product is deliberately less rich than what it replaces, and smaller still because
+this page is secondary. It is the only page in the workspace that produces nothing — no asset, no
+document, no agent output. Its whole job is to make one word on another page true.
 
 ```text
 ┌─ USERS ───────────────────────────────────────────────────── + Add person ─┐
@@ -455,7 +541,7 @@ Four notes on the mockup, each of which is a rule:
 - "Disable", not "Delete". A removed user's approvals and published posts must remain attributable;
   deleting the principal orphans the record. Deletion, if the owner insists on it, is a stop-and-ask
   (§7);
-- build it with the theme's semantic tokens. Do not write `text-white/NN` — that is what makes the
+- build it with 07-shell's semantic tokens. Do not write `text-white/NN` — that is what makes the
   existing control room impossible to light-theme, and this page is new code with no excuse.
 
 ---
@@ -468,11 +554,11 @@ Four capabilities, in ascending order of risk:
 
 1. **Read the connected account.** The demo's second agent "works against the user's X account": it
    reads the user's own posts and their engagement to learn what lands, and searches for context. This
-   is a research source alongside the Doc Hub, and it is read-only and reversible.
-2. **X-native generation.** A post has a character limit, a set of accepted aspect ratios and a video
-   duration ceiling. Those are *constraints handed to the generation engine*, not a second engine. The
-   X page contributes a constraint profile and nothing else.
-3. **Media upload.** Take an asset that is already persisted in the Doc Hub, upload it to X, get a
+   is a research source alongside the ASSETS page, and it is read-only and reversible.
+2. **X-native constraints on generation.** A post has a character limit, a set of accepted aspect
+   ratios and a video duration ceiling. Those are *constraints handed to the generation engine*, not
+   a second engine. X contributes a constraint profile and nothing else.
+3. **Media upload.** Take an asset that is already persisted by 02-assets, upload it to X, get a
    media id back. Multi-step and asynchronous for video (§3.11).
 4. **Posting.** Create a post, with or without media, possibly as a thread. Irreversible (§3.12).
 
@@ -480,19 +566,26 @@ Four capabilities, in ascending order of risk:
 duplication would be expensive:
 
 ```text
-no image client          — loops/03-generation.md owns /v1/images/*
-no video client or poller— loops/03-generation.md owns /v1/videos/* and the job store
-no TTS or realtime client— loops/03-generation.md owns /v1/tts and /v1/realtime
-no asset store           — loops/02-dochub.md owns download-on-receipt and provenance
-no deliverable model     — loops/02-dochub.md owns Deliverable/Section/Asset
-no second cost meter     — the cost loop owns the ledger; you read it, you do not keep your own
+no image client          — 04-generation owns /v1/images/*
+no video client or poller— 04-generation owns /v1/videos/* and the job store
+no TTS or realtime client— 04-generation owns /v1/tts and /v1/realtime
+no .pptx renderer        — 04-generation renders decks; see §6.9, there is no xAI slide API
+no asset store           — 02-assets owns persist-on-receipt, versions and provenance
+no design document       — 03-design-docs owns the only thing that declares work
+no second cost meter     — 06-tools-cost owns the ledger; you read it, you do not keep your own
 ```
 
 You own exactly: OAuth, the token store, the X HTTP client, the publish confirmation, the published-post
-record, and the page. A post is a *view* over an existing deliverable section plus an X-side
-identifier. If you find yourself writing a prompt-to-image call, stop; you are in the wrong worktree.
+record, and the page.
 
-### 3.10 Credentials, and where each one lives
+**An X post is not a sixth asset type.** There are five — documents · slides · tables · workflows ·
+software — and a post is a *view* over one of them plus an X-side identifier. The post's text is a
+document asset that an agent drafted; its attached image is a slide-or-media file that 04-generation
+produced and 02-assets persisted; its clip is a video asset from the Imagine video API. The published
+record stores asset ids and an X post id. It stores no bytes of its own. If you find yourself writing
+a prompt-to-image call or a file store, stop; you are in the wrong worktree.
+
+### 3.10 Credentials, and where each one lives — the agent acts *as the user*
 
 Three distinct credentials, and conflating them is the first mistake available:
 
@@ -505,24 +598,40 @@ X_REDIRECT_URI     the registered callback. Loopback for a local product; must m
 X_DRY_RUN          §3.14. Set in every test and in the acceptance script.
 ```
 
-**Per-user access and refresh tokens are not environment variables.** They are per-user records —
-one X account per user, not one per workspace, because the demo posts *as the user* — encrypted at
-rest with a key derived from the workspace, never logged, never rendered, never written into a
-deliverable section. `assertNoSecrets` (`server/services/secrets.ts:113`) already refuses a write
-containing a bearer token or a JWT (`SECRET_PATTERNS`, `:15-31`) and refuses rather than redacting,
-because a silently altered document is its own problem. Call it on anything an agent can author that
-might quote a token, and add an X-token pattern to that list if the token format is recognisable —
-which is one of the things §3.11 must check.
+**The demo requires acting as a person, not as an application.** "One agent working against the
+user's X account" means the reads return *that user's* timeline and the posts appear under *that
+user's* handle. An application-only credential — one token per install, obtained from the client id
+and secret alone — cannot do either. It can act only as the app. So:
+
+- the credential model is **per-user, user-context authorisation**: each named `User` from §3.2 may
+  connect at most one X account, and the tokens are stored against that user id, not against the
+  workspace. Two people sharing a workstation must not share a timeline;
+- the X-capable agent never holds a token. It calls an MCP tool bound to its identity; the server
+  looks up the token belonging to the user who created that agent, and refuses if there is none. That
+  is the same property `server/services/projectMcpServer.ts` already relies on — the identity is not
+  a parameter — applied to a credential;
+- an application-only path may still be worth having for something the user is not the subject of.
+  Do not build it before the user-context path. If C-4 comes back saying posting-as-user requires a
+  different credential type from reading-as-user, that is a product-shaping answer and it goes to the
+  owner (§7), not into a workaround.
+
+**Per-user access and refresh tokens are not environment variables.** They are per-user records,
+encrypted at rest with a key derived from the workspace, never logged, never rendered, never written
+into a document asset. `assertNoSecrets` (`server/services/secrets.ts:113`) already refuses a write
+containing a bearer token or a JWT (`SECRET_PATTERNS`, `server/services/secrets.ts:14-31`) and refuses
+rather than redacting, because a silently altered document is its own problem. Call it on anything an
+agent can author that might quote a token, and add an X-token pattern to that list if the token
+format is recognisable — which is one of the things §3.11 must check.
 
 Disconnecting must revoke at X, not merely forget locally. Forgetting a live token leaves a credential
 outstanding that the user believes is gone.
 
 ### 3.11 What must be checked against docs.x.com before a line of §3.9 is written
 
-The research behind this pivot covered xAI's platform in detail and covered the X API not at all.
-Everything below is therefore **unverified**, and this document deliberately does not guess. Each item
-names the specific thing to check, and the checks are ordered so the answer that could invalidate the
-design comes first.
+The research behind this pivot covered xAI's platform in verified detail and covered the X API not at
+all. Everything below is therefore **unverified**, and this document deliberately does not guess. Each
+item names the specific thing to check, and the checks are ordered so the answer that could invalidate
+the design comes first.
 
 ```text
 C-1  MEDIA FORMAT — check first, it can invalidate the pipeline.
@@ -542,9 +651,11 @@ C-2  MEDIA UPLOAD ENDPOINT — which one is current.
 C-3  POST CREATION — the exact host, path and request body for creating a post, and the field names
      for attaching uploaded media ids. Also whether threads are a distinct call or a reply chain.
 
-C-4  AUTH — which OAuth flow is required for writes, whether user-context authorisation with PKCE
-     covers both posting and media upload or whether they need different credential types, the exact
-     scope strings, refresh-token lifetime, and what a revoked token returns.
+C-4  AUTH — which OAuth flow is required for writes; specifically whether **user-context**
+     authorisation with PKCE covers both posting and media upload as the connected user (§3.10), or
+     whether either needs an application-only token. Record the exact scope strings, the refresh-token
+     lifetime, and what a revoked token returns. If user-context posting is not available on a
+     product-owned application, Part Two's premise is wrong and the owner must hear it (§7).
 
 C-5  ACCESS TIER — which tier permits posting and media upload, the monthly write cap, the per-user
      and per-app rate limits, and the price. This is a recurring cost the owner must agree to before
@@ -561,6 +672,10 @@ C-7  DELETION — whether a post can be deleted via the API. Note what this is a
 
 C-8  ERROR SEMANTICS — the response shape for a rate limit, a duplicate post, a moderation refusal
      and an oversized media file, so §3.13 can distinguish "did not happen" from "may have happened".
+
+C-9  TOKEN SHAPE — whether an X access or refresh token has a recognisable prefix or structure that
+     can be added to SECRET_PATTERNS (server/services/secrets.ts:14-31). If it does not, say so;
+     an unrecognisable credential is a real gap in XAP-002 and must be recorded, not assumed away.
 ```
 
 Record each answer in `VERIFICATION.md` with the docs URL and the date fetched, the way the xAI
@@ -574,9 +689,9 @@ in the product. The rule applies without exception, and "without exception" is t
 a confirmation with a "don't ask again" checkbox is not a confirmation, it is a delay.
 
 **No agent may publish.** The precedent exists and is enforced today: `DELIBERATELY_USER_ONLY`
-(`server/services/projectMcpServer.ts:695-703`) lists six MCP tools an agent can never call. Publishing
-joins it. The agent's tool is `draft_x_post`, which writes a deliverable section into the Doc Hub with
-the X constraint profile applied and stops. There is no `publish_x_post` MCP tool, and adding one is
+(`server/services/projectMcpServer.ts:696-703`) lists six MCP tools an agent can never call. Publishing
+joins it. The agent's tool is `draft_x_post`, which writes a **document asset** through 02-assets with
+the X constraint profile applied, and stops. There is no `publish_x_post` MCP tool, and adding one is
 not an optimisation available to a later iteration.
 
 The confirmation shows the artefact, not a summary of it:
@@ -596,7 +711,8 @@ The confirmation shows the artefact, not a summary of it:
 │  │ └────────────┘ └────────────┘                                        │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 │                                                                            │
-│  Made by  slides-agent (Grok + images) · voice-agent (Grok + voice+images)  │
+│  Declared by  "Launch posts" — sales-deck design doc, lines 88-94           │
+│  Made by  slides-agent (Grok + images) · video-agent (Grok + voice+images)  │
 │  Cost so far  $5.52  ·  from the generation ledger, actual                  │
 │                                                                            │
 │  This is public and permanent. Deleting it later does not unsend it.       │
@@ -615,7 +731,13 @@ Rules the mockup encodes:
 - the account handle appears on the button, not just in the header. Posting to the wrong connected
   account is a real failure mode and the button is the last place to catch it;
 - the cost appears at the moment of the irreversible click, labelled with its source. This is where
-  the cost pillar stops being decoration: the user sees \$5.52 next to a button that cannot be undone;
+  the cost pillar stops being decoration: the user sees \$5.52 next to a button that cannot be undone.
+  If 06-tools-cost's ledger has not landed, this line reads "not measured" and the button still works
+  — it never reads `$0.00`;
+- **the declaring line is shown.** A post exists because a design document said so. The confirmation
+  names the document and the line range that declared it, which is the one place in Part Two the
+  design-document surface reaches. If 03's line ranges are unavailable, name the document alone and
+  say the lines are unknown; do not invent a range;
 - the approver is named from the session, and a self-approval says so (§3.4);
 - a thread gets one confirmation, but the confirmation shows **every** post in it. One click may cover
   several posts; it may never cover a post the human did not see;
@@ -623,9 +745,9 @@ Rules the mockup encodes:
   release. A scheduled post is an irreversible action that happens when nobody is watching.
 
 Record on success: the X post id and URL, the account, the confirming user id from the session, the
-timestamp, `selfApproved`, the deliverable and section it came from, the asset ids, and the cost as
-read from the ledger. That record is what makes "which agent made the thing that went out" answerable
-three weeks later.
+timestamp, `selfApproved`, the asset ids it drew on, the design document id and line range that
+declared it, and the cost as read from the ledger. That record is what makes "which agent made the
+thing that went out" answerable three weeks later.
 
 ### 3.13 A timeout is not a failure
 
@@ -657,12 +779,17 @@ is not only prudence about the owner's timeline: it is what lets most of Part Tw
 evidenced before `X_CLIENT_ID` exists (§1). Build the dry run in the same stage as the client, not
 after it.
 
-### 3.15 The X page is optional, and optional means absent
+### 3.15 Both pages are secondary, and the X page is optional — optional means absent
 
-When no X application credentials are configured, the page does not appear in the navigation. It is
-not shown disabled, not shown greyed with a tooltip, not shown with a "connect to enable" empty state
-in the nav. A control that does nothing is prohibited (`verifiables.md` §22.18), and the fourth page
-is the easiest place in the product to violate that.
+07-shell owns the navigation. AGENTS, ASSETS and DESIGN DOCUMENTS are the headline surfaces; USERS and
+X are reached from the chrome, not from the primary page selector, and neither may take a headline
+slot from a page that produces work. State the routes you need — `/users` and `/x` — in the handoff and
+let 07 place them.
+
+When no X application credentials are configured, the X page does not appear at all. It is not shown
+disabled, not shown greyed with a tooltip, not shown with a "connect to enable" empty state in the
+nav. A control that does nothing is prohibited (`verifiables.md` §22.18), and an optional page is the
+easiest place in the product to violate that.
 
 The page, when present, is three things and no more: the connected account and its connect/disconnect
 control; the drafts agents have written, each with a Publish button that opens §3.12; and the history
@@ -671,21 +798,29 @@ of what has been published, with who confirmed it and what it cost.
 ### 3.16 Build order
 
 This is the table §4 step 3 refers to. Work top-down; each stage is testable before the next begins.
+
+**Stage 0 is not this worktree's work and it is not optional.** AGENTS, ASSETS and DESIGN DOCUMENTS
+are built and robustly tested first, by 01, 02 and 03. Slide generation, workflow and video
+generation, and software generation follow (04, 05). Everything below happens after that, and this
+worktree merges last (§8). If you are reading this document while the three pages are still moving,
+the highest-value work available to you is answering C-1…C-9 (stage 8), because it needs no code and
+it is the only thing here that can invalidate a design rather than delay it.
+
 Part One before Part Two, without exception — an X page over no identity publishes to the world on
 the authority of nobody.
 
 | # | Stage | Done when |
 |---|---|---|
-| 1 | `user.ts`, `userStore.ts`, the synchronous invariant test, first-run owner | USR-001, USR-002 |
-| 2 | `sessionAuth.ts`: hashing, session records, the fail-closed middleware, the `actorFrom` inversion | USR-003, USR-004 |
+| 1 | `server/services/auth.ts`: the `User` record, the store, the synchronous invariant test, first-run owner | USR-001, USR-002 |
+| 2 | Hashing, session records, the fail-closed middleware, the `actorFrom` inversion (requested, not edited) | USR-003, USR-004 |
 | 3 | Roles, the self-approval refusal, `ApprovalQueue` wired | USR-005, USR-006 |
 | 4 | Approver from the session on merge; body-supplied approver rejected | USR-007 |
 | 5 | Capability grants, and the refusal to grant what you do not hold | USR-008 |
-| 6 | Per-user budget scope — BLOCKED on the cost ledger, recorded as such | USR-009 |
+| 6 | Per-user budget scope — BLOCKED on 06's ledger, recorded as such | USR-009 |
 | 7 | The USERS page | USR-010 |
-| 8 | Answer C-1…C-8 against docs.x.com and record them | prerequisite for 9 |
-| 9 | OAuth connect/disconnect, encrypted token store, `xClient.ts` with dry run | XAP-001, XAP-002 |
-| 10 | Read path: the X agent reads the connected account | XAP-003 |
+| 8 | Answer C-1…C-9 against docs.x.com and record each with a URL and a date | prerequisite for 9 |
+| 9 | OAuth connect/disconnect, encrypted per-user token store, the client with dry run | XAP-001, XAP-002 |
+| 10 | Read path: the X agent reads the connected account as that user | XAP-003 |
 | 11 | Media upload, including whatever C-1 turned out to require | XAP-004 |
 | 12 | `draft_x_post`; publishing added to `DELIBERATELY_USER_ONLY` | XAP-005 |
 | 13 | The publish confirmation, approver from the session, idempotent | XAP-006, XAP-007 |
@@ -703,8 +838,11 @@ the authority of nobody.
    deliberately left open and confirm it says so.
 3. **Delete a duplication.** If a second approval mechanism has appeared beside
    `server/services/approvals.ts`, one of them is dead weight and the UI will eventually show both.
-4. **Re-read C-1…C-8.** X API details move. A recorded answer with a fetch date older than the
+4. **Re-read C-1…C-9.** X API details move. A recorded answer with a fetch date older than the
    current milestone is worth re-checking before it is built on.
+5. **Read what 01, 02 and 03 actually shipped.** This worktree merges last, which means every
+   assumption in §8 has had weeks to become false. Checking one of them is worth more than starting a
+   stage early.
 
 ---
 
@@ -718,7 +856,7 @@ the authority of nobody.
 6. Write tests that would fail without the change.
 7. Run `bun run verify` again. It must be green before you record anything.
 8. Record evidence in `VERIFICATION.md` against the USR-0NN or XAP-0NN item.
-9. Commit with a message stating what was verified.
+9. Append any hot-file need to `loops/handoff/pivot/users-x.md` with the exact diff.
 10. Report honestly, including what did not move and what you were tempted to edit outside §0.
 
 ---
@@ -732,21 +870,35 @@ which clause failed and hold the item.
 **Not evidence:** "this should work", "the implementation appears correct", "the code was added",
 "the component exists", "tests were not run but the logic looks valid".
 
+Every `Proof` block below assumes the server is running on the default port with
+`OPENUI_DATA_DIR` pointed at a scratch directory, so nothing here touches real state:
+
+```bash
+OPENUI_DATA_DIR=$(mktemp -d) X_DRY_RUN=1 bun run server/index.ts &
+```
+
 #### USR-001: A user exists, persists, and the store cannot go async
 
 Required result:
 
 * a user can be created with a role, a capability grant and an optional budget;
 * the record round-trips through a process restart;
-* no method on `userStore.ts` is `async` or contains `await`, an invariant test fails if one becomes
-  so, and deleting the explanation from the source fails the test.
+* no exported store function in `server/services/auth.ts` is `async` or contains `await`, an invariant
+  test fails if one becomes so, and deleting the explanation from the source fails the test.
+
+Proof:
+
+```bash
+bun test server/services/auth.test.ts
+grep -n "async\|await" server/services/auth.ts   # expect: only in the HTTP/crypto paths, never a store mutation
+```
 
 Evidence:
 
 ```text
 Created user:
 Restart round-trip:
-Deliberate async method → test output:
+Deliberate async mutation → test output:
 Explanation removed → test output:
 ```
 
@@ -758,10 +910,18 @@ Required result:
 * a second attempt to run first-run setup is refused once an owner exists;
 * the owner cannot be deleted or demoted by any request, including its own.
 
+Proof:
+
+```bash
+curl -si -X POST localhost:6968/api/users/first-run -d '{"displayName":"Dana","email":"d@e.co"}'
+curl -si -X POST localhost:6968/api/users/first-run -d '{"displayName":"Mallory","email":"m@e.co"}'
+curl -si -X PATCH localhost:6968/api/users/<ownerId> -d '{"role":"member"}'
+```
+
 Evidence:
 
 ```text
-First run → user list:
+First run → user list and Set-Cookie:
 Second first-run attempt:
 Demote-owner attempt:
 ```
@@ -775,6 +935,14 @@ Required result:
 * no route has a local-address or missing-header path that yields a privileged actor;
 * the enumeration is derived from the mounted routes, not from a hand-written list, and the check is
   shown failing against a deliberately unprotected route before it is believed.
+
+Proof:
+
+```bash
+bun run scripts/audit/endpoints.mjs          # the mounted-route enumeration this reuses
+bun test server/routes/users.test.ts -t "unauthenticated"
+grep -rn "isLocal\|127.0.0.1" server/services/auth.ts   # expect: no privilege decision here
+```
 
 Evidence:
 
@@ -791,6 +959,13 @@ Required result:
 * a session token is stored hashed — the stored value cannot be replayed as a cookie;
 * an expired session is refused;
 * revoking a user's sessions takes effect on the next request, not on the next restart.
+
+Proof:
+
+```bash
+bun test server/services/auth.test.ts -t "session"
+grep -rn "token" "$OPENUI_DATA_DIR"/users.json   # expect: no live token material
+```
 
 Evidence:
 
@@ -810,6 +985,13 @@ Required result:
 * the decision comes from one function, and every gate in the product routes through it — shown by
   grep, not by assertion.
 
+Proof:
+
+```bash
+bun test server/routes/users.test.ts -t "role"
+grep -rn "assertRoleAllows" server/ | grep -v auth.ts   # every gate, listed
+```
+
 Evidence:
 
 ```text
@@ -827,6 +1009,13 @@ Required result:
   stores `selfApproved: true`;
 * the stored record names a real user id, never the string `"user"`.
 
+Proof:
+
+```bash
+bun test server/services/auth.test.ts -t "self-approval"
+grep -rn '"user"' server/services/projectStore.ts server/routes/projects.ts   # expect: none as an identity
+```
+
 Evidence:
 
 ```text
@@ -842,6 +1031,15 @@ Required result:
 * `POST /api/repository/merge` takes the approver from the session;
 * a request supplying `approvedBy` in the body is rejected with 400, not silently ignored;
 * the merge record and the plan approval both show the session user's id.
+
+Proof:
+
+```bash
+curl -si -X POST localhost:6968/api/repository/merge -b "$COOKIE" \
+  -d '{"repoPath":"…","branch":"a","target":"main"}'
+curl -si -X POST localhost:6968/api/repository/merge -b "$COOKIE" \
+  -d '{"repoPath":"…","branch":"a","target":"main","approvedBy":"someone-else"}'   # expect: 400
+```
 
 Evidence:
 
@@ -859,6 +1057,14 @@ Required result:
   capability named;
 * raising a user's capabilities requires an approval and is recorded in the approval queue;
 * the refusal is server-side — demonstrated with a request that bypasses the UI.
+
+Proof:
+
+```bash
+curl -si -X POST localhost:6968/api/coding-agents -b "$MEMBER_COOKIE" \
+  -d '{"name":"video","capabilities":{"images":true,"voice":true}}'   # expect: 403 naming the capability
+bun test server/services/auth.test.ts -t "capability"
+```
 
 Evidence:
 
@@ -887,10 +1093,10 @@ Spend shown on the page:
 ```
 
 **This item is BLOCKED, not NOT TESTED, and the reason is recorded in `VERIFICATION.md`:**
-`DEFAULT_RATES` (`server/services/usageAccounting.ts:30-34`) has no Grok model, so cost resolves to
+`DEFAULT_RATES` (`server/services/usageAccounting.ts:31-35`) has no Grok model, so cost resolves to
 `0` with `rateKey: null` (`:79`), and there is no ledger — only the running total at
 `server/services/agentRegistry.ts:359`. A cap over a meter reading zero never trips. Do not mark this
-PASS against a zero. Until the cost loop lands, the page reads "not measured".
+PASS against a zero. Until 06-tools-cost lands COST-004…006, the page reads "not measured".
 
 #### USR-010: The users page shows people, roles, capabilities and spend
 
@@ -902,26 +1108,44 @@ Required result:
 * the page renders correctly in both light and dark theme, using semantic tokens with no
   `text-white/NN`.
 
+Proof:
+
+```bash
+bun test client/src/control-room/users
+grep -rn "text-white/" client/src/control-room/users   # expect: no output
+```
+
 Evidence:
 
 ```text
 Screenshot or DOM assertion, owner view:
 Spend column text:
-grep for text-white in client/src/users:
+grep for text-white:
 ```
 
-#### XAP-001: An X account can be connected and disconnected
+#### XAP-001: An X account can be connected and disconnected, as a user
 
 Required result:
 
-* the OAuth flow completes and stores access and refresh tokens against one user;
+* the user-context OAuth flow completes and stores access and refresh tokens against **one `User`
+  id**, not against the workspace;
+* two users on the same workspace may hold two different connected accounts, and neither can read the
+  other's;
 * disconnect revokes at X and then removes the local record, in that order;
 * a revoked or expired token produces a named, actionable error, not a generic failure.
+
+Proof:
+
+```bash
+X_DRY_RUN=1 bun test server/services/x/oauth.test.ts
+curl -si localhost:6968/api/users/x/account -b "$OTHER_USER_COOKIE"   # expect: the other account, or none
+```
 
 Evidence:
 
 ```text
-Connect → stored record (redacted):
+Connect → stored record (redacted), owning user id:
+Second user's account, read as the first user:
 Disconnect → revocation call and local state:
 Revoked-token request:
 ```
@@ -931,32 +1155,49 @@ Revoked-token request:
 Required result:
 
 * tokens are encrypted at rest and absent from every log line;
-* a write containing a token into a deliverable section is refused by `assertNoSecrets`, naming where
-  it was found;
-* a grep of the data directory after a full connect-and-publish cycle finds no token material.
+* a write containing a token into a document asset is refused by `assertNoSecrets`, naming where it
+  was found;
+* a grep of the data directory after a full connect-and-publish cycle finds no token material;
+* C-9 is answered: either an X-token pattern is added to `SECRET_PATTERNS`, or the absence of a
+  recognisable format is recorded as a known gap.
+
+Proof:
+
+```bash
+grep -rIn "Bearer \|refresh_token" "$OPENUI_DATA_DIR"   # expect: no output
+bun test server/services/x/tokenStore.test.ts
+```
 
 Evidence:
 
 ```text
 On-disk record:
-Section write attempt → refusal:
+Document write attempt → refusal:
 grep of the data directory:
+C-9 answer and SECRET_PATTERNS change:
 ```
 
-#### XAP-003: An agent can read the connected account
+#### XAP-003: An agent can read the connected account, as its creator
 
 Required result:
 
-* an agent with the X capability can read the connected user's own posts through an MCP tool bound to
-  its identity;
-* an agent without the capability is refused;
-* the tool cannot read an account other than the one connected to the requesting user.
+* an agent whose creating user has a connected account can read that user's own posts through an MCP
+  tool bound to its identity;
+* an agent whose creating user has no connected account is refused, with the reason named;
+* the tool cannot read an account other than the one connected to that user — demonstrated by asking
+  for another handle.
+
+Proof:
+
+```bash
+X_DRY_RUN=1 bun test server/services/x/tools.test.ts
+```
 
 Evidence:
 
 ```text
-Read as capable agent:
-Read as non-capable agent:
+Read as an agent whose user is connected:
+Read as an agent whose user is not:
 Attempt to address another account:
 ```
 
@@ -965,10 +1206,16 @@ Attempt to address another account:
 Required result:
 
 * C-1 is answered and recorded with its docs URL and fetch date;
-* an Imagine-produced MP4 and PNG upload successfully in dry run and, once credentials exist, against
-  the live service;
+* an Imagine-produced MP4 and PNG, taken unchanged from 02-assets, upload successfully in dry run and,
+  once credentials exist, against the live service;
 * if a transcode is required, it is implemented and the dependency it introduces is recorded, not
   assumed away.
+
+Proof:
+
+```bash
+X_DRY_RUN=1 bun test server/services/x/upload.test.ts
+```
 
 Evidence:
 
@@ -985,14 +1232,22 @@ Required result:
 * the publish path is user-only and appears in `DELIBERATELY_USER_ONLY`;
 * an agent calling every tool in the MCP surface cannot reach it — demonstrated by enumerating the
   tool list, not by inspection;
-* the agent's `draft_x_post` writes a Doc Hub section and performs no network call to X.
+* the agent's `draft_x_post` writes a document asset through 02-assets and performs no network call
+  to X.
+
+Proof:
+
+```bash
+grep -n "publish" server/services/projectMcpServer.ts   # expect: only inside DELIBERATELY_USER_ONLY
+X_DRY_RUN=1 bun test server/services/x/tools.test.ts -t "draft_x_post"
+```
 
 Evidence:
 
 ```text
 Tool enumeration vs the publish path:
 Agent attempt:
-draft_x_post → section written, network calls made:
+draft_x_post → asset written, network calls made:
 ```
 
 #### XAP-006: Publishing stops and asks, every time, showing the artefact
@@ -1001,9 +1256,17 @@ Required result:
 
 * no publish occurs without an explicit confirmation carrying a session user;
 * the confirmation renders the final text with its character count, plays or displays every attached
-  asset, names the target handle, and shows the cost with its source;
+  asset, names the target handle, names the design document and line range that declared the post,
+  and shows the cost with its source — or the words "not measured", never `$0.00`;
 * there is no setting, flag or repeat-confirmation that suppresses it, and a thread's confirmation
   shows every post in the thread.
+
+Proof:
+
+```bash
+bun test client/src/control-room/users/x
+grep -rn "dontAskAgain\|rememberChoice\|skipConfirm" client/src server   # expect: no output
+```
 
 Evidence:
 
@@ -1022,6 +1285,12 @@ Required result:
 * a simulated timeout produces an explicit unknown state and no automatic retry;
 * reconciliation against the account resolves the unknown state without posting again.
 
+Proof:
+
+```bash
+X_DRY_RUN=1 bun test server/services/x/publish.test.ts -t "idempotenc|timeout|reconcil"
+```
+
 Evidence:
 
 ```text
@@ -1039,6 +1308,13 @@ Required result:
 * with credentials configured, it appears and its connect control works;
 * removing the credentials removes the page again without a restart artefact or an orphaned route.
 
+Proof:
+
+```bash
+bun test client/src/control-room/users -t "optional"
+bun run audit:endpoints          # expect: no uncalled /api/users/x endpoint when the page is absent
+```
+
 Evidence:
 
 ```text
@@ -1055,23 +1331,23 @@ Each of these exists because it was violated at least once, in this repository o
 behind this pivot. No rule without its bug.
 
 - **A gate that names its approver is not the same as knowing who approved.**
-  `mergeAgentBranch` (`server/services/repository.ts:324-336`) has refused every unapproved merge since
+  `mergeAgentBranch` (`server/services/repository.ts:331-336`) has refused every unapproved merge since
   it was written, and the name it has been given every time is the constant `"user"` —
   `server/routes/projects.ts:680`, `server/services/projectStore.ts:826` and `:903` produce it, and
   `scripts/acceptance/v052.mjs:437` types it out by hand. Before trusting an audit field, name the
   code that populates it and check what it actually contains.
 - **A default that grants privilege is not a default, it is the rule.** `actorFrom`
-  (`server/routes/projects.ts:28-51`) treats a header-less request as the fully privileged user and
+  (`server/routes/projects.ts:39-51`, with its reasoning at `:27-38`) treats a header-less request as the fully privileged user and
   documents the reasoning honestly. The reasoning is sound and the outcome is that the maximum-privilege
   request is the one that sends nothing. Design the unauthenticated path first, and make it the
   refusal.
 - **One permission, one source of truth.** `x-openui-actor-doc-write` was once a header *and* a stored
-  permission; the fix and the reason are written into both
-  `server/routes/projects.ts:28-51` and `server/routes/mcp.ts:24-31`. Do not reintroduce the same shape
-  in `approvedBy`. Reject the second source; ignoring it is how it comes back.
+  permission; the fix and the reason are written into both `server/routes/projects.ts:27-38` and
+  `server/routes/mcp.ts:23-25`. Do not reintroduce the same shape in `approvedBy`. Reject the second
+  source; ignoring it is how it comes back.
 - **Never fabricate a value in the UI.** An absent field is omitted, never defaulted to something
   plausible. A per-user spend of `$0.00` today would be a fabrication: `DEFAULT_RATES`
-  (`server/services/usageAccounting.ts:30-34`) has three keys and no Grok model, so an unknown model
+  (`server/services/usageAccounting.ts:31-35`) has three keys and no Grok model, so an unknown model
   returns `costUsd: 0` with `rateKey: null` (`:79`), and `rateKey: null` is surfaced nowhere.
 - **A passing test proves a unit works, not that anything calls it.** `ApprovalQueue`
   (`server/services/approvals.ts:133`) and `assertAgentCanWrite` (`server/services/repository.ts:261`)
@@ -1086,12 +1362,16 @@ behind this pivot. No rule without its bug.
   outward-facing call on a timeout is how a demo posts twice to a real account.
 - **Deletion is not an undo.** Even where the API supports removing a post, the post was public in the
   interval. Nothing in §3.12 softens because C-7 comes back positive.
-- **An API fact with no date is a fact with no shelf life.** Every answer to C-1…C-8 is recorded with
+- **An API fact with no date is a fact with no shelf life.** Every answer to C-1…C-9 is recorded with
   its docs URL and the date it was fetched, the way the xAI prices in this family are.
 - **When safety comes from the absence of something, write it down.** The user store is
   concurrency-safe only because no mutation contains an `await` — not from locking, not from atomic
-  writes (`server/services/projectStore.ts:148-159`). State it in the source and let a test fail if the
+  writes (`server/services/projectStore.ts:148-162`). State it in the source and let a test fail if the
   statement is deleted.
+- **A string a model wrote is not a lookup key.** Plan generation stored four unowned tasks by matching
+  a model's phrasing of a role with `===` (iteration 81). If a draft post ever arrives carrying an
+  agent's idea of a handle or an account name, resolve it against stored records or refuse; never
+  address an account by a string an agent produced.
 
 ---
 
@@ -1100,7 +1380,7 @@ behind this pivot. No rule without its bug.
 Stated plainly, because designing quietly around them produces a product that cannot be explained.
 
 1. **"User management" implies users, and there are none.** There is no authentication of any kind —
-   the server says so about itself at `server/index.ts:73-76`. There is no user record, no credential,
+   the server says so about itself at `server/index.ts:72-76`. There is no user record, no credential,
    no session, no sign-in and no sign-out anywhere in the repository. A USERS page is not a page on
    top of an existing system; it is the visible tenth of a system that has to be built underneath it
    first (§3.2). Building the page before the middleware produces a screen full of controls that
@@ -1110,35 +1390,63 @@ Stated plainly, because designing quietly around them produces a product that ca
    real and the name it collects is the constant `"user"`. Treat this as evidence for the pivot rather
    than against it: the enforcement points are already in the right places, and what they are missing
    is an identity to record.
-3. **Boundaries are enforced nowhere at write time.** Isolation today is a `cwd` handed to the agent.
+3. **USERS and X being secondary is correct, and it has a cost that must be named.** These are the only
+   two pages in the workspace that produce nothing, so putting them last is right. But the auth spine
+   in §3.2 is not a page — it is the thing that makes the word "approved" true on the three pages that
+   *do* produce. Merging it last means seven branches will write route tests with no session, and all
+   of them break on the day the inversion lands. That bill is real; §8 says who pays it and how.
+4. **Boundaries are enforced nowhere at write time.** Isolation today is a `cwd` handed to the agent.
    `assertAgentCanWrite` (`server/services/repository.ts:261`) and the whole `ApprovalQueue` have zero
-   production callers, and `shellSafetyHook.ts` is not installed by this repository and only classifies
-   shell commands, so a direct file-write tool bypasses it entirely. Git worktrees made out-of-bounds
-   edits *recoverable*; they never *prevented* them. Roles and per-user budgets do not change that —
-   the boundary worktree does, and this document depends on its work rather than duplicating it.
-4. **Cost is broken today, not merely incomplete**, and a per-user budget inherits that breakage in
+   production callers, and `server/hooks/shellSafetyHook.ts` is not installed by this repository and
+   only classifies shell commands, so a direct file-write tool bypasses it entirely. Git worktrees made
+   out-of-bounds edits *recoverable*; they never *prevented* them. A real boundary needs a PreToolUse
+   hook that canonicalises every path argument and calls `process.exit(2)` — a deny in stdout JSON is
+   ignored under `--always-approve` — or structured MCP-mediated writes carrying
+   `{projectId, agentId, areaId}`. Roles and per-user budgets do not change that; 01-agents does, and
+   this document depends on its work rather than duplicating it.
+5. **Cost is broken today, not merely incomplete**, and a per-user budget inherits that breakage in
    full (§3.6). There is no ledger, only running totals; the token split is computed and thrown away;
    `approvalThreshold` and `maxRetries` have zero occurrences in the code; per-tool-call attribution is
-   structurally impossible because ACP returns one usage object per *turn*. Per-task cost *is* now
-   tracked — `HANDOFF.md` is stale on that point.
-5. **There is no HTTP client to anything in this project.** It speaks ACP (JSON-RPC over stdio) to the
+   structurally impossible because ACP returns one usage object per *turn*. Per-task cost *is* tracked
+   — `HANDOFF.md` is stale on that point.
+6. **There is no HTTP client to anything in this project.** It speaks ACP (JSON-RPC over stdio) to the
    `grok` binary and nothing else. Both the xAI client and the X client are net-new, and `XAI_API_KEY`
    and `X_CLIENT_SECRET` are two entirely separate credentials with separate failure modes.
-6. **X posting is not a small feature bolted onto generation.** It is the only place in the product
+7. **"Working against the user's X account" is a credential requirement, not a phrasing.** It rules out
+   an application-only token, which is the cheapest thing to build and the thing an agent will reach
+   for first. §3.10 is the design; C-4 is the check that says whether it is available at all. If it is
+   not, Part Two changes shape and the owner decides how — that is a stop condition (§7), not an
+   implementation detail.
+8. **X posting is not a small feature bolted onto generation.** It is the only place in the product
    where an action cannot be undone, and the confirmation flow, the idempotency key, the reconciliation
    path and the dry-run mode are most of the work. The generation half is a call into another
    worktree's engine.
-7. **The X API details in this document are unverified.** The research behind this pivot covered
+9. **The X API details in this document are unverified.** The research behind this pivot covered
    `api.x.ai` — Imagine, video, TTS, STT, realtime, prices, rate limits — in verified detail, and
    covered `api.x.com` not at all. Every endpoint, scope, tier, price and media constraint on the X
-   side is an open question, enumerated as C-1…C-8 in §3.11. Do not let an agent write the client from
+   side is an open question, enumerated as C-1…C-9 in §3.11. Do not let an agent write the client from
    memory; the naming of that API has changed more than once and a confidently wrong endpoint will look
    plausible in review.
-8. **Custom voice cloning from the app is not buildable**, in case it appears in an X-native video
-   brief. API creation of custom voices is Enterprise-only; on a standard plan voices are created in
-   the console, US-only excluding Illinois.
-9. **There is no xAI document or slide generation API.** None. Anything published to X that is a
-   document or a deck was assembled entirely by our own code.
+10. **Slides cannot be delegated to Grok, and this matters here because posts carry slides.** Two
+    surfaces look like a deck generator and neither is callable from a server: the "Grok for PowerPoint"
+    Microsoft 365 add-in is a panel inside Office, and grok.com producing a downloadable `.pptx` is the
+    consumer chat product. **Both are user interfaces, not APIs.** There is no xAI slide or document
+    generation API of any kind — no PPTX, DOCX or PDF. Slide content is generated with the chat API as
+    structured JSON and the `.pptx` is rendered by our own Node library, in 04-generation. Video is the
+    opposite case: the Imagine video API at `POST /v1/videos/generations` is real, asynchronous and
+    callable from a server, so a clip attached to a post comes from a genuine API and a slide image
+    does not.
+11. **Returned media URLs expire.** Anything attached to a post is read from 02-assets' persisted copy,
+    never from a generation URL. A post that references an expired URL is a broken post on a public
+    timeline.
+12. **Custom voice cloning from the app is not buildable**, in case it appears in an X-native video
+    brief. API creation of custom voices is Enterprise-only; on a standard plan voices are created in
+    the console, US-only excluding Illinois.
+13. **If `grok-workspace.md` still describes four pages and four media when you read it**, that is stale
+    against the owner's current direction: three headline pages (AGENTS, ASSETS, DESIGN DOCUMENTS) with
+    USERS and X secondary, and five asset types (documents, slides, tables, workflows, software). Raise
+    the contradiction in your handoff. Do not edit the contract and do not silently follow the older
+    text.
 
 ---
 
@@ -1151,6 +1459,8 @@ restating a known blocker.
   `X_REDIRECT_URI` are not present, no developer application exists, and no access tier is subscribed.
   An action that needs credentials that were not provided is a stop condition, not a mock. Build the
   dry run (§3.14) and stop at the network boundary.
+- **C-4 says posting or reading as the connected user is unavailable** on a product-owned application.
+  That contradicts the canonical demo, and the demo is the owner's, not this document's.
 - **The access tier costs money, monthly.** C-5 establishes what posting and reading actually cost.
   That is a recurring commitment and it is the owner's decision, not an implementation detail.
 - **X-C: does the first release include X posting at all?** The page is optional by construction, so
@@ -1165,10 +1475,10 @@ restating a known blocker.
 - **Posting to a real account for a test, or in a demo rehearsal.** Outward-facing and irreversible.
   Every test runs in dry run; a live post is an explicit human decision each time, including yours.
 - **The cost ledger is not ready and USR-009 needs it.** Record it BLOCKED with the reason. Do not mark
-  it PASS against a zero and do not invent a rate table in this worktree — that file belongs to the cost
-  loop.
-- **A change would fall outside §0.** File a suggestion and stop. Do not edit another worktree's files,
-  even when you are certain — and on `actorFrom` you will be certain.
+  it PASS against a zero and do not invent a rate table in this worktree — that file belongs to
+  06-tools-cost.
+- **A change would fall outside §0.** File it in the handoff and stop. Do not edit another worktree's
+  files, even when you are certain — and on `actorFrom` you will be certain.
 - **Two requirements contradict each other** — for example, "simpler and more visual, for non-technical
   users" against a sign-in screen on a laptop. Say which two, and stop. §3.3 is this document's answer
   to that particular pair; if the owner disagrees with it, the answer changes here rather than in the
@@ -1176,15 +1486,136 @@ restating a known blocker.
 
 ---
 
-## 8. Definition of done
+## 8. What this worktree hands back
+
+```text
+branch    pivot/users-x
+handoff   loops/handoff/pivot/users-x.md
+merge     07-shell, then 01/02/03, then 04/05/06, then 08 — this worktree merges LAST,
+          because the three pages are built and tested first
+```
+
+Sibling loops have written their handoff as `loops/handoff/pivot-<name>.md` and as
+`loops/handoff/pivot/<name>.md`. Both readings of `loops/handoff/<your-branch>.md` are in use. This
+worktree writes `loops/handoff/pivot/users-x.md` and says so here so reconciliation does not have to
+guess.
+
+**The public contract this worktree adds.** Every item below is what another worktree may depend on;
+none of it may change after reconciliation without telling them.
+
+```text
+types      User, Role, CapabilityGrant, Session, SessionUser
+           exported from server/services/auth.ts
+           (they cannot live in server/types/user.ts — server/types/*.ts is hot;
+            the re-export is a handoff request)
+           XAccount, XPublishRecord, XDraftRef  exported from server/services/x/types.ts
+
+exports    requireSession(c): SessionUser            — the fail-closed middleware, one-line mount
+           currentUser(c): SessionUser               — replaces actorFrom's default
+           assertRoleAllows(user, action): void      — the single role gate (§3.4)
+           assertCanGrant(user, grant): void         — the capability rule (§3.5)
+           registerXTools(server, ctx): void         — the read tool, one call in projectMcpServer
+           UsersPage, XPage from client/src/control-room/users/index.ts
+
+api        POST   /api/users/first-run
+           POST   /api/users/session          sign in
+           DELETE /api/users/session          sign out
+           GET    /api/users
+           POST   /api/users
+           PATCH  /api/users/:userId
+           POST   /api/users/:userId/disable
+           GET    /api/users/x/account
+           POST   /api/users/x/connect        starts user-context OAuth
+           GET    /api/users/x/callback
+           DELETE /api/users/x/account        revoke then forget, in that order
+           GET    /api/users/x/drafts
+           POST   /api/users/x/publish        idempotency key required
+           GET    /api/users/x/published
+
+events     budget_warning / budget_exceeded gain scope "user" — a WIDENING of an existing member,
+           not a new member. Requested, never edited.
+
+mcp        read_x_account, draft_x_post           registered by registerXTools(server, ctx)
+           the publish path added to DELIBERATELY_USER_ONLY — requested, never edited
+```
+
+**Hot-file requests to be applied at reconciliation** (write each into the handoff as you need it,
+with the exact diff):
+
+```text
+server/routes/projects.ts             actorFrom → currentUser(c); no default actor; 401 otherwise
+server/routes/mcp.ts                  per-session bearer secret alongside the URL identity
+server/routes/repository.ts           merge approver from the session; 400 on a body-supplied one
+server/services/repository.ts         the ProtectedBranchError message names the session approver
+server/services/approvals.ts          ApprovalQueue wired; resolvedBy is a real user id
+server/services/controlRoomEvents.ts  scope gains "user" on the two budget members
+server/services/projectMcpServer.ts   registerXTools(server, ctx); publish in DELIBERATELY_USER_ONLY
+server/services/acpSessionManager.ts  the X-capable agent's briefing line
+server/services/testSupport.ts        withSession(fixture) — the helper every route test needs
+server/routes/api.ts                  apiRoutes.route("/users", userRoutes)
+server/index.ts                       app.use("*", requireSession) — one line, after CORS
+server/types/project.ts               re-export of the auth types; Actor.id becomes a user id
+client/src/control-room/useControlRoom.ts   the /api/users fetches and the session-expiry handler
+client/src/control-room/ControlRoomApp.tsx  mount UsersPage and XPage as secondary routes
+```
+
+**The one request that is not one line, and who pays for it.** The `actorFrom` inversion changes the
+default of every route in the product. Seven sibling branches will have written route tests against a
+server that never asked who was calling, and every one of them starts failing the moment the
+middleware is mounted. Because this worktree merges last, that failure arrives at the end, when there
+is least time for it.
+
+Three things reduce the damage, and all three are this worktree's job:
+
+* **write `withSession()` first, not last.** Ship the fixture in the handoff at stage 2, in
+  `server/services/testSupport.ts`'s existing style, so the reconciler has a mechanical fix rather
+  than a design problem: wrap the request, re-run;
+* **make the middleware mountable in one line and unmountable in one line.** It is
+  `app.use("*", requireSession)`, and nothing else in the codebase knows it exists;
+* **never ship a bypass.** Not an env var, not a local-address exemption, not a test-only actor that
+  production can reach. A bypass would make reconciliation easy and the product a lie. First run
+  creates a session; it does not skip the check (§3.3).
+
+**What this worktree assumed about other worktrees.** Each is a thing to confirm at reconciliation,
+not a thing to build around:
+
+* **01-agents** owns the agent record, `capability` on it, and write-time boundary enforcement. This
+  loop reads capability and decides who may *grant* it; it never sets it on an agent. The mapping
+  between `AgentCapabilities {images, voice}` and `CapabilityGrant {images, video, voice, publishToX}`
+  is written down in `server/services/auth.ts` and must be checked against 01's shipped shape.
+* **02-assets** owns the five asset types and the persisted asset id. Everything an X post attaches is
+  read from there, by id, never from a generation URL. `draft_x_post` writes a document asset through
+  02's create path; if that path takes a different shape than assumed, XAP-005's third clause moves,
+  not the rule.
+* **03-design-docs** owns the design document, the line ranges and the cardinality — one project may
+  follow many documents, one document at most one project. The publish record stores a `designDocId`
+  and a line range so §3.12's confirmation can say what declared the post. If line ranges are not
+  exposed, the confirmation names the document and says the lines are unknown. It never invents one.
+* **04-generation** produces every attached asset. There is no xAI slide or document API, so a slide
+  image is our renderer's output; the Imagine video API is real, so a clip is a genuine job with a
+  terminal state. This loop calls neither directly — it reads 02's persisted result.
+* **06-tools-cost** owns the ledger. USR-009 and the cost line in the publish confirmation are the two
+  places that read it. Until COST-004…006 land, both read "not measured". Recorded here so it is
+  switched on rather than forgotten.
+* **07-shell** owns the navigation and the theme tokens, and places `/users` and `/x` as secondary
+  routes. This loop exports two components and imports no shell internals.
+* **reconcile** applies the fourteen hot-file requests above in one pass, with `withSession()` landing
+  before the middleware. If the reconciler chooses to defer the inversion, USR-003 through USR-008 are
+  BLOCKED, not PASS — the page may ship, the identity may not be pretended.
+
+---
+
+## 9. Definition of done
 
 Users and X are complete when USR-001…USR-010 and XAP-001…XAP-008 all read PASS with recorded,
 re-runnable evidence in `VERIFICATION.md`; `bun run verify` is green; no item is NOT TESTED and no item
-is BLOCKED; C-1…C-8 are each answered with a docs URL and a fetch date; and the canonical demo runs end
-to end across these surfaces — a named person signs in, creates the project, assembles the team, the X
-agent reads their account, the media agents spend against that person's capabilities and budget, and the
-resulting post reaches X only after that person has looked at the rendered artefact, its cost and its
-target handle and pressed a button that says the handle out loud.
+is BLOCKED; C-1…C-9 are each answered with a docs URL and a fetch date; the handoff file lists every
+hot-file change with an exact diff; and the canonical demo runs end to end across these surfaces — a
+named person signs in, creates the project, assembles the team, the X agent reads **that person's**
+account, the media agents spend against that person's capability grant, every asset lands on the
+ASSETS page, and the resulting post reaches X only after that person has looked at the rendered
+artefact, the design-document line that declared it, its cost and its target handle, and pressed a
+button that says the handle out loud.
 
 Only then output `Users and X are complete: YES`.
 
