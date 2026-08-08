@@ -931,3 +931,43 @@ The reverted code is in commit `e134df6` and its follow-ups; `git revert` of the
 current page's label and reports every page that has no entry; `GuideModal.tsx` is scrim, Esc, a
 contents rail and the section body. **No guide prose was authored in this worktree**, per §3.8 —
 the words stay the guide worktree's.
+
+---
+
+## For whoever screenshots this product next
+
+Two things cost this worktree most of an iteration; both are cheap to avoid.
+
+**1. The server serves `./client/dist` relative to its own working directory.** The instance on
+:6968 is the main checkout on `grok-control-room`. Rebuilding in your worktree does not change one
+pixel of what it serves, and a screenshot of it is evidence about *that* build, not about your
+branch. To see your own work:
+
+```bash
+set -a; . /Users/haoming/openui/.env; set +a
+bun run build
+PORT=6979 bun run server/index.ts        # then screenshot :6979
+```
+
+The first two captures this iteration showed the Tools overlay missing entirely and were within a
+minute of being reported as a bug in code that was correct.
+
+**2. No browser driver is installed** — no playwright, no puppeteer, no chromium-cli. Headless
+Chrome is present and enough:
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
+  --window-size=1440,900 --screenshot=out.png --virtual-time-budget=4000 http://localhost:6979/agents
+```
+
+For anything that needs *driving* rather than loading — setting a theme, opening an overlay,
+clicking through pages — add `--remote-debugging-port=9222 --user-data-dir=/tmp/prof` and talk CDP
+over the WebSocket at `http://localhost:9222/json`. `Page.navigate`, `Runtime.evaluate`,
+`Page.captureScreenshot` are the only three methods needed. That is how both themes and all five
+pages were captured this iteration.
+
+**A note on the unmerged-slot notice.** It no longer says a branch "has not merged yet", because
+that claim was false for 06-tools-cost while it was on screen. It now says nothing is mounted and
+names the branch as provenance. If your page is merged but its slot still shows this notice, the
+missing piece is R-4 — one line in `client/src/control-room/shell/pages.ts` setting `main:` on your
+descriptor. That file is mine; the line is yours.

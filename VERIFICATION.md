@@ -7409,3 +7409,78 @@ from the DOM. `⌘T` opens it — the shortcut both wireframes print on their To
 
 **Gate:** 135 tests / 0 fail across 4 shell files, 854 assertions; typecheck, build and all four
 audits exit 0.
+
+## Final iteration — the shell was looked at
+
+Three iterations recorded SHELL-009 and SHELL-011 as held because "no screenshot of either theme
+has been taken", and said that contrast arithmetic and looking at it are different evidence. The
+shell was driven in a real browser this iteration. Screenshots are in the session scratchpad under
+`shots/`, captured with headless Chrome over CDP against a server running this branch.
+
+```text
+build     bun run build, served by bun run server/index.ts on 127.0.0.1:6979
+captured  {dark,light} × {agents, assets, designdocs, users, x, tools-overlay}
+```
+
+### What looking at it proved that the tests did not
+
+```text
+✓ SHELL-009  a theme control switches both themes with no reload
+    Both palettes render. The toolbar control is present and flips the class.
+
+✓ SHELL-009  the stored choice wins over prefers-color-scheme
+    Stronger than the unit test: headless Chrome answers prefers-color-scheme: light, and the
+    default capture came out light. Setting localStorage grok-workspace-theme=dark and reloading
+    produced a fully dark render. The override beat the OS in the direction that actually matters.
+
+✓ SHELL-007  three regions, on every one of the five pages, with the divider between the three
+    headline pages and the two secondary ones, and the unmerged slot naming its branch.
+
+✓ SHELL-008  the Tools overlay opens from ?tools=prompts as a bottom sheet over MAIN, with its
+    section named, an Esc affordance, and a scrim that covers MAIN only — the navigator and the
+    inspector stay live, which is the whole argument for it being an overlay.
+```
+
+### Two defects only a browser could have shown, both fixed
+
+**1. The shell was telling the user something false.** The Tools slot read "It is built on branch
+06-tools-cost, which has not merged yet." 06-tools-cost HAS merged —
+`client/src/control-room/tools/` is in the tree — it merged a `formatCharge` helper and no panel
+component. The shell can observe whether a component was registered in `pages.ts`; it cannot
+observe anyone's git history. It now states only the former and names the branch as provenance:
+
+```text
+Nothing is mounted here yet.
+Assets is built on branch 02-assets, and has not been wired into this build.
+```
+
+Being wrong in the reassuring direction is the exact defect `NotMergedYet` exists to prevent one
+level up. Commit b057ca9.
+
+**2. The scrim needed two alphas.** `bg-scrim/50` is a dim over near-black and a flat mid-grey slab
+over near-white, where it reads as a component that failed to load rather than a page still sitting
+underneath. Now `bg-scrim/20 dark:bg-scrim/50` — same token, per-theme amount, like every other
+pre-blended value in the layer.
+
+### A trap worth recording: the screenshot was of the wrong build, twice
+
+The first captures showed no Tools overlay at all and no Tools button, which looked like a
+straightforward bug in freshly committed code. It was not.
+
+```text
+1. the running server on :6968 serves ./client/dist relative to ITS OWN cwd — it is the main
+   checkout on grok-control-room, which does not have this branch's last two commits;
+2. rebuilding in this worktree changed nothing about what that server served.
+```
+
+Both readings would have been reported as defects in the overlay. The fix was to build in this
+worktree and serve it on its own port, after which the overlay rendered correctly first time.
+**A screenshot is evidence about a build, not about a branch**, and the two are only the same thing
+if you checked.
+
+### SHELL-011 — still 2 of 5 clauses, and now for a visible reason
+
+The three outstanding clauses are about status pills rendering their labels. **No status pill
+appears anywhere in the running product**: every page slot is unmerged, so nothing renders an
+agent, and the pills live in components R-7 has not been applied to. The clause cannot be evidenced
+by looking, because there is nothing to look at. Held, not claimed.
