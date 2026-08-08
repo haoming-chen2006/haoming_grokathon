@@ -136,6 +136,18 @@ export function SoftwarePage({ selectionId }: WorkspacePageProps) {
             data-testid="software-preview"
             title={`${app.name}, running`}
             className="h-full w-full border-0 bg-white"
+            /*
+             * The app in here is code a model wrote, and it runs in the user's browser.
+             *
+             * Against a real preview that is a dev server on another port, so it is cross-origin
+             * and already walled off. Against `srcDoc` it would be **same-origin** — the mock is a
+             * document of ours, so without this attribute an app could reach into the workspace
+             * that is displaying it. `allow-scripts` because an app that cannot run scripts is not
+             * the app; `allow-same-origin` is deliberately absent, which is what keeps the frame in
+             * its own opaque origin. Deliberately not `allow-top-navigation`: a preview must not be
+             * able to navigate the workspace away from itself.
+             */
+            sandbox="allow-scripts allow-forms allow-popups"
             {...(preview.previewHtml ? { srcDoc: preview.previewHtml } : { src: preview.url })}
           />
         ) : (
