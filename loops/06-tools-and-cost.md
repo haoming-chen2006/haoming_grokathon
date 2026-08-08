@@ -195,18 +195,26 @@ One extra check belongs to this document and to no other:
   || echo "NO XAI CREDENTIAL — no price in the rate table can be checked against a live response"
 ```
 
-The research confirms this machine is not on xAI at all: `~/.grok/config.toml` points at
-`api.openai.com` and `router.huggingface.co`, and `grok models` reports "You are not authenticated."
-Every media price in §2.5 is read from published documentation, not observed. That is a stop
-condition for parts of the cost work, not for all of it — see §8.
+**That research is now out of date and the correction matters.** Re-checked 2026-08-08:
+`grok models` reports **"You are logged in with grok.com"** and lists `grok-4.5`, `gpt-4o`
+(default, via `OPENAI_API_KEY`) and `hf-qwen-coder`. `OPENAI_API_KEY` is *not* in the environment,
+so the configured default model is the one that cannot run; `-m grok-4.5` serves through the
+grok.com login and completes real turns. Two live turns were taken on 2026-08-08 (§2.4).
+
+So `XAI_API_KEY` is still absent and every media price in §2.5 is still unobserved — that remains a
+stop condition for a billed *media* row. It is not a stop condition for the turn path, which is
+live, priced and now proven. See §8.
 
 **Know who owns which process.** The `grok` binary is a separate Rust program (`.refs/grok-build`, a
 read-only upstream mirror this repository does not build). We speak ACP — JSON-RPC over NDJSON on
 stdio — to `grok agent --always-approve stdio` (`server/services/acpClient.ts:28`). We cannot
 instrument the model call. **The only thing we ever see of a turn's cost is the `_meta` that binary
-chooses to report.** That is why the turn path can only ever be an estimate, and why the direct
-HTTP path 04 builds is the only place a billed figure can come from. §4.2 turns that split into the
-ledger's pricing tiers.
+chooses to report.**
+
+What it chooses to report turns out to be more than this document assumed: for grok-4.5 it includes
+`usage.costUsdTicks`, a billed figure, observed 2026-08-08 (§2.4). For gpt-4o in the same spike it
+did not. So the split is not "turns are estimated, HTTP is billed" — it is per response, and §4.2's
+tiers are decided from the row, not from the path.
 
 ---
 
@@ -214,8 +222,22 @@ ledger's pricing tiers.
 
 ```text
 TOOL: 0 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED   (TOOL-001…TOOL-012)
-COST: 0 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED   (COST-001…COST-015)
-Gate: fill this line from the output of `bun run verify` on your first iteration.
+COST: 2 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED   (COST-001, COST-002 PASS)
+      COST-003 and COST-004 are each built and tested inside this loop's rows and each
+      NOT TESTED, because the last mile of both is a file this loop may not edit: the three
+      render sites, and the three ingest sites. Every diff is in the handoff. **This is the
+      loop's defining constraint, not an accident of two items** — see the handoff's
+      iteration-4 section 4 for the ordered wiring pass reconciliation has to run.
+Gate: GREEN on iteration 4. 987 pass, 0 fail, 987 tests across 52 files, exit 0, 210.7s.
+      Iteration 3 was also green at 971/971.
+      Iterations 1 and 2 saw it red on 935/940, 939/943 and 938/943 — every failure a
+      5000-6700ms timeout in server/routes/projectReads.test.ts or
+      server/services/messaging.test.ts, both other worktrees' files, both green when run
+      alone, and red on the parent commit before this loop changed anything. Those tests
+      launch real grok processes against a 5s timeout while eight worktrees share one
+      machine, so a red run here is a load reading before it is a defect: re-run before
+      believing it, and check whether the failing file is one of this loop's rows.
+      Reported to 01-agents in the handoff; §0 forbids fixing it here.
 ```
 
 Do not copy a test count from another document. `loopdesign.md:68-72` says 715 tests across 42
@@ -327,15 +349,36 @@ eagerly in the system prompt and once on invocation. After this work, `rules` ca
 the shared project brief and the work-area boundary, and nothing else. TOOL-007 exists to catch the
 double.
 
-**Unverified, and it must be checked before TOOL-004 is designed:** whether an ACP stdio session
-(`--no-auto-update agent --always-approve stdio`, `server/services/acpClient.ts:28`) runs the same
-skill discovery as the terminal UI. The evidence points to yes — the session setup path calls the
-skills bridge and emits an `AvailableCommandsUpdate` carrying skills and workflows — but this
-repository has never observed it, and `AcpSessionUpdateKind` (`server/services/acpClient.ts:29-35`)
-lists only six update kinds, none of them that one. If the notification is arriving, it is being
-received and discarded, and reading it would populate the panel with live, agent-visible skills for
-almost nothing. **Spike it: open one session, log every `session/update` kind that arrives, and
-record the list verbatim.**
+**Spiked on 2026-08-08. The notification is arriving and is being discarded.** Raw ACP NDJSON was
+spoken to the binary with the product's own args (`server/services/acpClient.ts:28`) and every
+frame logged. Verbatim, from two turns:
+
+```text
+session/update kinds:  available_commands_update, user_message_chunk,
+                       agent_thought_chunk, agent_message_chunk
+notification methods:  _x.ai/mcp/servers_updated, _x.ai/models/update, _x.ai/settings/update,
+                       _x.ai/announcements/update, _x.ai/mcp_initialized, session/update,
+                       _x.ai/sessions/changed, _x.ai/queue/changed,
+                       _x.ai/session_notification, _x.ai/session/prompt_complete
+```
+
+`available_commands_update` is the first kind to arrive and it is **not** in `AcpSessionUpdateKind`
+(`server/services/acpClient.ts:29-35`), so `AcpConnection`'s collector drops it. Its payload is
+`{ availableCommands: [{ name, description, input }] }` — on this machine, built-in commands
+(`compact`, `context`, `hooks-*`, `session-info`, …) because no skill is installed; that is the
+channel a discovered skill's name and description would arrive on. Reading it is a type addition
+plus a handler, and it gives the panel a live, agent-visible listing.
+
+Two things this does **not** yet prove, and TOOL-004 needs both: that a skill written to
+`.grok/skills/` appears in that payload, and that the listing is what the model is shown. Mount one
+and re-run the spike before designing the mount path. `acpClient.ts` is not in this loop's row —
+the type addition goes to the handoff.
+
+Two further facts from the same capture, recorded because they change other sections:
+`_x.ai/models/update` carries the model roster with context windows and reasoning-effort options
+but **no prices**, so it is not a rate source; and `_x.ai/session_notification` carries a
+`turn_completed` update whose `usage` is the same object the `session/prompt` response returns,
+including the billed figure in §2.4.
 
 ### 2.4 Cost — what exists today, verified, and why it is broken
 
@@ -359,6 +402,38 @@ DEFAULT_RATES (server/services/usageAccounting.ts:31-35) has exactly three keys:
   gpt-4o, gpt-4o-mini, gpt-4.1.
 There is no Grok model in it. The product drives grok.
 ```
+
+**Reproduced live and fixed on iteration 1 (COST-001).** One real `session/prompt` turn against
+`grok --no-auto-update agent -m grok-4.5 --always-approve stdio` reported
+`modelId: "grok-4.5"`; `resolveRate` returned `null` and `estimateCost` returned
+`{ costUsd: 0, rateKey: null }` — the $0.00 the whole section describes, observed rather than
+argued. `grok-4.5` is now in the table at $2.00 / $0.30 cached / $6.00 per million, read from
+`https://docs.x.ai/docs/models` on 2026-08-08. The rest of §2.4 below still stands.
+
+**The same capture overturns one of this document's own assumptions, and it is good news.** The
+turn's `_meta.usage` carries `costUsdTicks: 223384000` — a **billed** figure, on the ACP path, at
+10^10 ticks to the dollar, with no xAI HTTP client and no `XAI_API_KEY`. §1 said the turn path can
+only ever be an estimate. That is wrong: for grok-4.5 through the grok.com login it is billed.
+Consequences, in order of size:
+
+* the `billed` tier of §4.2 is reachable **today**, for turns, before `04-generation` exists;
+* `extractUsage` (`:47-61`) dropped the field. **Surfaced on iteration 4, when COST-004's row became
+  its reader:** `TokenUsage.costUsdTicks` plus `turnCharge(usage)`, which prices a turn `billed` from
+  ticks, `estimated` from a rate, and `unknown` from neither — never a zero. It is the one call an
+  ingest site makes, so wiring the ledger into a file this loop does not own is one line;
+* it is free, permanent instrumentation for the rate table. The published rate reproduces this
+  turn's billed figure **exactly**: `(12306-1408)×$2 + 1408×$0.30 + 20×$6`, per million,
+  `= $0.0223384 = 223384000 ticks`. That is `meteredDeltaUsd` (COST-014) already at zero on its
+  first sample, and it is the check that catches the table drifting;
+* the gpt-4o turn taken in the same spike carried **no** `costUsdTicks`. The field is per-provider,
+  not per-protocol, so `pricing` must be decided per row from whether the field is present — never
+  from which code path wrote the row.
+
+One limit of the new entry, found on iteration 1 and **closed by COST-002 on iteration 2**: xAI
+doubles all three grok-4.5 figures at or above 200k prompt tokens and grok-4.5's context window is
+500k, so a long session under-priced by 2x. `ModelRate` now carries an optional `longPrompt` tier
+and `estimateCost` selects on `inputTokens`. The billed `costUsdTicks` remains the backstop — it is
+right regardless of tier — which is a second reason COST-004 should record it.
 
 `resolveRate` (`:64-71`) returns `null` for an unknown model. `estimateCost` (`:77-79`) then returns
 `{ costUsd: 0, estimated: true, rateKey: null }` — described in its own comment as "an honest zero
@@ -402,6 +477,23 @@ Say "per turn" in the UI and mean it; do not label a turn's cost as a tool's.
 
 All of this is read from published documentation on 2026-08-08 and **not observed on this machine**,
 because no xAI credential exists here. Record the source and the date beside every rate you enter.
+
+**Re-read from `https://docs.x.ai/docs/models` on 2026-08-08 while doing COST-002.** Every figure
+below is confirmed. Three corrections the block does not carry:
+
+* transcription is **$0.10 / hr REST and $0.20 / hr streaming** — the block gives only the REST
+  figure, and a streaming transcript priced at the REST rate is half the bill;
+* realtime speech has model ids, and they are the rate keys: `grok-voice-think-fast-1.0` at
+  $0.05 / min and `grok-voice-think-fast-2.0` at $0.08 / min. "$0.05-0.08 / minute" is a range, and
+  a range cannot be a rate;
+* each speech-to-speech model also lists **"$0.004 / text input"**, and the page does not say what
+  one text input is. That component is deliberately unpriced — a realtime charge meters the audio
+  minutes and is knowingly incomplete by that amount. It is the one thing on this page that still
+  needs a source.
+
+Text-to-speech and speech-to-text are listed as **services with no model id**, so their rate keys
+(`tts`, `stt`, `stt-streaming`) are this product's own and `04-generation` must pass them
+explicitly rather than expect a provider id to resolve.
 
 ```text
 images   POST /v1/images/generations      grok-imagine-image          $0.02  / image
@@ -528,8 +620,9 @@ is not negotiable.
 ```text
 Stage  Items                  Work                                                      Blocks
 S1     COST-001               Observe what modelId a live grok turn reports             all of S2-S9
-S2     COST-002 COST-003      Unit-aware rate table; unpriced renders as unknown        S3
+S2     COST-002 COST-003a     Unit-aware rate table; the formatter that says unknown    S3
 S3     COST-004..006          The ledger: schema, append-only store, ingest contract    S4, S5, S7
+S3b    COST-003b              Render "price unknown" at the three existing sites        — [PAGES]
 S4     COST-007 013 014       Rollups incl. per-asset-type; metered vs billed           —
 S5     COST-008 009 015       Budget meter, drill-down, the single money formatter      — [PAGES]
 S6     TOOL-001..003 011      Prompts, the panel, injection from the AGENTS page        — [PAGES]
@@ -555,6 +648,17 @@ from. The panel can be late. The ledger cannot.
 **Why COST-001 blocks everything.** A rate table proven by a unit test proves arithmetic. Only a
 live turn proves the key matches the model id that actually arrives. Building S2 onward on a guessed
 model id produces a green suite and a product that still reports `$0.00`.
+
+**Why COST-003 is split, found on iteration 3.** The item reads as one thing and is two, and the
+second half cannot be done where the table put it. Its first clause needs a formatter that turns an
+unpriced charge into words — that is S2 work, self-contained, and it is done. Its remaining clauses
+need the three existing render sites to *distinguish* a priced charge from an unpriced one, and
+**nothing reaching those sites can tell the difference today**. `agent.costUsd` and `task.costUsd`
+are bare sums (`server/services/agentRegistry.ts:359`, `server/services/projectStore.ts:1227`) into
+which an unpriced turn has already been added as zero. The distinction is destroyed at write time,
+one layer below the UI, and it is the ledger that restores it. So COST-003b sits after S3 and not
+before it. Marking the whole item PASS on the strength of the formatter would be exactly the
+partial-credit §6 forbids.
 
 **What can be proven without an xAI credential:** all of S1–S9 except a billed media row. The ledger,
 the rollups, the formatter, the approval gate, the retry cap and the whole Tools panel are provable
@@ -615,10 +719,14 @@ a footnote in the UI.
 
 | Tier | Where the number comes from | When |
 |---|---|---|
-| `billed` | `usage.cost_in_usd_ticks` on the response, 10¹⁰ ticks to the dollar | chat completions, Responses API, image generation, video generation, Batch |
+| `billed` | `usage.cost_in_usd_ticks` on the response, 10¹⁰ ticks to the dollar | chat completions, Responses API, image generation, video generation, Batch — **and the ACP turn itself, as `_meta.usage.costUsdTicks`, observed 2026-08-08 for grok-4.5** |
 | `metered` | our own arithmetic: units × a published per-unit rate | images per image, video per second, TTS per character, STT per hour, realtime per minute |
-| `estimated` | token counts × a per-million-token rate | every ACP turn, and anything else priced from tokens |
+| `estimated` | token counts × a per-million-token rate | an ACP turn whose `_meta` carries no ticks — gpt-4o's did not — and anything else priced from tokens |
 | `unknown` | nothing. `costUsd` is `null` | no rate for this model or medium; renders as "price unknown" |
+
+**A turn is not automatically `estimated`.** The tier is decided per row by whether that response
+carried ticks, never by which code path wrote the row: the same binary returned ticks for grok-4.5
+and none for gpt-4o in one spike (§2.4).
 
 **Why a media charge is exact and a model charge is not.** For media, we choose the unit count — we
 asked for *n* images, *d* seconds, *len(text)* characters — and the published price is per unit. The
@@ -1436,10 +1544,15 @@ restating a known blocker.
 branch     pivot/tools-cost
 handoff    loops/handoff/pivot-tools-cost.md
 
-types      CostEvent, CostEventInput, Pricing, UnitKind, Rollup, Preflight
+types      CostEvent, CostEventInput, Pricing, Rollup, Preflight
            InjectionKind, InjectionRequest, InjectionPayload, SkillMount
            exported from server/services/costLedger.ts and server/services/promptLibrary.ts
            (they cannot live in server/types/*.ts — hot; re-export requested in the handoff)
+
+           UnitKind, MediaUnitKind, UnitRate, UnitCharge, ModelRate, TokenTier, RateSource
+           exported from server/services/usageAccounting.ts, not costLedger.ts: the rate table
+           defines what a unit is, and costLedger imports pricing rather than the reverse.
+           costLedger re-exports UnitKind so §4.1's row type reads from one place.
 
 api        GET    /api/library/skills | /prompts | /workflows          existing
            POST   /api/library/skills | /prompts | /workflows          existing
