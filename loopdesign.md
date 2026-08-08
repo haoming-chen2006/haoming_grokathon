@@ -164,6 +164,30 @@ The checklist is complete. Useful work still available, in rough order of value:
    interface — that test now has the agent write the value to a file. Five assertions on
    `reply.text` were deliberately left, because session memory and isolation have no observable
    other than the reply; they are listed in `VERIFICATION.md` as irreducibly model-dependent.
+
+   **Put the reply, stop reason and tool-call count into the failure message.** Asserting an effect
+   and discarding the evidence makes the next failure undiagnosable — which is how one of these
+   went unexplained for twenty iterations (iteration 61).
+
+   **Reproduce under the conditions where it appeared.** The same test ran clean twelve times alone
+   and failed on the fourth run of the three live suites together (iteration 62). A single-test
+   re-run that passes measures the wrong thing.
+
+   **When a test can fail for two reasons, make it say which.** Those tests now assert the fixture
+   *before* the model runs, so a failure lands on the precondition (a product defect) or after it
+   (the model), and is attributable either way.
+
+   **A live test that flakes may be measuring a badly-posed instruction, not the model.** The
+   long-running flake was finally captured with `toolCalls=0` and the agent explaining that
+   `exit 37` would terminate its own shell, so the status could not be captured — a correct reading
+   of an ambiguous instruction in the test. Three iterations had filed it under "irreducibly
+   model-dependent"; it was a test defect, fixed with `sh -c 'exit 37'` (iteration 63). One capture
+   on the read test remains unattributed: `toolCalls=1`, agent claimed a present value was absent.
+
+   **When safety comes from the absence of something, write that down.** `ProjectStore` is
+   concurrency-safe only because no mutation contains an `await` — not from locking, not from
+   atomic writes. That is stated in `persist()` and enforced by `projectStoreInvariants.test.ts`,
+   which also fails if the explanation is deleted.
 4. **Documentation drift.** This file and `README.md` describe how to run the system; both go
    stale as the code moves. Update the tally in §2 whenever the gate count changes — a stale
    summary is worse than none, which is how the §22.19 gate came to read "BLOCKED / 34 of 52"
