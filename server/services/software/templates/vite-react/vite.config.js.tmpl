@@ -1,0 +1,13 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+// The dev server binds to the loopback interface only. This is the user's own machine, not a
+// hosted sandbox, so a preview reachable from the local network is an outward-facing surface
+// nobody asked for.
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  server: {
+    host: "127.0.0.1",
+  },
+});
