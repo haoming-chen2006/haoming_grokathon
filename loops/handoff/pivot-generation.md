@@ -336,3 +336,138 @@ what is recorded above.
 
 Not yet started, and not started out of order: **GEN-003 through GEN-013, GEN-015 and GEN-018.**
 GEN-003 and GEN-006 additionally need a credential and a §10 spend approval.
+
+---
+
+## Iteration 2 — 2026-08-08
+
+Stage worked: **G2, the asset contract**, the second and last thing §6 G0 permits before the gate
+opens. G0 is still closed — `git log --oneline --first-parent` shows no page merges — and
+`XAI_API_KEY` is still absent, so nothing live ran and nothing was spent.
+
+File added, inside the §0.1 partition:
+
+```text
+server/services/xai/assets.ts        setAssetSink, assetSink, isAssetSinkWired, inputHash,
+                                     findCachedAsset, readVerifiedMedia, persistGenerated
+server/services/xai/assets.test.ts   24 tests, all offline
+```
+
+### R6 — an addition to §0.1's suggested layout
+
+§0.1 suggests eight files under `server/services/xai/` and none of them is where G2's seam belongs.
+`setCostSink` lives in `client.ts` because the transport is what extracts ticks, but the asset
+discipline — download, verify, cache, persist — is not transport work and would have doubled the
+size of a file whose job is one HTTP call. It is in `server/services/xai/assets.ts`.
+
+Recorded because the suggested list exists so two of my own modules do not fight over a name, and
+a later iteration adding `images.ts` needs to know this one is taken.
+
+### The seam 02 wires
+
+```ts
+setAssetSink(sink: AssetSink | null): void
+```
+
+Default is **unwired, and unwired refuses**. `assetSink()` throws `XaiError("failed_precondition")`
+carrying `NO_ASSET_SINK_MESSAGE`, and every entry point asks for the store before it touches the
+network. `isAssetSinkWired(): boolean` lets the setup panel report the state without triggering the
+refusal to find out.
+
+### The defect the tests caught, and it is the one G2 exists to prevent
+
+The first version made the unwired default a sentinel object whose `put()` and `findByInputHash()`
+threw. That reads as fail-closed and is not: `persistGenerated` downloaded the entire image and
+only discovered at `put()` that there was nowhere to put it. In production the money would already
+have been spent by that point, and the bytes would be dropped on the floor — the exact failure
+`loopdesign.md:249` describes as a green test run and no assets.
+
+Now the store is demanded first and the download never starts. The test asserting the downloader
+was called zero times is what caught it, and it failed before it passed.
+
+---
+
+## Evidence — GEN-004 after iteration 2
+
+### GEN-004 — a generated asset survives its URL — **NOT TESTED** (clause 3)
+
+```text
+Local reference:      02's { assetId, sha256, bytes }. Asserted that what the caller receives back
+                      contains no "http" and no "vidgen" anywhere in it — the dying link cannot be
+                      held onto because it never reaches the caller. It reaches put() as
+                      `sourceUrl`, labelled provenance, and nothing reads it.
+Returned URL at t+N:  not measured. Needs a live generation call: credential absent (C3) and a §10
+                      spend approval not given.
+Asset readable t+N:   likewise.
+Rejection case:       four, each a distinct real failure with a distinct cause —
+                        text/html served with 200   (the proxy answered, not the origin)
+                        zero-byte body              (the origin answered with nothing)
+                        Content-Length mismatch     (the connection dropped mid-transfer)
+                        wrong content-type family   (an audio body offered as video)
+                      plus non-2xx. In every case the store is asserted to have received nothing.
+No-sink case:         refuses with NO_ASSET_SINK_MESSAGE before any network call. Asserted at zero
+                      downloads, not merely at a rejected promise.
+put() before success: asserted. A store whose put() rejects makes persistGenerated reject, and no
+                      reference is handed out.
+```
+
+Clause 3 — "the asset is still readable after the returned URL stops resolving" — is unmeasurable
+without spending, so the item is held rather than claimed.
+
+**The regeneration cache** is keyed on `sha256(model + prompt + params)` with object keys sorted at
+every depth, because `JSON.stringify` preserves insertion order and a cache that misses on a key
+reordering is worse than no cache — it looks like it works. Array order stays significant, because
+it is significant to the model. The key deliberately excludes the project and the agent: the same
+prompt to the same model produces the same image whoever asked, and keying on the asker would make
+a second agent pay again for the picture the first one bought.
+
+---
+
+## C4, settled — the red gate is contention, and here is the proof
+
+Iteration 1 recorded this as a suspicion. It is now measured. Same worktree, same commit, four runs:
+
+```text
+bun run verify                                       7 fail   (iteration 1, first attempt)
+bun run verify                                       0 fail   (iteration 1, second attempt)
+bun run verify                                       1 fail   (iteration 2)
+bun run verify                                       2 fail   (iteration 2, retry)
+bun run verify                                       1 fail   (iteration 2, retry)
+bun test server/ client/src scripts/ shared/ \
+  --timeout 30000                                    0 fail   988 pass, 145 s
+```
+
+**Every failure across every run was a ~5.1-second timeout, and raising only the per-test budget
+turns all of them green.** No assertion has ever failed. The affected tests are in
+`server/routes/projectReads.test.ts` and `server/routes/messageHistory.test.ts`; they create real
+git worktrees and spawn real `grok` children, and 5000 ms is not survivable when seven checkouts do
+that at once.
+
+The other three gate stages were run separately and all pass on this commit: `typecheck` exit 0,
+`build` exit 0, `audit` exit 0 with 0 orphans, 0 unclassified indicators and every citation
+resolving.
+
+Both files are 01's. **I have not touched either.** The smallest fix is a per-test timeout on the
+worktree-creating tests, with a note that the work is real filesystem I/O whose duration depends on
+what else is running. Raising the global default in `package.json` would also do it, but that is a
+hot file and a decision for reconciliation, not for me.
+
+Flagging it once more because it will cost every worktree an iteration to rediscover, and because a
+red gate that is really machine contention is exactly the kind of thing that gets mistaken for
+another surface's regression.
+
+---
+
+## Where this worktree now stands
+
+```text
+G0  the gate           CLOSED — 01/02/03 not merged. Not mine to open.
+G1  transport          done, tested, committed (iteration 1)
+G2  asset contract     done, tested, committed (iteration 2)
+G3+ everything else    blocked on G0, and G3/G4 additionally on a credential and a spend approval
+```
+
+Both of G0's permitted exceptions are now spent. **There is no further work in this worktree that
+does not require the gate to open**, so the next iteration's honest outcome may well be to report
+the gate and stop. That is §10's instruction and not a failure of the loop.
+
