@@ -149,12 +149,21 @@ describe("V-033: agent can run repository commands", () => {
 
     const conn = await agentIn(wt.path, "failer");
     try {
-      // The observed exit code is written to a file rather than spoken, for the same reason as
-      // the read test above: a reply is prose and prose is not a stable interface. 37 is chosen
-      // because "3" would match most replies by chance.
+      // `sh -c 'exit 37'` rather than a bare `exit 37`.
+      //
+      // The bare form was the cause of this test's intermittent failure, finally captured with
+      // toolCalls=0 and the agent explaining that "exit 37 will terminate the current shell
+      // session … it's not possible to capture the exit code into a file". That reading is
+      // correct: told to run `exit 37`, an agent may reasonably conclude it would kill its own
+      // shell and decline. Sometimes it used a subshell and passed, sometimes it reasoned and
+      // failed — which looked like model flakiness and was an ambiguous instruction.
+      //
+      // A subshell is unambiguous: nothing the agent owns is terminated. 37 is chosen because "3"
+      // would match most replies by chance.
       const reply = await conn.prompt(
-        "Run the shell command `exit 37` in the current directory. Then create a file named " +
-          "code.txt containing only the numeric exit code you observed, and nothing else. " +
+        "Run the shell command `sh -c 'exit 37'` in the current directory — it runs in a subshell " +
+          "and exits with status 37, so your own shell is unaffected. Then create a file named " +
+          "code.txt containing only the numeric exit status you observed, and nothing else. " +
           "Reply with only DONE when finished.",
         { timeoutMs: 240_000 },
       );

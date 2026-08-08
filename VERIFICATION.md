@@ -3873,13 +3873,38 @@ would also collide on `atomicWriteJson`'s fixed `.tmp` path. The product runs on
 MCP server is mounted in it, so there is no second writer — recorded as a boundary of the claim
 rather than left implicit.
 
-### The flake: stopping the hunt, and saying so
+### The flake: cause found, on the run right after the hunt was abandoned
 
-Six more runs of the three live suites were clean, on top of five earlier and twelve of the test in
-isolation — 23 runs across three iterations. The instrumentation from iterations 61-62 is in place
-and will attribute the next occurrence to either the fixture or the model. Continuing to re-run it
-is not producing information, so it is left to self-report. It is **not** fixed, and the measured
-rate of roughly one in five stands.
+The hunt was stopped after 23 runs without reproduction — and it then reproduced on the very next
+`bun run verify`, which by the new rule had its output captured. With the iteration-62 precondition
+in place the failure was attributable, and the answer was not what the earlier evidence suggested:
+
+```text
+error: the agent did not record the exit code —
+  stopReason=end_turn  toolCalls=0
+  reply="The command `exit 37` will terminate the current shell session immediately with an exit
+         status of 37 … Since it results in the termination of the process, it's not possible to
+         capture the exit code into a fi[le]"
+```
+
+**`toolCalls=0` — the agent never ran the command.** It reasoned about `exit 37` and declined, on
+the grounds that running it would kill its own shell and make capturing the status impossible.
+
+**That reading is correct.** Told to run `exit 37`, an agent may quite reasonably conclude it would
+terminate itself. Sometimes the model used a subshell and passed; sometimes it reasoned and
+refused. This was never model flakiness in the abstract — **it was an ambiguous instruction in my
+own test**, and three iterations of calling it "irreducibly model-dependent" were wrong.
+
+Fixed by removing the ambiguity: `sh -c 'exit 37'`, stated in the prompt as running in a subshell
+so the agent's own shell is unaffected. Six consecutive runs green, each showing a real tool call.
+
+The lesson is sharper than the fix. A live-agent test that fails intermittently may be measuring a
+badly-posed instruction rather than the model's reliability, and the two are indistinguishable
+without the reply. The diagnostics added in iteration 61 are what turned "it flakes" into a cause.
+
+**Still open:** an earlier capture on the *read* test showed `toolCalls=1` with the agent claiming
+it could not find the value in a file that was present — a different signature, and not explained by
+this. That one remains unattributed, with its precondition in place.
 
 ```text
 bun run verify → exit 0, 673 pass / 0 fail, four audits clean
