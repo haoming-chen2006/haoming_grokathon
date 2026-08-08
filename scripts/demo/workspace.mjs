@@ -15,15 +15,28 @@
 // unpriced charge — `costUsd: null`, `costSource: "unknown"` — because no Grok model has a rate.
 // That renders as "unknown", never as $0.00, which is the one thing the page must never say.
 
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { getAssetStore } from "../../server/services/assetStore.ts";
 import { parseDeclaration } from "../../server/services/designDoc.ts";
 
 const PROJECT = process.env.DEMO_PROJECT_ID ?? "proj_demo_aeris";
-const DOC = "sales-presentation";
+const DOC = process.env.DEMO_DESIGN_DOC ?? "sales-presentation";
 
-const text = readFileSync(join(process.cwd(), "demo", "design-docs", `${DOC}.md`), "utf8");
+// The same directory the Design Documents route reads, and overridable the same way, so the seed and
+// the page cannot end up describing two different documents.
+const DOCS_DIR = process.env.OPENUI_DESIGN_DOCS_DIR ?? join(process.cwd(), "demo", "design-docs");
+
+let text;
+try {
+  text = readFileSync(join(DOCS_DIR, `${DOC}.md`), "utf8");
+} catch {
+  const available = readdirSync(DOCS_DIR).filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, ""));
+  console.error(`\n  No design document "${DOC}.md" in ${DOCS_DIR}.`);
+  console.error(`  Available: ${available.join(", ") || "(none)"}`);
+  console.error(`  Set DEMO_DESIGN_DOC=<id> to seed from one of those.\n`);
+  process.exit(1);
+}
 const parsed = parseDeclaration(text);
 if (!parsed.ok || !parsed.declaration) {
   console.error("  The demo design document does not parse; seeding would describe work nobody declared.");
@@ -34,9 +47,21 @@ const declared = parsed.declaration;
 
 const store = getAssetStore();
 
-/** Which area of the document each deliverable answers, so provenance is real rather than decorative. */
-const lineOf = (areaName) =>
-  declared.areas.find((a) => a.name.toLowerCase() === areaName.toLowerCase())?.line ?? 1;
+/**
+ * Which area of the document each deliverable answers, so provenance is real rather than decorative.
+ *
+ * A seed naming an area the document does not declare is a hard failure, not a fallback to line 1:
+ * a silent default writes provenance that points at a line nobody wrote, which is worse than no seed.
+ */
+const lineOf = (areaName) => {
+  const area = declared.areas.find((a) => a.name.toLowerCase() === areaName.toLowerCase());
+  if (!area) {
+    console.error(`\n  Seed names area "${areaName}", which ${DOC}.md does not declare.`);
+    console.error(`  Declared areas: ${declared.areas.map((a) => a.name).join(", ")}\n`);
+    process.exit(1);
+  }
+  return area.line;
+};
 
 const declaredBy = (areaName) => ({
   designDocId: DOC,

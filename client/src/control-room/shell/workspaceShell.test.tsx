@@ -16,7 +16,12 @@ function stubServer(overrides: { projects?: unknown; grok?: unknown } = {}) {
       ? (overrides.projects ?? [PROJECT])
       : url.includes("/api/grok/status")
         ? (overrides.grok ?? { installed: true })
-        : {};
+        // The Tools panel lists skills, prompts and workflows. An object here is not an empty list:
+        // the panel mapped over it and the region never resolved, which read as a timeout rather
+        // than as the type error it was.
+        : url.includes("/api/library")
+          ? []
+          : {};
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -410,7 +415,11 @@ describe("the Tools overlay", () => {
       // Three facts together make it an overlay: it lives inside MAIN, MAIN's own content is
       // still mounted beside it, and it is taken out of flow.
       expect(main.contains(overlay)).toBe(true);
-      expect(main.querySelector("[data-testid='not-merged-yet']")).not.toBeNull();
+      // MAIN's own content is still mounted beside the overlay. This used to look for the
+      // unmerged-page placeholder, which worked only while MAIN was a hole — every page has since
+      // been built. What it always meant is this: MAIN has a child that is not the overlay.
+      const beside = Array.from(main.children).filter((el) => el !== overlay);
+      expect(beside.length).toBeGreaterThan(0);
       expect(overlay.className).toContain("absolute");
       expect(overlay.className).toContain("inset-0");
       expect(screen.getByTestId(`page-${page.id}`).getAttribute("aria-current")).toBe("page");
@@ -467,17 +476,15 @@ describe("the Tools overlay", () => {
     expect(screen.getByTestId("tools-panel").textContent).toContain("skills");
   });
 
-  test("renders the unmerged notice until 06-tools-cost lands, never an empty panel", async () => {
+  test("renders the Tools panel now that pivot/tools has merged", async () => {
     atUrl(workspaceUrl("agents", undefined, "prompts"));
     await mount();
-    // Scoped to the panel rather than queried globally. When this was written MAIN was unmerged
-    // too and the page carried two notices; the AGENTS page has since landed, so the Tools panel is
-    // the only hole left and the count is 1. Scoping is what kept the assertion meaningful across
-    // that change instead of failing for a reason unrelated to what it guards.
-    const notice = screen.getByTestId("tools-panel").querySelector("[data-testid='not-merged-yet']");
-    expect(notice?.textContent).toContain("Tools panel");
-    expect(notice?.textContent).toContain("06-tools-cost");
-    expect(screen.getAllByTestId("not-merged-yet").length).toBe(1);
+    // This asserted the unmerged notice through two merges — first counting two holes, then one.
+    // pivot/tools has now landed and TOOLS_PANEL is set, so what it guards is the opposite: the
+    // panel renders real content and no hole remains anywhere on the page.
+    const panel = screen.getByTestId("tools-panel");
+    expect(panel.querySelector("[data-testid='not-merged-yet']")).toBeNull();
+    expect(screen.queryAllByTestId("not-merged-yet").length).toBe(0);
   });
 
   test("the shell owns the dismissal, so the panel needs no visibility of its own", async () => {

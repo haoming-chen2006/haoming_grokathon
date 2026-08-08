@@ -108,8 +108,10 @@ describe("the page registry", () => {
     for (const page of PAGES) expect(page.segment).toBe(PAGE_SEGMENTS[page.id]);
   });
 
-  test("leaves the Tools panel unset until 06-tools-cost merges", () => {
-    expect(TOOLS_PANEL).toBeUndefined();
+  test("holds the Tools panel now that pivot/tools has merged", () => {
+    // Was `toBeUndefined` while the slot was a hole. Reconciliation set it, so the guard inverts:
+    // what matters now is that the registry carries a component rather than a placeholder.
+    expect(TOOLS_PANEL).toBeDefined();
   });
 });
 

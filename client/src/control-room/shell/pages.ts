@@ -12,6 +12,7 @@
  */
 import type { PageDescriptor, ToolsPanelComponent } from "./contract";
 import { AGENTS_PAGE_SLOTS } from "../agents";
+import { ToolsPanel } from "../tools";
 import { AssetsInspector, AssetsNavigator, AssetsPage } from "../assets";
 import {
   DesignDocumentInspector,
@@ -48,5 +49,10 @@ export const PAGES: PageDescriptor[] = [
   { id: "x", label: "X", segment: "x", rank: "secondary", builtBy: "08-users-x" },
 ];
 
-/** Set by reconciliation to 06-tools-cost's ToolsPanel. The overlay frame itself is the shell's. */
-export const TOOLS_PANEL: ToolsPanelComponent | undefined = undefined;
+/**
+ * The Tools panel, wired by reconciliation as pivot/tools asked.
+ *
+ * The panel renders only the body: the scrim, the Esc handler, the header and the close button are
+ * the shell's, and the panel does not duplicate them.
+ */
+export const TOOLS_PANEL: ToolsPanelComponent | undefined = ToolsPanel;
