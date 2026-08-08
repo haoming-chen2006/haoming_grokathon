@@ -216,6 +216,56 @@ oversight.
 Proposal: either give each worktree `VERIFICATION-<surface>.md`, or add `VERIFICATION.md` to the
 hot list with an append-only exemption. The owner's call.
 
+### R-9 · HOT · `server/services/projectStore.ts:324-329` — scope the sweep to the section
+
+`updateDocument`'s stale sweep is document-wide:
+
+```ts
+for (const suggestion of project.suggestions) {
+  if (suggestion.state === "pending" && suggestion.baseVersion < version) suggestion.state = "stale";
+}
+```
+
+For suggestions that target a design-document **section**, delegate instead:
+
+```ts
+import { sweepStaleSuggestions } from "./designDoc";
+// where a design-doc section write is what moved:
+sweepStaleSuggestions(project.suggestions, { docId, sectionAnchor, newVersion });
+```
+
+`sweepStaleSuggestions(suggestions, { docId, sectionAnchor, newVersion })` is exported, pure, and
+unit-proven. It marks a pending suggestion stale only when it targets that document AND that
+section AND was written against an older version, returns the ones it changed, and deliberately
+ignores suggestions carrying no `targetDocId` — those stay with the existing document-wide path.
+
+Reason: document-wide staleness is why two agents proposing against two different parts of one
+document invalidate each other on every write. Scoping the sweep is the other half of versioning per
+section; without it, per-section versions buy nothing.
+
+Depends on R-3 (the three optional target fields), because until those exist no suggestion can name
+a section. Together these are the one clause keeping **DD-007 held rather than passed**.
+
+### F-6 · Four checklist items cannot reach PASS before reconciliation
+
+Not a complaint — a scheduling fact the owner should have, because §8 defines this surface as done
+only when all seventeen items read PASS.
+
+```text
+DD-003  needs ProjectStore.deleteProject to call unfollowProject      hot        R-8
+DD-005  needs the agent↔area binding in workArea.ts                   01-agents  F-4
+DD-007  needs the section sweep invoked from projectStore's sweep     hot        R-3 + R-9
+DD-017  needs assetStore's persist path                               02-assets  X-3
+```
+
+Every one has its logic built and unit-proven in this worktree, and every one is a single wiring
+edit away. None can be closed from inside the boundary, so **this loop cannot honestly output "The
+design document surface is complete: YES" before the reconciliation pass runs** — regardless of how
+many iterations it is given. Four items will sit at "held, one clause short" until then.
+
+Recommendation: run the reconciliation pass for R-1…R-9 earlier than the end, or accept that these
+four close in a verification pass after the merge rather than during the loop.
+
 ### F-4 · DD-005 is blocked on `01-agents`' area model, which does not exist yet
 
 Iteration 3 built the declaration parser (DD-004 PASS). The apply half — DD-005 — cannot be

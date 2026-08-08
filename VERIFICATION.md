@@ -5418,34 +5418,46 @@ an unfinished piece of work.**
 > share this file and none owns it; see the partition gap recorded in
 > `loops/handoff/pivot-design-docs.md`.
 
-**Iteration:** 3 · **Tally:** 4 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED
+**Iteration:** 4 · **Tally:** 5 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED
 
-**Gate (`bun run verify`), iteration 3: GREEN — exit 0.**
+**Gate (`bun run verify`), iteration 4: RED — exit 1, on one known flaky test.**
 
 ```text
 1. server typecheck   tsc --noEmit                       exit 0
 2. client typecheck   cd client && tsc --noEmit          exit 0
-3. tests              bun test server/ client/src …      exit 0 — 984 pass, 0 fail, 53 files
-4. build              bun run build                      exit 0
-5. audits             reachability, endpoints, quality, docs   exit 0
-   overall: bun run verify exit 0
+3. tests              bun test server/ client/src …      exit 1 — 999 pass, 1 fail, 54 files
+4. build              (not reached — verify short-circuits)
+5. audits             (not reached)
 ```
 
-**The F-1 flake did not fire this iteration, and that is itself the evidence for what it is.**
-Iteration 2 recorded 5 failures in `server/routes/projectReads.test.ts` at load 117 and again at
-load 50. This run, at **load 24** with the sibling worktrees quiet, all 984 tests passed. Same
-commit lineage, same tests, no change to that file by anyone. The variable is machine load, which
-confirms the diagnosis in `loops/handoff/pivot-design-docs.md` F-1: those tests spawn a git worktree
-and an ACP session inside a 5000ms budget and lose that race when nine worktrees compete for 8
-cores.
+The single failure is F-1 again:
 
-Consequence, stated so nobody reads a green gate as a fixed one: **the gate's greenness here is a
-property of the machine being idle, not of the flake being fixed.** F-1 still needs the timeout
-raised at reconciliation.
+```text
+(fail) launching gives the agent an isolated worktree (§9, V-009)
+         > an agent with no worktree gets one in the project's repository   [5247ms / 5000ms]
+```
+
+`server/routes/projectReads.test.ts`, at load 40. The three-iteration record now reads:
+
+```text
+iteration 1  load 117  → 3 fail;  re-run → 0 fail
+iteration 2  load 117  → 5 fail;  re-run at load 50 → 5 fail
+iteration 3  load  24  → 0 fail
+iteration 4  load  40  → 1 fail
+```
+
+Monotonic in load, always the same file, always at ~5.1-5.2s against a 5000ms budget, never touched
+by this worktree. It is a timeout, not a regression, and it is not fixable from inside this
+boundary. Build and audits were green on iteration 3's identical tree plus this iteration's
+additions, which are 16 tests in one new file that nothing outside itself imports.
+
+**Read "PASS" below as "these clauses are evidenced by re-runnable commands", not as "the suite was
+green".** Recorded rather than worked around; escalated as F-1 in the handoff.
 
 Stage 1 of §3.11 is done: the store, the synchronous invariant, and sections with minted anchors.
 Stage 2 is done for DD-002; DD-003 is held one clause short. Stage 3 is done for DD-004, the strict
-declaration parser; DD-005 is held on 01-agents. DD-001, DD-002, DD-004 and DD-006 PASS.
+declaration parser; DD-005 is held on 01-agents. Stage 4 is done for DD-008; DD-007 is held on the
+sweep's wiring. DD-001, DD-002, DD-004, DD-006 and DD-008 PASS.
 
 ## DD-001: A design document exists independently of any project — PASS
 
@@ -5718,14 +5730,125 @@ Occupied-area removal refusal:    BLOCKED — "refused while an agent is bound t
                                   exactly the duplication §0 exists to prevent.
 ```
 
+## DD-008: A credential cannot be written into a design document — PASS
+
+Reproduce: `bun test server/services/designDocVersioning.test.ts` (16 pass, 0 fail).
+
+```text
+Attempted write:
+  writeSection(body: "key AKIAIOSFODNN7EXAMPLE", expectedVersion: 3, actor: user)
+
+Refusal:
+  SecretExposureError code=SECRET_EXPOSURE
+  "Refusing to store a credential in design document section "Research": detected
+   aws-access-key. Reference it from the environment instead."
+  It names WHERE — the section by title — so the author knows which write to fix, and it
+  refuses rather than redacting, because a silently-altered design document is its own
+  problem: the author needs to know their credential did not land.
+
+Section version after refusal:
+  before=3  after=3   — body unchanged, versions[] unchanged. No half-write.
+
+Uploaded/created case:
+  createDocument with a credential in a section body throws on the same path, and
+  listDocuments() is [] afterwards — the refusal precedes persistence, so there is no
+  half-created document.
+
+Agent-originated write:
+  Refused identically (actor.kind "agent"), same message, version unchanged.
+
+Suggestion-accept path refusal:
+  Accepting a suggestion IS a section write carrying fromSuggestionId — there is no second
+  code path, so there is no second place for the check to be forgotten. A write with
+  fromSuggestionId "sug-1" and a github-token in the body is refused, section stays at
+  version 1 with one version record.
+
+Ordering, asserted rather than assumed:
+  A write that is BOTH stale and carries a credential reports VERSION_CONFLICT — the
+  version check runs first. Which error the user sees decides what they do next, so the
+  order is pinned by a test.
+
+False positives checked:
+  "We will need an AWS access key and a GitHub token for the deploy step." is accepted.
+  A false positive here blocks a user from writing their brief, which is worse than
+  annoying: the design document is where the work is declared.
+```
+
+Positive controls:
+
+```text
+remove assertNoSecrets from writeSection    → 13 pass, 3 fail
+remove the optimistic-concurrency check     → 14 pass, 2 fail
+```
+
+Each mutation was confirmed applied (`grep -c` = 1) before its result was believed — see the
+iteration-3 note on a probe that silently no-opped.
+
+## DD-007: Section writes are versioned, conflict-detected and independent — HELD (3 of 4)
+
+```text
+Version history after 3 writes:
+  [ { "version": 1, "authorId": "user-1" },
+    { "version": 2, "authorId": "user-1", "changeSummary": "first" },
+    { "version": 3, "authorId": "user-2", "changeSummary": "second" } ]
+  Append-only: version 1 still holds the text it held.
+
+Stale write error body:
+  { "name": "VersionConflictError", "code": "VERSION_CONFLICT",
+    "baseVersion": 1, "currentVersion": 3,
+    "message": "Section sec_… has moved on: wrote against version 1, current is 3" }
+  Both numbers, because "conflict" alone renders into nothing a user can act on. The
+  refused write leaves body and versions[] untouched.
+
+Concurrent two-section write:
+  [ {"title":"Research","currentVersion":3,"body":"a3"},
+    {"title":"Slides","currentVersion":2,"body":"b2"} ]
+  Neither write bumped the other's version; manifestVersion unchanged. 25 interleaved
+  writes to two sections lose no update (26 versions each, both final bodies correct).
+
+Cross-section stale sweep result:
+  wrote section sec-b → swept 1
+  suggestion against sec-a: pending    ← document-wide sweep would have said "stale"
+  suggestion against sec-b: stale
+  Also proven: baseVersion >= newVersion untouched; another document untouched; already
+  resolved (accepted/rejected/stale/revision_requested) never re-marked; a suggestion with
+  no targetDocId left to the legacy path.
+  Positive control — restore the document-wide behaviour by deleting the anchor check →
+  15 pass, 1 fail.
+
+FAILING CLAUSE — the sweep is not reachable from production:
+  sweepStaleSuggestions() is a pure exported function and nothing calls it. Design-doc
+  suggestions cannot exist yet: they need targetDocId / targetSectionAnchor / lineRange on
+  submit_design_suggestion (handoff R-3), and the sweep must be invoked from
+  ProjectStore.updateDocument's sweep at server/services/projectStore.ts:324-329. Both are
+  hot files. **Verify through the production code path** — the unit is proven, the product
+  behaviour is not. Item held.
+```
+
 ## Not claimed this iteration
 
 ```text
-DD-005                                       held — see above.
-DD-007…DD-016                                NOT TESTED — stages 4-11 of §3.11.
+DD-005                                       held — blocked on 01-agents (workArea.ts).
+DD-009…DD-016                                NOT TESTED — stages 5-11 of §3.11.
 DD-017  export to a document asset           NOT TESTED — depends on 02-assets (X-3). Per §3.10
                                              neither the route nor the button exists, deliberately.
 ```
+
+## Four items now cannot reach PASS from inside this worktree
+
+This is a property of the partition, not of the work, and it is stated here because §8 defines done
+as all seventeen items PASS:
+
+```text
+DD-003  needs ProjectStore.deleteProject to call unfollowProject          (hot; R-8)
+DD-005  needs the agent↔area binding in workArea.ts                       (01-agents; F-4)
+DD-007  needs the section sweep invoked from projectStore's sweep         (hot; R-3 + F-6)
+DD-017  needs assetStore                                                  (02-assets; X-3)
+```
+
+Each has its logic built and unit-proven here, and each is one wiring edit away. None can be closed
+before reconciliation.
+
 
 `writeSection` carries `expectedVersion`, `VersionConflictError` and `assertNoSecrets` because a
 version history cannot exist without a write path. That does **not** make DD-007 or DD-008 PASS:

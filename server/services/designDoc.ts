@@ -319,6 +319,52 @@ export function parseDeclaration(text: string): DeclarationResult {
   };
 }
 
+/**
+ * The shape this sweep needs from a suggestion. Structural on purpose: the record is
+ * `DesignSuggestion` (`server/types/project.ts:95-118`), owned by the project store, and this
+ * worktree does **not** write a second suggestion system (§3.9). The three target fields are the
+ * additive change requested as R-3 in the handoff.
+ */
+export interface SectionTargetedSuggestion {
+  state: string;
+  baseVersion: number;
+  targetDocId?: string;
+  targetSectionAnchor?: string;
+}
+
+/**
+ * Mark pending suggestions stale — **scoped to the section that was written.**
+ *
+ * `ProjectStore.updateDocument` (`server/services/projectStore.ts:324-329`) sweeps document-wide:
+ * every pending suggestion with `baseVersion < version` goes stale when anything in the document
+ * changes. That is why two agents proposing against two different parts invalidate each other on
+ * every write — the cost of versioning one blob instead of each section.
+ *
+ * Scoping the sweep is the other half of versioning per section. A suggestion pending against
+ * section A is untouched when section B is written, because nothing it was written against moved.
+ *
+ * Pure: it mutates the records handed to it and returns the ones it changed, so the caller decides
+ * when to persist. A suggestion carrying no `targetDocId` is a whole-document suggestion from the
+ * legacy path and is deliberately left alone — this sweep has no opinion about it.
+ *
+ * Returns the suggestions it marked stale.
+ */
+export function sweepStaleSuggestions<T extends SectionTargetedSuggestion>(
+  suggestions: T[],
+  written: { docId: string; sectionAnchor: string; newVersion: number },
+): T[] {
+  const swept: T[] = [];
+  for (const suggestion of suggestions) {
+    if (suggestion.state !== "pending") continue;
+    if (suggestion.targetDocId !== written.docId) continue;
+    if (suggestion.targetSectionAnchor !== written.sectionAnchor) continue;
+    if (suggestion.baseVersion >= written.newVersion) continue;
+    suggestion.state = "stale";
+    swept.push(suggestion);
+  }
+  return swept;
+}
+
 /** What is written to disk: `firstLine` is derived on read and must never be persisted. */
 type StoredSection = Omit<DocSection, "firstLine">;
 type StoredDoc = Omit<DesignDoc, "sections"> & { sections: StoredSection[] };
