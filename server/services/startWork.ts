@@ -22,7 +22,6 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { getProjectStore } from "./projectStore";
-import { seedDefaultTeam } from "./agentTeam";
 import { parseDeclaration } from "./designDoc";
 import { getWorkAreaStore } from "./workArea";
 import type { CodingAgent } from "../types/agent";
@@ -154,7 +153,19 @@ export function startWork(params: {
     }
   }
 
-  const agents = seedDefaultTeam(project.id, { budgetUsd: project.budgetUsd });
+  /**
+   * No team is seeded. The areas ARE the project's shape, and an agent is hired into one.
+   *
+   * Five agents used to appear the moment a document was pasted — Planner, Backend, Frontend, Test,
+   * Reviewer — which was the retired coding product's roster arriving in a workspace that makes
+   * slides. It also pre-answered the question the board exists to ask: an agent's capability is
+   * what it may spend on, and choosing that is the user's decision, taken on the box it will work
+   * in. A seeded agent is one nobody chose.
+   *
+   * `seedDefaultTeam` is still used by POST /api/projects, where a caller that wants the old
+   * behaviour can still ask for it.
+   */
+  const agents: CodingAgent[] = [];
 
   return {
     projectId: project.id,

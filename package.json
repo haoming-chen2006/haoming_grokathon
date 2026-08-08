@@ -48,7 +48,8 @@
     "prepublishOnly": "bun run build",
     "install:client": "cd client && bun install",
     "demo:workspace": "bun run scripts/demo/workspace.mjs",
-    "reset": "bun run scripts/demo/reset.mjs"
+    "reset": "bun run scripts/demo/reset.mjs",
+    "fresh": "bun run scripts/demo/reset.mjs --purge && bun run build && bun run server/index.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
