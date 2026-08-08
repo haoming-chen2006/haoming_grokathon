@@ -109,11 +109,12 @@ describe("the build gate, against the real template (SW-004)", () => {
     expect(existsSync(join(worktree, "dist", "index.html"))).toBe(true);
     expect(existsSync(join(asset, ".agents"))).toBe(true);
 
-    // Observed, not wished for: the worktree detects **npm** because `bun.lock` is written by the
-    // install and so is not in the template's commit, and a worktree only has committed files. The
-    // build works either way, but the runner that installs and the runner that builds should be the
-    // same one — the fix is to commit the lockfile when the asset repository is created (stage 1.1),
-    // not to widen detection here.
+    // Observed, not wished for: this fixture commits the template and installs afterwards, so
+    // `bun.lock` is untracked, a worktree — which has only committed files — does not have it, and
+    // detection falls back to npm. The build works either way, but the runner that installs and the
+    // runner that builds should be the same one. `createAssetRepo` installs *before* the first
+    // commit for exactly this reason, and `assetRepo.test.ts` asserts a worktree of a real asset
+    // gets `bun run build`. This fixture keeps the fallback itself honest.
     expect(inWorktree.command).toBe("npm run build");
     expect(existsSync(join(worktree, "bun.lock"))).toBe(false);
   });

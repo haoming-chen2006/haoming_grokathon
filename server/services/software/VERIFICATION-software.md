@@ -6,13 +6,13 @@ Evidence for the items in `loops/05-software.md` §7.
 this worktree does not own. It is written in §7's format so the reconciliation pass can move it in
 whole. That request is recorded in `loops/handoff/pivot-software.md`.
 
-**Last iteration:** 3 (2026-08-08)
+**Last iteration:** 4 (2026-08-08)
 **Tally:** 2 PASS · 0 FAIL · 3 BLOCKED · 11 NOT TESTED
 
 ```text
 SW-001  PASS         the template builds before any agent touches it
 SW-002  BLOCKED      waits on 03-design-docs (read interface)
-SW-003  NOT TESTED
+SW-003  NOT TESTED   3 of 5 clauses evidenced; HELD on the two that need a live agent session
 SW-004  NOT TESTED   3 of 4 clauses evidenced; HELD on the 4th, which needs the submission path
 SW-005  PASS         a preview is a process with a lifecycle
 SW-006  NOT TESTED   3 of 4 clauses evidenced; HELD on the 4th, which needs the UI (stage 2.1)
@@ -21,7 +21,7 @@ SW-008  NOT TESTED
 SW-009  BLOCKED      waits on 02-assets (store accepting kind: "software")
 SW-010  NOT TESTED
 SW-011  NOT TESTED   partial evidence only, recorded under SW-001; not claimed
-SW-012  NOT TESTED   one clause (shared installs) evidenced under SW-004; not claimed
+SW-012  NOT TESTED   two clauses (shared installs, offline) evidenced elsewhere; not claimed
 SW-013  NOT TESTED   the build timeout is bounded and tested; the *retry* bound is not built
 SW-014  BLOCKED      waits on 01-agents (work areas)
 SW-015  NOT TESTED
@@ -252,6 +252,65 @@ edit and this is the one property that must not depend on it. Mutating the flag 
 fail with `Received: "http://localhost:5173/"` from a config asking for `0.0.0.0` — so the flag is
 load-bearing, not decorative. A preview that announces an address off this machine is stopped, and
 says so. This is evidence toward SW-011 and SW-011 is not claimed on it.
+
+---
+
+## SW-003 — The agent works in a worktree and nowhere else — NOT TESTED, held on two clauses
+
+Three of five clauses hold with no agent and no model in the picture. Reproduce with:
+
+```bash
+bun test server/services/software/assetRepo.test.ts
+```
+
+```text
+Worktree path:                  <workspace>/assets/software/<assetId>/.agents/agent-a1, made by the
+                                production createAgentWorktree (server/services/repository.ts:161).
+Sibling worktree state:         clean. A file written into agent-a1 is in neither agent-a2 nor the
+                                asset's main branch, and `git status --porcelain` at the asset root
+                                is empty — the worktrees are not a diff in the user's app, because
+                                `.agents/` goes in .git/info/exclude rather than in the app's own
+                                .gitignore.
+Files written:                  src/DeckList.jsx in one worktree, src/Fresh.jsx never `git add`-ed.
+                                listAppFiles finds the second; `git ls-files` does not. That is why
+                                the walk exists: an app must not appear to lose files at the moment
+                                it gains them (§5.3).
+Asset repo HEAD vs workspace repo HEAD:
+                                different commits, different repositories. The workspace used in the
+                                test is itself a git repository — the case that could go wrong — and
+                                after the asset is created it still has one commit and one tracked
+                                file, its own. `git rev-parse --show-toplevel` inside the asset
+                                answers with the asset.
+Precondition assertion:         the fresh asset builds (`bun run build`, exit 0) before any agent
+                                exists, so a later failure lands on the fixture or on the model and
+                                is attributable either way (§8).
+```
+
+**Held clauses:** "the agent's session `cwd` is its worktree" and "files it writes appear in its
+worktree" are claims about a live ACP session, which needs the launch path from §6 stage 1.4.
+Asserting them against a double would be recording a PASS about our own stub (§9).
+
+**Installing before committing was the point.** The measured finding from iteration 2 — a worktree
+detecting `npm` because `bun.lock` is written after the template is committed — is fixed at the
+source: `createAssetRepo` materialises, installs, and *then* makes the one commit, so the lockfile is
+in it. A worktree of a real asset now reports `bun run build`, asserted. The buildRunner fixture,
+which commits first and installs afterwards, still reports `npm run build` and now says why in a
+comment — it is what keeps the fallback itself honest.
+
+**A failed create leaves nothing behind.** The repository is built in `<path>.creating` and moved
+into place, so an install that fails does not leave a half-scaffolded directory that the next
+attempt would refuse as "something is already there". Two failure shapes are asserted: an install
+that cannot reach the registry gets the single sentence "This app needs to download its building
+blocks once, and there is no internet connection right now.", and one attempt only — no retries
+(§5.4). An install that hangs is killed by the timeout. This is evidence toward SW-012 and SW-012 is
+not claimed on it.
+
+**An asset id from a request is untrusted.** `../escape`, `..`, `a/../../b`, `/etc/passwd`,
+`sub/dir`, `""` and `.hidden` are all refused, and the sentence the user sees says nothing about
+paths. `canonical` is copied from `server/routes/repository.ts:44` on §5.3's instruction rather than
+re-derived, and both of its failure modes are covered: a symlink planted at
+`assets/software/linked-out` pointing outside the root is refused, and the macOS `/var` →
+`/private/var` case is the ordinary path every test here runs on.
 
 ---
 

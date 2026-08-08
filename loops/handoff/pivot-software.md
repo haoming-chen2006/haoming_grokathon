@@ -145,3 +145,42 @@ is the guarantee.
 preview's status every two seconds would keep every preview alive forever if polling reset the
 countdown. The supervisor separates them: `status()` reads, `touch()` says a person is looking.
 Anything else with an idle bound — sessions, work areas — has the same trap.
+
+---
+
+## Iteration 4 — 2026-08-08
+
+### Requests
+
+**12. `02-assets` — the shape a software asset's record needs, offered rather than assumed.**
+
+- File: whatever `02-assets` uses for the asset record (`server/services/assetStore.ts`, and
+  `server/types/*.ts` if the shape lives there — hot either way).
+- Change: accept `kind: "software"` with a record shaped as §10 names it:
+
+```ts
+  { assetId, repoPath, entryFile, previewState, lastBuild: { exitCode, at }, thumbnailPath? }
+```
+
+- Reason and the part that matters: **a software asset is a directory, not a file, and its files are
+  not all tracked by git.** `createAssetRepo` produces a repository at
+  `<workspace>/assets/software/<assetId>/` whose `node_modules` is installed but never committed and
+  whose newest files are typically not yet added. If the store lists an asset by walking tracked
+  files, or assumes one file per asset, SW-009 fails and the asset record has to move into this area
+  with a duplicate listing — a worse outcome, which is why this is raised before it happens rather
+  than after. `listAppFiles(repoPath)` in `server/services/software/assetRepo.ts` is the walk that
+  answers "what is in this app", excluding `node_modules`, `.git`, `.agents` and `dist`.
+
+### Findings other worktrees need
+
+**13. Install before the first commit, or a worktree gets a different package manager.** Measured in
+iteration 2 and fixed here: `bun install` writes `bun.lock`, a lockfile written *after* the commit is
+untracked, and an agent's worktree contains only committed files — so the build there fell back to
+`npm` on an asset that had been installed with `bun`. `createAssetRepo` now materialises, installs,
+then commits. Anything else that scaffolds a directory an agent will branch from has the same
+ordering constraint.
+
+**14. A directory built somewhere else and moved into place cannot half-exist.** `createAssetRepo`
+builds in `<path>.creating` and renames. An install that fails leaves nothing, so the next attempt
+sees an empty slot rather than "there is already something there" — which is what a partially
+created asset looks like to every subsequent call.
