@@ -106,9 +106,12 @@ export function StartProject({ onStarted }: { onStarted?(projectId: string): voi
     try {
       const { projectId } = await startProject(title, text);
       onStarted?.(projectId);
-      // A full reload rather than a state update: the shell chooses the active project on mount,
-      // and teaching it to adopt one mid-session is a shell change this page does not own.
-      location.reload();
+      // Land on the project that was just created, not on whichever is first in the list. Without
+      // the id in the URL the shell selects the oldest project it has, and creating a new one looks
+      // like it did nothing — which is exactly what it looked like.
+      const url = new URL(location.href);
+      url.searchParams.set("project", projectId);
+      location.assign(url.toString());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

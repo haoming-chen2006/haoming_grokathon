@@ -429,6 +429,31 @@ export function WorkspaceShell() {
         <span data-testid="toolbar-project" className="min-w-0 truncate text-ink">
           {project ? project.name : data.loading ? "" : "No project yet"}
         </span>
+        {/*
+          The switcher both wireframes draw as a ▾ beside the project name. It was not built, and
+          the shell always selected the oldest project on the machine — so a workspace with
+          twenty-three projects could reach exactly one of them, and creating a new one looked like
+          it had failed. Selection lives in the URL, so this is a link, not state.
+        */}
+        {data.projects.length > 1 ? (
+          <select
+            data-testid="project-switcher"
+            aria-label="Switch project"
+            value={project?.id ?? ""}
+            onChange={(e) => {
+              const url = new URL(location.href);
+              url.searchParams.set("project", e.target.value);
+              location.assign(url.toString());
+            }}
+            className="max-w-[13rem] rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-ink-faint"
+          >
+            {data.projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
         <div className="flex-1" />
         <Spend spend={UNPRICED} />
         <span aria-hidden="true" className="h-4 w-px bg-border" />
