@@ -10,7 +10,7 @@
 import { useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { AssetPreview, FilePreview } from "./AssetPreview";
-import { TYPE_LABELS, type MockAsset, type MockAssetType } from "./mockAssets";
+import { TYPE_LABELS, type AssetView, type AssetType } from "./types";
 import { byType, formatCost, useAssets } from "./useAssets";
 
 /** The mono, tracked, uppercase micro-label the shell uses for every region heading. */
@@ -33,7 +33,7 @@ function Chip({ children, tone }: { children: React.ReactNode; tone?: "accent" }
 }
 
 /** The capability grant, written so it can only read as an addition. */
-function Capability({ asset }: { asset: MockAsset }) {
+function Capability({ asset }: { asset: AssetView }) {
   // Absent for an upload — omitted, never defaulted to a plausible agent (AgentCard.tsx's rule).
   if (!asset.capability) return null;
   const extra = asset.capability === "base" ? null : asset.capability.replace("+", " + ");
@@ -51,7 +51,7 @@ function AssetCard({
   selected,
   onSelect,
 }: {
-  asset: MockAsset;
+  asset: AssetView;
   selected: boolean;
   onSelect(id: string): void;
 }) {
@@ -98,7 +98,7 @@ function AssetCard({
  * opens it at a size where the thing itself is legible, with the grid still underneath — the
  * inspector answers "where did this come from", and this answers "what is it".
  */
-function OpenAsset({ asset, onClose }: { asset: MockAsset; onClose(): void }) {
+function OpenAsset({ asset, onClose }: { asset: AssetView; onClose(): void }) {
   return (
     <section
       data-testid="asset-open"
@@ -133,11 +133,11 @@ function TypeFilter({
   active,
   onPick,
 }: {
-  counts: { type: MockAssetType; items: MockAsset[] }[];
-  active: MockAssetType | "all";
-  onPick(next: MockAssetType | "all"): void;
+  counts: { type: AssetType; items: AssetView[] }[];
+  active: AssetType | "all";
+  onPick(next: AssetType | "all"): void;
 }) {
-  const chip = (key: MockAssetType | "all", label: string, count: number) => (
+  const chip = (key: AssetType | "all", label: string, count: number) => (
     <button
       key={key}
       type="button"
@@ -238,8 +238,8 @@ function ImportAsset({ projectId, onDone }: { projectId: string; onDone(): void 
 }
 
 export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
-  const { assets, usingMockData, refresh } = useAssets(projectId);
-  const [filter, setFilter] = useState<MockAssetType | "all">("all");
+  const { assets, refresh } = useAssets(projectId);
+  const [filter, setFilter] = useState<AssetType | "all">("all");
 
   const counts = byType(assets);
   const open = assets.find((a) => a.id === selectionId);
@@ -260,17 +260,6 @@ export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
 
   return (
     <div className="flex h-full flex-col">
-      {usingMockData ? (
-        // Said on the page itself, not just in a comment: this is the difference between a demo
-        // and a lie, and it disappears with mockAssets.ts.
-        <div
-          data-testid="assets-mock-banner"
-          className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-1.5 text-[11px] text-ink-faint"
-        >
-          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-status-waiting" />
-          Sample data — the assets service is not wired to this page yet.
-        </div>
-      ) : null}
       <div className="flex shrink-0 items-center justify-between gap-3 pr-5">
         <TypeFilter counts={counts} active={filter} onPick={setFilter} />
         <ImportAsset projectId={projectId} onDone={refresh} />
@@ -279,7 +268,7 @@ export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
         {open ? <OpenAsset asset={open} onClose={() => onSelect(undefined)} /> : null}
         {shown.length === 0 ? (
           <p className="py-8 text-center text-[13px] text-ink-faint">
-            No {TYPE_LABELS[filter as MockAssetType].toLowerCase()} yet.
+            No {TYPE_LABELS[filter as AssetType].toLowerCase()} yet.
           </p>
         ) : null}
         <div className="grid grid-cols-1 content-start gap-4 xl:grid-cols-2">
