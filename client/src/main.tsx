@@ -1,9 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App'
-import { ControlRoomApp } from './control-room/ControlRoomApp'
 import { WorkspaceShell } from './control-room/shell/WorkspaceShell'
-import { isWorkspacePath } from './control-room/shell/router'
 import { applyTheme, resolveTheme } from './control-room/shell/theme'
 import './index.css'
 
@@ -12,67 +9,34 @@ import './index.css'
  *
  * This is the bundle's copy of the boot script, not a replacement for it: by the time this module
  * runs the browser has already painted once, so a light-mode user still sees a dark flash. The
- * script that actually prevents the flash has to be inline in `client/index.html`, which is a hot
- * file — filed as request R-2, with its verbatim text.
+ * script that actually prevents the flash has to be inline in `client/index.html`.
  */
 applyTheme(resolveTheme())
 
 /**
- * Three surfaces share one bundle while the pivot is in flight.
+ * One surface. The workspace owns every path, including `/`.
  *
- * `/agents`, `/assets`, `/designdocs`, `/users` and `/x` are the workspace. Everything else is
- * still the original OpenUI canvas, with the control room behind `?view=control-room`.
+ * This file used to mount three: the original OpenUI terminal canvas at `/`, the old control room
+ * behind `?view=control-room`, and the workspace on its own five paths — with a toggle in the corner
+ * and `/` deliberately left unclaimed, so that retiring the canvas would be a decision rather than a
+ * side effect of a routing change.
  *
- * `/` is deliberately NOT claimed yet. §3.4 gives it to the workspace — it redirects to the front
- * door — but taking it here would retire the legacy canvas as a side effect of a routing change,
- * and that retirement is row 6's job, done deliberately alongside the identity strings and the
- * toggle below. Routes first, then the switch.
+ * That decision has been taken. Neither `App` nor `ControlRoomApp` is imported here any more, so
+ * neither is in the bundle. Both modules still exist and the server still serves the APIs they used;
+ * what changed is that nothing in the product routes to them. `/` needs no redirect — the router
+ * already resolves it to DEFAULT_PAGE, which is where work is declared.
  */
-function workspaceRequested(): boolean {
-  return location.pathname !== '/' && isWorkspacePath(location.pathname)
-}
 
-function Root() {
-  const [workspace, setWorkspace] = useState(workspaceRequested)
-  const [view, setView] = useState<'canvas' | 'control-room'>(() =>
-    new URLSearchParams(location.search).get('view') === 'control-room' ? 'control-room' : 'canvas',
-  )
-
-  // The workspace owns its own history; this only decides which surface is mounted, so it has to
-  // re-check when the user navigates back out of the workspace.
-  useEffect(() => {
-    const sync = () => setWorkspace(workspaceRequested())
-    window.addEventListener('popstate', sync)
-    return () => window.removeEventListener('popstate', sync)
-  }, [])
-
-  useEffect(() => {
-    if (workspace) return
-    const url = new URL(location.href)
-    if (view === 'control-room') url.searchParams.set('view', 'control-room')
-    else url.searchParams.delete('view')
-    history.replaceState(null, '', url)
-  }, [view, workspace])
-
-  if (workspace) return <WorkspaceShell />
-
-  return (
-    <div className="w-screen h-screen overflow-hidden">
-      <button
-        type="button"
-        data-testid="view-toggle"
-        onClick={() => setView(view === 'canvas' ? 'control-room' : 'canvas')}
-        className="fixed bottom-4 right-4 z-[100000] rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs text-ink shadow-panel hover:bg-surface-hover"
-      >
-        {view === 'canvas' ? 'Open Control Room →' : '← Back to Canvas'}
-      </button>
-      {view === 'control-room' ? <ControlRoomApp /> : <App />}
-    </div>
-  )
+// `?view=control-room` was the old control room's entry point. Strip it rather than honour it, so a
+// stale bookmark opens the workspace with a clean URL instead of carrying a parameter nothing reads.
+if (new URLSearchParams(location.search).has('view')) {
+  const url = new URL(location.href)
+  url.searchParams.delete('view')
+  history.replaceState(null, '', url)
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <Root />
+    <WorkspaceShell />
   </React.StrictMode>,
 )

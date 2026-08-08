@@ -30,13 +30,20 @@ export function storedTheme(): Theme | undefined {
   }
 }
 
-/** What the OS asks for. Dark unless the browser says otherwise — the product's default. */
+/**
+ * The product's default, which is dark, and is not the OS's decision.
+ *
+ * This followed `prefers-color-scheme` and produced the wrong first impression: every page design
+ * for this product is dark, and a reviewer on a light-mode Mac saw a light workspace that looked
+ * nothing like them. Dark is the product's identity here rather than a preference to be inferred —
+ * so it is the default, and the toggle is how someone leaves it. A user who chooses light keeps
+ * light (see `resolveTheme`); the OS is simply not consulted for the initial answer.
+ *
+ * Kept as a function rather than a constant because the boot script in `index.html` and this module
+ * must agree, and one named place is how they stay agreed.
+ */
 export function systemTheme(): Theme {
-  try {
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  } catch {
-    return "dark";
-  }
+  return "dark";
 }
 
 /**
