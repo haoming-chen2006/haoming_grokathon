@@ -20,6 +20,34 @@ import { AreaColumn } from "./AreaColumn";
 import { agentsWithoutArea, launchRefusal, launchableTask } from "./board";
 import { startProject, useAgents } from "./useAgents";
 
+/**
+ * A document skeleton the user can edit.
+ *
+ * This used to be a `<pre>` above the box: an example you could read and not change, next to an
+ * empty textarea. People tried to edit the example. It is now the box's starting content, put there
+ * on request rather than prefilled — an empty box is the honest initial state, and text nobody
+ * asked for is text they have to delete before they can write.
+ */
+const SCAFFOLD = [
+  "# Name your project",
+  "",
+  "One or two sentences on what this is and who it is for.",
+  "",
+  "```project",
+  "name: Name your project",
+  "category: documents",
+  "budget: 10",
+  "areas:",
+  "  - First area: what this part of the work covers",
+  "  - Second area: what this part of the work covers",
+  "```",
+  "",
+  "## What good looks like",
+  "",
+  "How you will know it is finished.",
+  "",
+].join("\n");
+
 /** Paste a document and the product does the rest. This is the front door. */
 export function StartProject({ onStarted }: { onStarted?(projectId: string): void }) {
   const [title, setTitle] = useState("");
@@ -50,18 +78,27 @@ export function StartProject({ onStarted }: { onStarted?(projectId: string): voi
     <div data-testid="start-project" className="mx-auto max-w-2xl p-8">
       <h1 className="text-[19px] text-ink">Start a project</h1>
       <p className="mt-1.5 text-[13px] leading-relaxed text-ink-faint">
-        Paste a design document. Everything else — the team, the plan, the deliverables — is derived
-        from it. Declare the work in a fenced <span className="font-mono text-[11px]">project</span>{" "}
-        block:
+        Write or paste a design document. Everything else — the team, the plan, the deliverables —
+        is derived from it. The fenced{" "}
+        <span className="font-mono text-[11px]">project</span> block is what declares the work.
       </p>
-      <pre className="mt-2.5 overflow-x-auto rounded border border-border bg-surface p-2.5 font-mono text-[11px] leading-relaxed text-ink-faint">{`\`\`\`project
-name: Aeris Chairs — Q3 Sales Push
-category: slides
-budget: 25
-areas:
-  - Research: what buyers already believe
-  - Narrative: the five-slide arc
-\`\`\``}</pre>
+      <div className="mt-2.5 flex items-center gap-2">
+        <button
+          type="button"
+          data-testid="start-scaffold"
+          onClick={() => setText(SCAFFOLD)}
+          disabled={text.trim().length > 0}
+          title={
+            text.trim()
+              ? "You have already written something — clear it first"
+              : "Fill the box with a skeleton you can edit"
+          }
+          className="rounded border border-border px-2.5 py-1 text-[11px] text-ink-faint hover:bg-surface-hover disabled:opacity-40"
+        >
+          Start from a skeleton
+        </button>
+        <span className="text-[11px] text-ink-ghost">or write your own below</span>
+      </div>
 
       <input
         data-testid="start-title"
@@ -75,7 +112,7 @@ areas:
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={14}
-        placeholder="# Your design document…"
+        placeholder={"# Your design document\n\nWhat are you making, and what does good look like?"}
         className="mt-2 w-full rounded border border-border bg-surface px-2.5 py-2 font-mono text-[12px] leading-relaxed text-ink placeholder:text-ink-ghost"
       />
 

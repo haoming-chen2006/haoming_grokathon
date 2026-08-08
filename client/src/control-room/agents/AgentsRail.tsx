@@ -58,7 +58,12 @@ export interface AgentsRailProps {
   selectionId?: string;
   busy?: boolean;
   onSelect(selectionId: string | undefined): void;
-  onAddAgent(input: { name: string; role: string }): void;
+  onAddAgent(input: {
+    name: string;
+    role: string;
+    /** Absent is base Grok: no media endpoint is registered, so it cannot spend per unit. */
+    capabilities?: { images: boolean; voice: boolean };
+  }): void;
 }
 
 export function AgentsRail({
@@ -71,6 +76,15 @@ export function AgentsRail({
 }: AgentsRailProps) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  /**
+   * What the new agent may spend on.
+   *
+   * This is the product's money control, not a feature switch: media tools are REGISTERED per
+   * capability, so a base agent cannot reach a priced endpoint at all and its worst case is bounded
+   * by token spend. An image is $0.02 and a second of video is $0.08 — a tier is a decision worth
+   * making deliberately, so it defaults to base and is chosen, never inherited.
+   */
+  const [capability, setCapability] = useState<"base" | "images" | "voice" | "both">("base");
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
 
@@ -194,13 +208,44 @@ export function AgentsRail({
           data-testid="add-agent-form"
           onSubmit={(e) => {
             e.preventDefault();
-            onAddAgent({ name: name.trim(), role: role.trim() });
+            onAddAgent({
+              name: name.trim(),
+              role: role.trim(),
+              // Only sent when it grants something. Base Grok is the absence of a capability, not a
+              // pair of falses, and sending {false,false} would look like a decision was recorded.
+              ...(capability === "base"
+                ? {}
+                : {
+                    capabilities: {
+                      images: capability === "images" || capability === "both",
+                      voice: capability === "voice" || capability === "both",
+                    },
+                  }),
+            });
             setName("");
             setRole("");
+            setCapability("base");
             setAdding(false);
           }}
           className="flex flex-col gap-1.5 rounded-[7px] border border-dashed border-border-strong p-2"
         >
+          <label className="mt-0.5 flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost">
+              Can produce
+            </span>
+            <select
+              data-testid="add-agent-capability"
+              value={capability}
+              onChange={(e) => setCapability(e.target.value as typeof capability)}
+              className="rounded border border-border bg-surface px-2 py-1 text-[13px] text-ink"
+            >
+              <option value="base">Text only — base Grok</option>
+              <option value="images">Images — $0.02 each</option>
+              <option value="voice">Speech — $15 per million characters</option>
+              <option value="both">Images and speech</option>
+            </select>
+          </label>
+
           <input
             data-testid="add-agent-name"
             value={name}

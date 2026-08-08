@@ -54,7 +54,7 @@ export interface AgentsData {
   approvePlan(): Promise<void>;
   launch(taskId: string): Promise<void>;
   pause(agentId: string): Promise<void>;
-  addAgent(input: { name: string; role: string }): Promise<void>;
+  addAgent(input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }): Promise<void>;
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -211,11 +211,19 @@ export function useAgents(projectId: string): AgentsData {
       run("Pausing", () =>
         json(`/api/coding-agents/${agentId}/session/pause`, { method: "POST", body: "{}" }),
       ),
-    addAgent: (input: { name: string; role: string }) =>
+    addAgent: (input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }) =>
       run("Adding", () =>
         json("/api/coding-agents", {
           method: "POST",
-          body: JSON.stringify({ projectId, name: input.name, role: input.role }),
+          // capabilities only when it grants something: the registry treats an absent capability
+          // as base Grok, and sending {images:false,voice:false} would record a decision the user
+          // did not make.
+          body: JSON.stringify({
+            projectId,
+            name: input.name,
+            role: input.role,
+            ...(input.capabilities ? { capabilities: input.capabilities } : {}),
+          }),
         }),
       ),
   };
