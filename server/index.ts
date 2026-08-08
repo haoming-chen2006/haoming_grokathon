@@ -57,6 +57,27 @@ app.use("/*", serveStatic({
   },
 }));
 
+/**
+ * History fallback, so a workspace URL survives being typed or reloaded.
+ *
+ * The shell routes on real paths (`/agents`, `/assets`, `/designdocs`) with `history.pushState`
+ * rather than a query parameter — see `client/src/control-room/shell/router.ts`. Static serving
+ * answers those with 404, because no such file exists, so every workspace page 404'd on first load
+ * and only worked if you arrived by clicking. No worktree filed this: each one owned a page and saw
+ * its own route working under `bun run dev`, where Vite supplies the fallback for free.
+ *
+ * Anything with a dot in its last segment is a real asset request and must keep its 404 — a missing
+ * bundle silently answered with HTML is a blank page and a console error rather than a clear miss.
+ */
+app.get("/*", async (c) => {
+  const path = new URL(c.req.url).pathname;
+  if (path.split("/").pop()?.includes(".")) return c.notFound();
+  const index = Bun.file("./client/dist/index.html");
+  if (!(await index.exists())) return c.notFound();
+  c.header("Cache-Control", "no-cache");
+  return c.html(await index.text());
+});
+
 // Restore sessions BEFORE starting server so API requests find populated sessions Map
 const migrationResult = migrateStateToHome();
 if (migrationResult.migrated) {
