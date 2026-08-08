@@ -117,6 +117,9 @@ shaped `- ID-01: description`:
 - GREET-03 — an empty name is rejected with a clear error
 ```
 
+Either paste it into the Control Room's **Open a repository** form — repository, base branch, name,
+objective, budget and the document itself — or use the command line:
+
 ```bash
 bun run dev                                              # in one terminal
 bun run new -- --repo /path/to/repo --design ./design.md # in another
@@ -133,8 +136,9 @@ http://localhost:6969/?view=control-room
 ```
 
 Nothing launches on its own. The plan lands as a **draft**, because human approval is the gate
-before any agent touches the repository — trying to launch first is refused with
-`PLAN_NOT_APPROVED`. To approve and start:
+before any agent touches the repository. In the **Plan** tab, Launch is disabled until you approve
+and tells you why; a task waiting on an unfinished dependency names it. Approve there, then launch
+a task — or from the command line:
 
 ```bash
 curl -X POST http://localhost:6968/api/projects/<id>/plan/approve
