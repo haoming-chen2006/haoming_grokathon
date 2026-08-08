@@ -785,3 +785,102 @@ Worth someone's decision at reconciliation, and not this worktree's to make: eit
 symlinks the main checkout's `.env`, or the loop documents' §1 stops naming a path that only exists
 in one checkout. Two iterations of this loop attributed a red gate to the environment and left it
 alone; that is the cost of the current arrangement.
+
+---
+
+## The second wireframe, and where the two disagree (iteration 3)
+
+`design-document.html` joins `assets-page.html` in the main checkout. Both are bundled React pages
+whose markup is server-rendered inline-styled HTML; neither is copied into the repository. This
+reconciles them against each other and against §3.1.
+
+### The chrome is identical, to the pixel
+
+Everything below is byte-for-byte the same in both files. It is therefore not a judgement call, and
+it is what `WorkspaceShell.tsx` implements:
+
+```text
+toolbar        height 44 · padding 0 14 · gap 14 · bottom rule rgba(255,255,255,.1) · 15px
+               two 13px window squares · project · spacer · spend · 1×16 divider · ? · ☾
+spend          mono 11px, with a 96×7 meter at 37%, meter fill = the accent
+controls       24×24, radius 5, 1px rule
+page strip     padding 8 14 · bottom rule .13 · 15px
+headline page  1px rule, radius 7, padding 7 16, gap 8, with a 14px leading square
+active page    accent rule + accent wash at 14%
+divider        1×22, margin 0 6
+secondary page plain text, padding 7 12, 14px, quieter — no rule, one size down
+Tools          right-aligned, 1px rule, radius 7, padding 7 14, with ⌘T in mono 10px
+region rules   1px rgba(255,255,255,.13)
+section label  mono 10px · uppercase · letter-spacing .08em · quietest ink
+```
+
+Two identical files disagreeing about nothing is itself evidence: this chrome is settled, and a
+future change to it should be suspicious rather than routine.
+
+### Four disagreements, and the decision on each
+
+**1. The third region. RESOLVED — they are not actually in conflict.**
+
+`assets-page.html` draws a 320px inspector: `ASSET → PROVENANCE → READ BY → Open · Export · Feed to
+an agent`. `design-document.html` draws a **46px rail** carrying a `‹`, a vertical `CONVERSATION`
+label, three presence dots and the count `3`, captioned *"Conversation closed — the document gets
+the full width; the rail keeps presence visible"*. Its second state, `B`, is *"Conversation open —
+same document, panel slides in from the right"*.
+
+So the 46px strip is the inspector **collapsed**, not a different region. Read together the two
+files specify something §3.1 leaves out: **collapsed means a rail, not absence.** Implemented this
+iteration — `layout()` reserves 46px for a collapsed region, the rail carries a chevron back and a
+vertical label, and a rail is never squeezed below itself to satisfy MAIN's minimum. Collapsing to
+zero, which is what the shell did before reading this file, left a 1px drag handle as the only way
+back and threw away the presence the caption exists to preserve.
+
+**One §3.1 tension this surfaces, for 03-design-docs rather than for me.** §3.1 says the inspector
+holds properties and never navigation. `design-document.html` puts the *agent conversation* there.
+A conversation is closer to content than to properties, and it is certainly not navigation — it
+does not change what MAIN displays. Reading it as compatible; flagging it because it stretches the
+word "properties", and the region is yours to fill.
+
+**2. The project name. UNRESOLVED — owner's call, and it is a real question.**
+
+`assets-page.html`: `<div>Aeris Chairs — Q3 sales push</div>` — a plain label.
+`design-document.html`: the same text inside a bordered control with a `▾` and `cursor:pointer` — a
+**project switcher**.
+
+This is the disagreement that matters most, because §3.1 says the navigator holds the pages "and
+nothing else navigates", and a project switcher in the toolbar is a third navigation surface by the
+same argument that removed the six-tab strip. But switching project is not switching *page* — it
+changes what every page is about, which is arguably chrome rather than navigation, and there is
+currently no other way to change project at all.
+
+The shell renders the plain label today, because that is the option that cannot be wrong: a label
+is a strict subset of a switcher, and adding the `▾` later costs one component and no contract
+change. **Not decided.** If the answer is "switcher", it also needs an answer to what happens to
+the URL, which today carries no project.
+
+**3. The navigator's width. NEITHER — the disagreement is the answer.**
+
+`assets-page.html` draws 262. `design-document.html` draws 196, and 184 in its second state. Three
+different widths across two files and two states, for the same rail.
+
+Nobody is wrong: a list of assets with type, agent and cost wants more room than a list of document
+titles, and the same page wants less when a conversation panel is open. That is the argument for
+§3.1's resizable, persisted rail rather than for picking a fourth number, so the 288 default stands.
+
+**Recorded honestly: 196 and 184 are below §3.1's 220 minimum**, so a user could not drag the rail
+as narrow as the design draws it. A test asserts that gap rather than papering over it. Lowering
+the minimum to ~180 is a one-line change; it was not taken unilaterally because 220 is the figure
+in the product contract.
+
+**4. The page frame. NEITHER — one of them is not a page.**
+
+`assets-page.html` is a single full-bleed 1320px surface. `design-document.html` wraps the same
+surface in a rounded 1px card inside a 36/40-padded page, and stacks two lettered states with
+captions. The card and the padding are a spec sheet's presentation of its own examples, not chrome.
+Taking them literally would have shipped a 1320px window floating on a background.
+
+### What did not change, and why
+
+The palette and the typography still come from GrokNight/GrokDay rather than from either wireframe.
+Both files set `font-family:'Patrick Hand'`, a handwriting face, with outline-only boxes and
+`#8fb0ff` as the single accent. Two files agreeing on a wireframe convention is still a wireframe
+convention. The accent remains an owner decision worth two lines, as recorded above.

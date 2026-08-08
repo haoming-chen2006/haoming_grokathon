@@ -6144,3 +6144,54 @@ No test was skipped, deleted or weakened to achieve it; the increase is this loo
 
 Held to the item's own terms: it says the gate is green *every* iteration, so this is PASS as of
 this run and is re-run rather than assumed next iteration.
+
+### Iteration 3, addendum — the second wireframe, and a rendering shell
+
+A second design, `design-document.html`, joined `assets-page.html`. Both were read and reconciled
+against each other and against §3.1; the full comparison is in `loops/handoff/pivot-shell.md`.
+
+**The chrome is byte-for-byte identical across both files** — 44px toolbar, 14px padding and gap,
+hairline rules, the 15/14/13/11/10 type scale, 24px controls at radius 5, headline pages as
+bordered pills and secondary as plain quieter text with a rule between, Tools right-aligned with
+⌘T. That agreement is itself evidence, and it is what `WorkspaceShell.tsx` implements.
+
+**Four disagreements, three decided and one held:**
+
+```text
+third region   RESOLVED, and they were not in conflict. design-document.html's 46px strip is the
+               inspector COLLAPSED — it carries a chevron back, a vertical CONVERSATION label,
+               three presence dots and a count, captioned "the rail keeps presence visible", and
+               its second state expands the same region to a panel. Together the two files
+               specify something §3.1 omits: collapsed means a rail, not absence. Implemented.
+project name   HELD — owner's call. assets-page.html draws a plain label; design-document.html
+               draws a bordered control with a ▾, i.e. a project switcher. The shell renders the
+               label, because a label is a strict subset of a switcher and adding the ▾ later
+               costs no contract change. A switcher also needs an answer for the URL, which
+               carries no project today.
+navigator      NEITHER — 262 in one file, 196 and 184 in the other, for the same rail. The
+width          disagreement is the argument for a resizable persisted rail rather than for a
+               fourth number. Recorded honestly: 196 and 184 are BELOW §3.1's 220 minimum, so the
+               user cannot drag as narrow as the design draws. A test asserts that gap.
+page frame     NEITHER — design-document.html's rounded card and 36/40 padding are a spec sheet's
+               presentation of its own two lettered states, not chrome.
+```
+
+The collapsed rail was the one change to shipped code:
+
+```text
+before  a collapsed region rendered nothing, leaving a 1px drag handle as the only way back
+after   layout() reserves 46px; the rail carries a chevron and a vertical label; a rail is never
+        squeezed below itself to satisfy MAIN's minimum, because an expanded region yields first
+tests   "a collapsed region keeps a rail rather than vanishing", "a rail is never squeezed below
+        itself", "the rail's own control expands the region again"
+```
+
+**One §3.1 tension surfaced and passed on rather than resolved here:** §3.1 says the inspector
+holds properties and never navigation, and `design-document.html` puts the agent conversation
+there. A conversation is closer to content than to properties, though it is certainly not
+navigation. Read as compatible, flagged for 03-design-docs, whose region it is.
+
+**Gate:** 127 tests / 0 fail across 4 shell files; typecheck, build and all four audits exit 0.
+The full suite's only failures remain the live-Grok ACP tests (V-006, V-007, V-032, V-033, V-042,
+V-050), which spawn real `grok` processes and fail under machine contention from seven concurrent
+worktrees; zero client failures, and this work touches no server file.
