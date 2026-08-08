@@ -99,10 +99,17 @@ describe("V-032: agent can modify code in its worktree", () => {
       // which passed on three re-runs. Prose is not a stable interface. Writing the value to a
       // file is: the agent can only produce 8317 by having read app.ts, and the check is then a
       // string comparison against a real file rather than against a sentence.
+      // "Read its entire contents" rather than "read the file".
+      //
+      // A captured failure had toolCalls=1 and the agent reporting that app.ts "does not contain a
+      // line where a numeric value is assigned to x" — the wording of a *search* that missed, not
+      // a read that found nothing. One tool call is consistent with a single grep. `exit 37` taught
+      // that an intermittent live failure is often an instruction that admits a losing
+      // interpretation, so this one names the operation instead of leaving it to choice.
       const reply = await conn.prompt(
-        "Read the file app.ts in the current directory. Create a file named found.txt in the same " +
-          "directory containing only the numeric value assigned to x, and nothing else. " +
-          "Reply with only DONE when finished.",
+        "Open app.ts in the current directory and read its entire contents. Then create a file " +
+          "named found.txt in the same directory containing only the numeric value assigned to x, " +
+          "and nothing else. Reply with only DONE when finished.",
         { timeoutMs: 240_000 },
       );
       const why =

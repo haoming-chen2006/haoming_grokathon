@@ -3912,6 +3912,51 @@ bun run verify → exit 0, 673 pass / 0 fail, four audits clean
 
 ---
 
+## Applying the exit-37 lesson to the remaining flake (iteration 64)
+
+Iteration 63 found that a flaky live test was a badly-posed instruction rather than model
+unreliability. That lesson was applied to the one capture still unattributed, and to every other
+live prompt.
+
+**All eight instructions given to a live agent were reviewed.** Seven admit no losing
+interpretation — arithmetic, remember-and-recall, "create a file containing exactly …",
+`cat marker.txt`, and the now-fixed `sh -c 'exit 37'`. One did.
+
+**The clue was in the failure's own wording**, which had been under-read:
+
+```text
+toolCalls=1
+reply="The file `app.ts` does not contain a line where a numeric value is assigned to x"
+```
+
+"A **line where** a numeric value is assigned" is how a *search* reports a miss, not how a read
+reports an absent value — and one tool call is what a single grep looks like. The instruction said
+"Read the file app.ts", leaving the operation to the agent's choice; if it greps and the pattern
+misses, it reports exactly that, confidently.
+
+Changed to name the operation:
+
+```text
+before  "Read the file app.ts in the current directory. Create a file named found.txt …"
+after   "Open app.ts in the current directory and read its entire contents. Then create …"
+```
+
+**What this is and is not.** Eight consecutive runs of the test alone and five of the three suites
+together were clean. That is weak evidence on its own — the failure rate was low enough that a
+clean streak proves little, exactly as it did in iterations 56 and 61 before the cause was known.
+The argument is structural: the instruction no longer admits an interpretation that loses.
+
+Unlike the `exit 37` case, **the cause here is inferred from the reply's phrasing, not demonstrated**
+by a capture showing the search. It is recorded as a probable cause with the reasoning stated, so
+that a recurrence — which the precondition and diagnostics will attribute — can confirm or refute
+it rather than being read as a fresh mystery.
+
+```text
+bun run verify → exit 0, 673 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4008,7 +4053,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 71 ahead of main
+commits 74 ahead of main
 build   bun run build exit 0
 tests   673 pass / 0 fail across 39 files
 audits  0 orphans; every endpoint has a caller
