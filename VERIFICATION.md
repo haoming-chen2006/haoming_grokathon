@@ -5408,3 +5408,118 @@ audits  0 orphans; every endpoint has a caller
 
 **The project is complete: YES — subject to Q-2, which is a decision for the owner rather than
 an unfinished piece of work.**
+
+---
+
+# Pivot ledger — DESIGN DOCUMENTS (`loops/03-design-documents.md`)
+
+> Appended by worktree `03-design-docs`, branch `pivot/design-docs`. Everything above this line is
+> the retired product's ledger (V-001…V-052) and is not edited by this worktree. Nine worktrees
+> share this file and none owns it; see the partition gap recorded in
+> `loops/handoff/pivot-design-docs.md`.
+
+**Iteration:** 1 · **Tally:** 2 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED
+
+**Gate (`bun run verify`), iteration 1:**
+
+```text
+1. server typecheck   tsc --noEmit                       exit 0
+2. client typecheck   cd client && tsc --noEmit          exit 0
+3. tests              bun test server/ client/src …      exit 0 — 955 pass, 0 fail, 52 files
+4. build              bun run build                      exit 0
+5. audits             reachability, endpoints, quality, docs   exit 0
+   overall: bun run verify exit 0   (was 940 tests / 50 files before this iteration)
+```
+
+Stage 1 of §3.11 is done: the store, the synchronous invariant, and sections with minted anchors.
+DD-001 and DD-006 PASS. DD-002…DD-005 and DD-007…DD-017 remain NOT TESTED and are not claimed.
+
+## DD-001: A design document exists independently of any project — PASS
+
+Reproduce: `bun test server/services/designDoc.test.ts server/services/designDocInvariants.test.ts`
+(15 pass, 0 fail).
+
+```text
+Document created with no project:
+  id=doc_msks9slj1u3guhz title="Q3 Enterprise Deck" followedByProjectId=undefined
+  files on disk: ["doc_msks9slj1u3guhz.json"]
+  No ProjectStore was constructed; the test asserts the data dir contains only design-docs/.
+
+Restart round-trip:
+  Proven across a REAL second process, not a second store instance in the same process:
+  the test spawns `process.execPath -e` which imports DesignDocStore fresh and re-reads the
+  document. Restored after restart:
+    title="Brief"  sections=["Research","Slides"]  anchors identical to pre-restart
+    sections[0].currentVersion=3  body="prospect material v3"
+    versions=[1,2,3]  authorIds=["user-1","user-1","user-2"]
+    versions[2].changeSummary="narrowed the list"
+
+Deliberate async method → test output:
+  Mutation: `retitleDocument` changed to `async … Promise<DesignDoc>`.
+    (fail) DesignDocStore stays synchronous > no method returns a Promise
+    error: an async method reintroduces the interleaving that loses concurrent updates
+    3 pass, 1 fail            [reverted; file diffed clean against backup]
+
+Explanation removed → test output:
+  Mutation: the "no `await` occurs inside it" sentence deleted from the class comment.
+    (fail) DesignDocStore stays synchronous > the invariant is documented where someone would break it
+    error: the explanation of WHY synchrony is load-bearing was deleted
+    3 pass, 1 fail            [reverted; file diffed clean against backup]
+```
+
+Also covered (§3.2, §3.8.5): `firstLine` is derived on read and never persisted.
+
+```text
+firstLine (read) = [1,4]
+firstLine (disk) = [null,null]
+Mutation: StoredSection aliased to DocSection so firstLine becomes storable →
+  (fail) DesignDocStore stays synchronous > a derived line number is never persisted
+  14 pass, 1 fail            [reverted]
+```
+
+Honest note on this control: the mutation was caught by the type-level guard, not by the
+on-disk assertion, because the write path never had a `firstLine` to persist in the first place.
+The on-disk assertion is a regression guard, not the active control.
+
+## DD-006: Section anchors are minted and survive a retitle — PASS
+
+```text
+Anchor at creation:
+  title="Research"  anchor=sec_msks9slj272cya6
+  Minted, not slugged. Two sections both titled "Research" get distinct anchors — a slugged
+  anchor collides there and the second section silently inherits the first's presence.
+
+Anchor after retitle:
+  title="Market research"  anchor=sec_msks9slj272cya6   (unchanged)
+  areaId=area-research      (unchanged)
+  currentVersion=2  versions=[1,2]   (history intact; a retitle appends no version, because
+                                      the text of record did not change)
+
+areaId after retitle and reorder:
+  order=[["Slides","sec_msks9slj32f71b6",null],
+         ["Market research","sec_msks9slj272cya6","area-research"]]
+
+manifestVersion before/after reorder:
+  before=1  after=2   — and no anchor changed; the anchor set is identical across the reorder.
+
+Positive control (§5a — a suspiciously clean result is a bug in the check):
+  Mutation: anchor derived from the title, `sec_${title.toLowerCase().replace(…)}` →
+    (fail) DD-006 … > an anchor is minted at creation and is not derived from the title
+    10 pass, 1 fail          [reverted; file diffed clean against backup]
+```
+
+## Not claimed this iteration
+
+```text
+DD-002  cardinality / followedByProjectId    NOT TESTED — the field exists and is documented,
+                                             but follow/unfollow, the refusal and the
+                                             documentIds invariant test are not written.
+DD-003…DD-005, DD-007…DD-016                 NOT TESTED — stages 2-11 of §3.11.
+DD-017  export to a document asset           NOT TESTED — depends on 02-assets (X-3). Per §3.10
+                                             neither the route nor the button exists, deliberately.
+```
+
+`writeSection` carries `expectedVersion`, `VersionConflictError` and `assertNoSecrets` because a
+version history cannot exist without a write path. That does **not** make DD-007 or DD-008 PASS:
+their remaining clauses — concurrent two-section writes, the cross-section stale sweep, and the
+suggestion-accept path — are untested, and the items are held.
