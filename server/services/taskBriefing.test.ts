@@ -63,3 +63,18 @@ describe("what an agent is told when its task is launched (§10)", () => {
     expect(bare).toContain("submit_code_for_review");
   });
 });
+
+describe("what an agent is told about other tasks' failures", () => {
+  const brief = buildTaskBriefing({ project: { goal: "g" }, task, requirement });
+
+  test("it says a failing suite may not be this task's fault, and to submit anyway", () => {
+    // Observed for real: an agent finished its task, ran the shared suite, saw a failure belonging
+    // to a later task and declined to submit — leaving finished work in a task stuck at "working".
+    expect(brief).toMatch(/may not be implemented yet/i);
+    expect(brief).toMatch(/submit anyway with the real numbers/i);
+  });
+
+  test("it still distinguishes that from being genuinely blocked", () => {
+    expect(brief).toMatch(/report_blocker only if you cannot do your own task/i);
+  });
+});

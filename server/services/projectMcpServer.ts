@@ -7,7 +7,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { getControlRoomBus } from "./controlRoomEvents";
 import type { Actor } from "../types/project";
-import { commitAgentWork } from "./repository";
+import { commitAgentWork, listRepositoryFiles } from "./repository";
 import { getAgentRegistry } from "./agentRegistry";
 
 /**
@@ -157,6 +157,21 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
           worktree: agent.worktree,
           changedFiles: agentChangedFiles(agent.worktree, project.baseBranch),
         };
+      }),
+  );
+
+  server.registerTool(
+    "list_repository_files",
+    {
+      description:
+        "The files tracked in the project repository. Use this to see what actually exists before " +
+        "naming files or tests.",
+      inputSchema: { limit: z.number().optional() },
+    },
+    async ({ limit }) =>
+      guard(() => {
+        const project = store().getProject(ctx.projectId);
+        return listRepositoryFiles(project.repositoryPath, { limit });
       }),
   );
 
@@ -667,6 +682,7 @@ export const DELIBERATELY_USER_ONLY = [
 ] as const;
 
 export const PROJECT_MCP_TOOLS = [
+  "list_repository_files",
   "get_project",
   "get_technical_design",
   "get_requirements",

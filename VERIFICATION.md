@@ -4741,6 +4741,62 @@ bun run verify → exit 0, 750 pass / 0 fail, four audits clean
 
 ---
 
+## The Planner was planning blind (iteration 78)
+
+Running a two-task plan for real produced a task that never submitted. Chasing *why* found two
+things, and the second is the more serious.
+
+### The agent was right to refuse
+
+The transcript showed it ran `npm test`, saw a failure, and declined to submit. The failure was
+`double` — **the function belonging to the next task**. An earlier task in a plan sharing a test
+file cannot make the suite green, so the agent was correct and the briefing was wrong: it said
+"run the tests before submitting" and nothing about what to do when the suite fails for reasons
+outside the task.
+
+The briefing now says other tasks may be unimplemented, that the suite can contain failures which
+are not yours, and to **submit anyway with the real numbers** — an honest partial result is right,
+withholding the submission is not — reserving `report_blocker` for being genuinely stuck.
+
+### The Planner had no way to see the repository
+
+The plan named these for a TypeScript project containing `calc.ts` and `calc.test.ts`:
+
+```text
+expectedFiles  src/calculator/basic_operations.py
+requiredTests  tests/calculator/test_basic_operations.py
+```
+
+Python paths, invented wholesale. Not carelessness: `PLANNER_PROMPT` says to use
+`get_repository_summary` "to see the codebase you are planning against", and that tool returns the
+root, branch, HEAD and working-tree state — **no files**. `list_changed_files` reports only an
+agent's own edits. The Planner was asked to name files and given nothing to name them from, so it
+guessed, and the guesses flowed into every agent's briefing as `expectedFiles` and `requiredTests`.
+
+`list_repository_files` now returns the tracked files, capped at 500 with `truncated` reported so a
+large repository cannot flood a model's context. The Planner prompt points at it and says to name
+only files that exist or that it is deliberately creating.
+
+Re-run against the same repository:
+
+```text
+t1  calc.ts        exists=True        t2  calc.ts        exists=True
+t1  calc.test.ts   exists=True        t2  calc.test.ts   exists=True
+```
+
+### One mistake of my own, caught immediately
+
+Adding the tool name to `PROJECT_MCP_TOOLS` matched the same string inside a `registerTool` call
+instead, splicing a stray argument into the middle of a registration. The whole MCP surface broke —
+`get_project` returned null — and the existing tool tests said so within seconds. Corrected before
+anything else was built on it.
+
+```text
+bun run verify → exit 0, 754 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4837,7 +4893,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 104 ahead of main
+commits 106 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller

@@ -443,3 +443,23 @@ describe("submitting captures the work as a commit", () => {
     }).then((r) => expect(r.isError).toBe(false));
   });
 });
+
+describe("an agent can see what is in the repository", () => {
+  test("list_repository_files returns the tracked files", async () => {
+    // The Planner was told to inspect the codebase and had no tool that showed it any: it invented
+    // Python paths for a TypeScript repository, and those fabrications reached every briefing.
+    const { isError, data } = await call(BACKEND, "list_repository_files", {});
+    expect(isError).toBe(false);
+    expect(data.files).toContain("a.ts");
+    expect(data.total).toBeGreaterThan(0);
+    expect(data.truncated).toBe(false);
+  });
+
+  test("the listing is capped, and says when it was cut", async () => {
+    // A large repository would flood the model's context; orientation is the point, not completeness.
+    const { data } = await call(BACKEND, "list_repository_files", { limit: 1 });
+    expect(data.files).toHaveLength(1);
+    expect(data.truncated).toBe(true);
+    expect(data.total).toBeGreaterThan(1);
+  });
+});

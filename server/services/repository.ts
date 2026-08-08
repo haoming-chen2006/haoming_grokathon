@@ -387,3 +387,33 @@ export function mergeAgentBranch(
     }
   }
 }
+
+
+/**
+ * The files tracked in a repository, so an agent can see what it is planning against.
+ *
+ * The Planner is told to inspect the codebase and had no way to: `get_repository_summary` reports
+ * the branch and HEAD, and `list_changed_files` reports only the agent's own edits. Asked to name
+ * expectedFiles and requiredTests with no view of the tree, it invented plausible ones — Python
+ * paths for a TypeScript repository — and those fabrications then reached every agent's briefing.
+ *
+ * Capped, because a large repository would flood a model's context and the point is orientation,
+ * not completeness. The cap is reported so a caller knows the list was cut.
+ */
+export function listRepositoryFiles(
+  repoRoot: string,
+  opts: { limit?: number } = {},
+): { root: string; files: string[]; total: number; truncated: boolean } {
+  const info = openRepository(repoRoot);
+  const limit = opts.limit ?? 500;
+  const all = gitOrThrow(["ls-files"], info.root, "list repository files")
+    .split("\n")
+    .map((f) => f.trim())
+    .filter(Boolean);
+  return {
+    root: info.root,
+    files: all.slice(0, limit),
+    total: all.length,
+    truncated: all.length > limit,
+  };
+}

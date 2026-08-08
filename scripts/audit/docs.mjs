@@ -39,6 +39,8 @@ const CLASSIFIED = new Map([
   ["rust-toolchain.toml", "in the cloned grok-build reference repo under .refs/, which is gitignored"],
   ["app.ts", "a file inside the agentExecution test fixture, written at run time"],
   ["todo.ts", "a file inside the iteration-75 demo repository, written at run time"],
+  ["calc.ts", "a file inside the iteration-78 demo repository, written at run time"],
+  ["calc.test.ts", "a file inside the iteration-78 demo repository, written at run time"],
 ]);
 
 function tracked() {

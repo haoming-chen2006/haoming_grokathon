@@ -59,6 +59,14 @@ export function buildTaskBriefing(params: {
   lines.push("A submission is rejected unless it carries the evidence: the branch, the changed");
   lines.push("files, a summary, and real test results. Run the tests before submitting.");
   lines.push("");
+  // Observed: an agent implemented its task, ran the suite, saw a failure belonging to a *later*
+  // task, and declined to submit at all — so the task sat at "working" with finished work in it.
+  // In a plan, earlier tasks routinely cannot make the whole suite green.
+  lines.push("Other tasks in this plan may not be implemented yet, so the suite can contain");
+  lines.push("failures that are not yours. Submit anyway with the real numbers — reporting an");
+  lines.push("honest partial result is right, withholding the submission is not.");
+  lines.push("Use report_blocker only if you cannot do your own task.");
+  lines.push("");
   lines.push("Start now. Read the existing code before changing it.");
 
   return lines.join("\n");

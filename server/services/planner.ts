@@ -59,7 +59,9 @@ Use the openui-project MCP tools to read the project before planning:
 - get_project for the goal and repository
 - get_technical_design for the approved design document
 - get_requirements for the requirements you must cover
-- get_repository_summary to see the codebase you are planning against
+- get_repository_summary for the branch and working-tree state
+- list_repository_files to see what actually exists — name only files and tests that are
+  really there, or that you are deliberately creating
 
 Then produce an implementation plan. Reply with ONLY a JSON object, no prose and no code fence:
 
