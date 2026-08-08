@@ -47,7 +47,8 @@
     "audit:docs": "bun run scripts/audit/docs.mjs",
     "prepublishOnly": "bun run build",
     "install:client": "cd client && bun install",
-    "demo:workspace": "bun run scripts/demo/workspace.mjs"
+    "demo:workspace": "bun run scripts/demo/workspace.mjs",
+    "reset": "bun run scripts/demo/reset.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

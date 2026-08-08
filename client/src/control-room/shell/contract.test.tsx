@@ -142,7 +142,7 @@ describe("workspaceUrl", () => {
   test("carries the Tools overlay as a query parameter, so the page underneath is not lost", () => {
     expect(workspaceUrl("agents", undefined, "prompts")).toBe("/agents?tools=prompts");
     expect(workspaceUrl("designdocs", "doc_1", "skills")).toBe("/designdocs/doc_1?tools=skills");
-    expect(workspaceUrl("x", "draft_1", "workflows")).toBe("/x/draft_1?tools=workflows");
+    expect(workspaceUrl("x", "draft_1", "skills")).toBe("/x/draft_1?tools=skills");
   });
 
   test("produces the same url the registry describes, for every page", () => {

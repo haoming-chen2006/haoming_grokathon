@@ -195,7 +195,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-function mount(section: "prompts" | "skills" | "workflows" = "prompts") {
+function mount(section: "prompts" | "skills" = "prompts") {
   return render(<ToolsPanel projectId="proj_1" section={section} onClose={() => {}} />);
 }
 
@@ -215,7 +215,9 @@ describe("TOOL-002/003: the panel reads the real library", () => {
     // Not a mock: the panel asked the server for it.
     expect(server.calls).toContain("GET /api/library/prompts");
     expect(server.calls).toContain("GET /api/library/grok-skills");
-    expect(server.calls).toContain("GET /api/library/workflows");
+    // Workflows are no longer a section, so the panel must no longer fetch them: a request for a
+    // resource nothing renders is spend and latency for nothing.
+    expect(server.calls).not.toContain("GET /api/library/workflows");
   });
 
   test("the section prop, which the URL carries, chooses what is shown", async () => {
@@ -402,40 +404,10 @@ describe("TOOL-006: a skill turns up and down", () => {
   });
 });
 
-// ═════════════════════════════════════════════════════════════════════════════════ TOOL-008
+// TOOL-008 (workflows) was removed with the section itself: an agent's control logic is grok's own
+// — its loop, its subagents — and a second place to define it would compete with the runtime rather
+// than deliver it (A-00). The panel is prompts and skills.
 
-describe("TOOL-008: workflows, named for what they actually do", () => {
-  test("a running order can be created from steps and roles", async () => {
-    mount("workflows");
-    await settled();
-
-    fireEvent.click(screen.getByTestId("new-workflow"));
-    fireEvent.change(screen.getByTestId("workflow-name"), { target: { value: "Client deck" } });
-    fireEvent.change(screen.getByTestId("stage-name-0"), { target: { value: "Research" } });
-    fireEvent.change(screen.getByTestId("stage-role-0"), { target: { value: "Researcher" } });
-    fireEvent.click(screen.getByTestId("add-stage"));
-    fireEvent.change(screen.getByTestId("stage-name-1"), { target: { value: "Draft" } });
-    fireEvent.change(screen.getByTestId("stage-role-1"), { target: { value: "Writer" } });
-    fireEvent.click(screen.getByTestId("save-workflow"));
-
-    await waitFor(() => expect(server.workflows).toHaveLength(1));
-    expect(server.workflows[0].stages.map((s: any) => s.name)).toEqual(["Research", "Draft"]);
-  });
-
-  test("the panel does not claim to run it", async () => {
-    server.workflows = [{
-      id: "wf1", name: "Client deck", roles: ["Researcher"], createdAt: "2026-01-01",
-      stages: [{ id: "s1", name: "Research", role: "Researcher", dependsOn: [], reviewGate: false }],
-    }];
-    mount("workflows");
-    await settled();
-
-    fireEvent.click(screen.getByText("Client deck"));
-    expect((await screen.findByTestId("workflow-detail")).textContent).toContain(
-      "does not run these steps on its own",
-    );
-  });
-});
 
 // ═════════════════════════════════════════════════════════════════════════════════ TOOL-011
 

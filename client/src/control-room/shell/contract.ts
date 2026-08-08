@@ -17,7 +17,15 @@
 export type PageId = "agents" | "assets" | "designdocs" | "users" | "x";
 
 /** The three sections of the Tools overlay. Its contents belong to 06-tools-cost. */
-export type ToolsSection = "prompts" | "skills" | "workflows";
+/**
+ * The Tools panel's two sections.
+ *
+ * `workflows` was a third and is gone: an agent's control logic is grok's business — its own loop,
+ * its own subagents — and a second place to define it would compete with the runtime rather than
+ * deliver it (A-00). What a non-technical user needs from this panel is text they can reuse and
+ * skills an agent can discover.
+ */
+export type ToolsSection = "prompts" | "skills";
 
 /** Every page component receives exactly this. The shell passes nothing else, ever. */
 export interface WorkspacePageProps {

@@ -452,7 +452,7 @@ describe("the Tools overlay", () => {
   });
 
   test("clicking the scrim is the same dismissal as Esc", async () => {
-    atUrl(workspaceUrl("agents", undefined, "workflows"));
+    atUrl(workspaceUrl("agents", undefined, "skills"));
     await mount();
     await act(async () => {
       fireEvent.click(screen.getByTestId("tools-scrim"));
