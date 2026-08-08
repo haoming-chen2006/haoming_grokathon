@@ -192,14 +192,16 @@ a reader assumes came from a meter.
 
 ## How to look at it
 
-The page is mounted, so `/users` on the running server shows it once this branch is merged. Before
-that, from this worktree:
-
 ```bash
-bun run --cwd client dev
-open 'http://localhost:6969/src/control-room/users/preview/index.html?theme=dark&person=usr_marco'
+bun run --cwd client dev     # then open /users
 ```
 
-`client/src/control-room/users/preview/` is a harness inside this loop's own directory that does at
-run time what R-1 does at build time. Both palettes were checked this way — GrokNight and GrokDay,
-with a person selected. There is no `text-white/NN` anywhere in the directory.
+Both palettes were checked — GrokNight and GrokDay, with a person selected — and the grep USR-010
+asks for over `client/src/control-room/users` returns nothing.
+
+A preview harness under `client/src/control-room/users/preview/` carried this before the mount
+existed: it put the three slots into the live registry at run time and rendered the real
+`WorkspaceShell` around them, which is how the page was looked at while `pages.ts` was still
+another worktree's file. **It has been deleted.** The page is mounted for real now, so the harness
+was scaffolding that no longer held anything up — and `bun run audit` was right to call it an
+orphan, since nothing imported it. `bun run audit` is green: 0 orphans.
