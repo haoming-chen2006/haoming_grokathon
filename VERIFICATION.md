@@ -6200,7 +6200,7 @@ worktrees; zero client failures, and this work touches no server file.
 Items `AGENTS-001…AGENTS-018` are defined in `loops/01-agents.md` §8. The `V-0NN` rows above belong
 to the retired coding product and are not this loop's to update or delete.
 
-**Tally after iteration 4:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
+**Tally after iteration 5:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
 
 **PASS (1):** AGENTS-001
 **NOT TESTED (17):** AGENTS-002 … AGENTS-018. Four of them are partly evidenced and held for the
@@ -6569,6 +6569,8 @@ accident, and the file that registers the tools is edited by a reconciler who ha
 document. The handoff entry hands over a call — `toolsForCapability(ctx.capabilities ??
 BASE_CAPABILITIES)` — rather than a design, and warns that `PROJECT_MCP_TOOLS` is asserted
 element-for-element by three existing suites, so media tools must be a separate list.
+*(Iteration 5 renamed that function `mediaToolsForCapability`. The handoff entry carries the current
+signature; this paragraph is left as the iteration-4 record.)*
 
 **Gate at iteration 4:** typechecks, build and all four audits exit 0 (0 orphans; every endpoint has
 a caller; 0 dead controls; every citation resolves). The five suites this branch owns are green five
@@ -6579,6 +6581,65 @@ runs in a row, 644 expect() calls each.
 50.38. Baselined again at that same load with this iteration's four files stashed — 40 pass, 1 fail,
 same shape. The control is iteration 3's run of the same suite at load 19: green, 1001 pass, 0 fail,
 with the launch path untouched by anything added since.
+
+## A-0: capability adds to a whole agent — iteration 5 (no item moves)
+
+Iteration 5 moved no `AGENTS-0NN` item and was not meant to. It rebased onto `grok-control-room`,
+where `f7bf14d` had added §3.3.1 to the contract, and made this branch's capability module say what
+that section requires. Recorded because the ledger's value is that a reader can tell a correction
+from a build.
+
+**The module contradicted A-0 by name.** `toolsForCapability` reads as "capability decides which
+tools an agent has", which is the exact sentence §3.3.1 exists to forbid. Renamed:
+
+```text
+toolsForCapability        -> mediaToolsForCapability
+toolsWithheldByCapability -> mediaToolsWithheldByCapability
+```
+
+An empty return now says "no media endpoints", and can no longer be read as "no tools". No caller
+existed outside this branch's own tests — `grep -rn` over `*.ts`/`*.tsx` returns nothing on the
+rebased base — so the rename broke nothing; `loops/handoff/pivot-agents.md` request 3 was carrying
+the old signature to whoever wires up `projectMcpServer.ts` and now carries the new one.
+
+**The picker is where the wrong picture forms**, so `GET /api/coding-agents/capabilities` now serves
+the native surface rather than leaving the form to know it. Four tiers, one with an empty tool list,
+implies a stripped-down agent unless the payload says otherwise.
+
+```text
+Command:  bun test server/services/boundary.test.ts server/routes/agentRoutes.test.ts
+Observed: 81 pass, 0 fail, 409 expect() calls  (74 -> 81; the 7 added are this iteration's)
+Asserted: no preset can express a subtraction — the preset key set is asserted whole, so adding a
+          "removes" field fails the suite
+          granted and withheld both range over MEDIA_TOOLS and nothing else, all four combinations
+          no MEDIA_TOOLS name collides with PROJECT_MCP_TOOLS, so gating media cannot silently gate
+          a tool every agent must have
+          every spendNote says "full Grok Build agent", and base Grok says it before it says what
+          it cannot spend on
+          the A-0 explanation is grepped out of boundary.ts, so deleting it fails a test
+```
+
+**The load-flake diagnosis carried in this ledger since iteration 1 was wrong.** `c9b9edc`
+(SHELL-016) found the cause: a worktree has no `.env` — it is gitignored, so `git worktree add`
+never copied it — and every test that spawns `grok` was running unauthenticated, retrying a 401
+until the 5000 ms limit. Reproduced here, and the control runs the wrong way round for contention:
+
+```text
+no environment,  load 11.00     1012 pass, 10 fail — every failure a grok-spawning test
+.env sourced,    load 19.26     1022 pass,  0 fail, exit 0
+```
+
+Higher load, green. Load only ever decided *which* tests were slow enough to trip the timeout, which
+is what made contention look like a sufficient explanation for three iterations. The notice in
+`loops/handoff/pivot-agents.md` is marked superseded rather than deleted, so a reconciler who reads
+"contention" in another document finds the correction attached to it.
+
+**Gate at iteration 5, on the rebased base:** `set -a; . <main>/.env; set +a && bun run verify` —
+**exit 0, 1397 pass, 0 fail across 72 files**, both typechecks, the production build and all four
+audits (0 orphans; every endpoint has a caller; 0 unclassified indicators and 0 dead controls; every
+citation resolves). The 72 files and 1397 tests are the whole control room after the rebase, not
+this branch alone.
+
 # §23 ASSETS — the AS-0NN ledger
 
 Loop `loops/02-assets.md`, branch `pivot/assets`. This section is appended by that loop alone. The
