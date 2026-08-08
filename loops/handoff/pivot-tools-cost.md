@@ -382,3 +382,151 @@ supplies it; that request will be exact once COST-005 defines the derivation.
 `formatCharge` is landed but **not yet the only money formatter** — the three sites above still
 format their own. COST-015's audit (a gate check that fails when any other component formats
 currency) must not be added until those three are converted, or it fails the gate on arrival.
+
+---
+
+## Iteration 4 — 2026-08-08
+
+Item worked: **COST-004**. The ledger exists, is append-only, and is proven. The item is **NOT
+TESTED, not PASS**, for the same reason as COST-003: the last mile is in files this loop may not
+edit. **This is now the third item in a row blocked the same way — see section 4, which is the most
+important thing in this handoff.**
+
+### 1. What is done: `server/services/costLedger.ts`
+
+The repository's first persisted charge. 16 tests in `costLedger.test.ts` beside it.
+
+```text
+getCostLedger().record(input) -> CostEvent      synchronous, append-only, never throws
+getCostLedger().all()         -> CostEvent[]
+getCostLedger().query(filter) -> CostEvent[]    projectId agentId areaId taskId assetId
+                                                assetType operation from to
+
+types: CostEvent, CostEventInput, CostFilter, CostOperation, CostAssetType, Pricing
+       exported from server/services/costLedger.ts (server/types/*.ts is hot)
+       UnitKind is re-exported from usageAccounting.ts, where the rate table defines it
+```
+
+Storage is **NDJSON, appended one line at a time**, not a JSON array rewritten on each save. That is
+deliberate: append-only then holds at the filesystem level rather than by convention, and a crash
+mid-write cannot corrupt rows that were already there. A test asserts the property byte-for-byte —
+the file after the second write starts with the exact bytes of the file after the first.
+
+Four behaviours worth knowing before calling it:
+
+* **`record()` never throws, including when the disk write fails.** The row comes back either way.
+  By the time it is called the money is gone; throwing would lose the record and not the charge.
+* **A provider URL in `assetPath` is dropped and the charge is still recorded.** Media URLs expire,
+  so a row holding one eventually cannot show the user what it bought. Pass the persisted path
+  `02-assets` wrote.
+* **A corrupt line loses that row and no other.** `promptLibrary.load()` swallows a parse failure
+  and presents a truncated file as an empty library; for money that would be a charge silently
+  ceasing to exist. Line-per-row storage is what makes recovering the rest possible.
+* **`pricing` is derived when absent, except `billed`.** A provider's figure looks exactly like one
+  we computed, so `billed` must be declared. An undeclared one records as `unknown`, which
+  understates rather than fabricates.
+
+Also landed, because the ledger row is finally the reader that iteration 1's handoff said it was
+waiting for: `TokenUsage.costUsdTicks` and `turnCharge(usage)` in `usageAccounting.ts`.
+`turnCharge` is the one call an ingest site makes — billed when the response carried ticks,
+estimated when a rate resolved, `unknown` when neither, and never a zero.
+
+### 2. Hot-file requests — the three ingest sites, exact diffs
+
+None of these was edited. Each is one call added, no existing line changed.
+
+**`server/services/acpSessionManager.ts`** — the live turn (:365-392):
+
+```diff
+-import { estimateCost } from "./usageAccounting";
++import { estimateCost, turnCharge } from "./usageAccounting";
++import { getCostLedger } from "./costLedger";
+@@ const estimate = estimateCost(result.usage);
+       if (result.usage.totalTokens > 0) {
+         try {
++          // One row per turn, recorded before any total is touched: the totals become sums over
++          // the ledger, and an unrecorded charge cannot be reconstructed afterwards.
++          getCostLedger().record({
++            projectId: entry.session.projectId,
++            agentId,
++            taskId: getAgentRegistry().get(agentId).currentTaskId ?? undefined,
++            operation: "turn",
++            ...turnCharge(result.usage),
++          });
+           const projectBudget = (() => {
+```
+
+**`server/routes/projects.ts`** — the planner turn (:322-330):
+
+```diff
++import { getCostLedger } from "../services/costLedger";
++import { turnCharge } from "../services/usageAccounting";
+@@ if (plannerAgent && generated.usage && generated.usage.totalTokens > 0) {
+       const estimate = estimateCost(generated.usage);
++      getCostLedger().record({
++        projectId,
++        agentId: plannerAgent.id,
++        operation: "turn",
++        ...turnCharge(generated.usage),
++      });
+       registry.recordUsage(
+```
+
+**`server/routes/agents.ts`** — the HTTP usage ingest, 01-agents' file (`POST /:agentId/usage`,
+:152-219). This one has no `TokenUsage`, only a posted `{ costUsd, tokens, estimated }`, so it
+cannot call `turnCharge`; it records what it was given:
+
+```diff
++import { getCostLedger } from "../services/costLedger";
+@@ const agent = getAgentRegistry().get(agentId);
++    getCostLedger().record({
++      projectId: agent.projectId,
++      agentId,
++      taskId: agent.currentTaskId ?? undefined,
++      operation: "turn",
++      costUsd: typeof body.costUsd === "number" ? body.costUsd : null,
++      rateKey: body.rateKey ?? null,
++      modelId: body.modelId,
++      pricing: body.pricing,
++    });
+     let projectBudget: number | undefined;
+```
+
+**For 01-agents specifically:** this endpoint's body carries no model id and no rate key, so every
+row it writes will be `unknown` until the caller sends them. If the caller is under your control,
+adding `modelId`, `rateKey` and `pricing` to the posted body is what turns those rows into real
+money. Ask here and this loop will supply the exact body shape.
+
+### 3. Recorded, not built: COST-005's derivation
+
+`agent.costUsd` and `task.costUsd` stay as they are this iteration. Making them sums over the ledger
+touches `agentRegistry.ts` (01's) and `projectStore.ts` (hot), so COST-005 is a handoff item end to
+end and will be written as diffs once the ingest above is agreed. Two counters that can disagree
+eventually will, so this should not be left half-applied: **apply the ingest and the derivation in
+the same pass, or the ledger becomes a third number rather than the source of the other two.**
+
+### 4. The pattern this loop has hit three times, and what it needs
+
+COST-003, COST-004 and COST-005 all have the same shape: the mechanism is inside this loop's rows
+and the last mile is not. The result is a branch where **the cost engine is built, tested and
+reaches no user**, which is the exact failure §7 names — nine `/api/library` endpoints with full
+HTTP coverage and zero callers, and a whole control-room UI written, tested and never imported.
+
+Nothing here is a request to widen the boundary. It is a request about **ordering at
+reconciliation**: this loop's wiring diffs should be applied in one pass, together, and then the
+gate re-run. Applied piecemeal, an ingest site without the derivation gives three disagreeing
+totals, and the derivation without the ingest gives zero.
+
+Concretely, the pass this loop needs, in this order:
+
+```text
+1  server/routes/api.ts                 mount the cost router          (when COST-007 lands)
+2  server/services/acpSessionManager.ts record() on the live turn      §2 above
+3  server/routes/projects.ts            record() on the planner turn   §2 above
+4  server/routes/agents.ts              record() on the HTTP ingest    §2 above
+5  server/services/agentRegistry.ts     agent.costUsd  <- ledger sum   COST-005, diff to follow
+6  server/services/projectStore.ts      task.costUsd   <- ledger sum   COST-005, diff to follow
+7  client/src/control-room/*.tsx        the three render sites         iteration 3 §3
+```
+
+Steps 2-6 are one atomic change. Step 7 depends on 5 and 6.

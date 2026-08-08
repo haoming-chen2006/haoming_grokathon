@@ -222,10 +222,14 @@ tiers are decided from the row, not from the path.
 
 ```text
 TOOL: 0 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED   (TOOL-001…TOOL-012)
-COST: 2 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED   (COST-001, COST-002 PASS;
-      COST-003 half done — the formatter is built and tested, the three render sites cannot
-      distinguish priced from unpriced until the ledger exists. NOT TESTED, not PASS.)
-Gate: GREEN on iteration 3. 971 pass, 0 fail, 971 tests across 51 files, exit 0, 146.5s.
+COST: 2 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED   (COST-001, COST-002 PASS)
+      COST-003 and COST-004 are each built and tested inside this loop's rows and each
+      NOT TESTED, because the last mile of both is a file this loop may not edit: the three
+      render sites, and the three ingest sites. Every diff is in the handoff. **This is the
+      loop's defining constraint, not an accident of two items** — see the handoff's
+      iteration-4 section 4 for the ordered wiring pass reconciliation has to run.
+Gate: GREEN on iteration 4. 987 pass, 0 fail, 987 tests across 52 files, exit 0, 210.7s.
+      Iteration 3 was also green at 971/971.
       Iterations 1 and 2 saw it red on 935/940, 939/943 and 938/943 — every failure a
       5000-6700ms timeout in server/routes/projectReads.test.ts or
       server/services/messaging.test.ts, both other worktrees' files, both green when run
@@ -413,9 +417,10 @@ only ever be an estimate. That is wrong: for grok-4.5 through the grok.com login
 Consequences, in order of size:
 
 * the `billed` tier of §4.2 is reachable **today**, for turns, before `04-generation` exists;
-* `extractUsage` (`:47-61`) drops the field, so nothing downstream can see it. It stays dropped
-  until COST-004 gives it a reader — a field with no reader is not a feature (§7) — and COST-004
-  must add it to the row as `costUsd` with `pricing: "billed"`, not as a fourth token count;
+* `extractUsage` (`:47-61`) dropped the field. **Surfaced on iteration 4, when COST-004's row became
+  its reader:** `TokenUsage.costUsdTicks` plus `turnCharge(usage)`, which prices a turn `billed` from
+  ticks, `estimated` from a rate, and `unknown` from neither — never a zero. It is the one call an
+  ingest site makes, so wiring the ledger into a file this loop does not own is one line;
 * it is free, permanent instrumentation for the rate table. The published rate reproduces this
   turn's billed figure **exactly**: `(12306-1408)×$2 + 1408×$0.30 + 20×$6`, per million,
   `= $0.0223384 = 223384000 ticks`. That is `meteredDeltaUsd` (COST-014) already at zero on its

@@ -13,7 +13,16 @@ export interface TokenUsage {
   cachedReadTokens: number;
   reasoningTokens: number;
   modelId?: string;
+  /**
+   * What the provider says the turn actually cost, at 10^10 ticks to the dollar. Present on a
+   * grok-4.5 turn over ACP and absent on a gpt-4o one, observed 2026-08-08 — so a turn is billed or
+   * estimated according to the response, never according to which code path produced it.
+   */
+  costUsdTicks?: number;
 }
+
+/** xAI reports billed cost in ticks; 10^10 of them make a dollar. */
+export const USD_TICKS_PER_DOLLAR = 1e10;
 
 /**
  * Where a price came from. Required on every rate: a rate with no provenance cannot be re-checked
@@ -160,6 +169,7 @@ export function extractUsage(meta: Record<string, any> | undefined): TokenUsage 
     for (const v of vals) if (typeof v === "number" && Number.isFinite(v)) return v;
     return 0;
   };
+  const ticks = usage.costUsdTicks ?? meta?.costUsdTicks;
   return {
     inputTokens: num(usage.inputTokens, meta?.inputTokens),
     outputTokens: num(usage.outputTokens, meta?.outputTokens),
@@ -167,6 +177,9 @@ export function extractUsage(meta: Record<string, any> | undefined): TokenUsage 
     cachedReadTokens: num(usage.cachedReadTokens, meta?.cachedReadTokens),
     reasoningTokens: num(usage.reasoningTokens, meta?.reasoningTokens),
     modelId: typeof meta?.modelId === "string" ? meta.modelId : undefined,
+    // Left `undefined` rather than 0 when absent: a turn that reported no billed figure and a turn
+    // that was genuinely free are different facts, and only one of them is a price.
+    costUsdTicks: typeof ticks === "number" && Number.isFinite(ticks) ? ticks : undefined,
   };
 }
 
@@ -249,4 +262,41 @@ export function meterCost(
     rateKey,
     units,
   };
+}
+
+/** What one turn cost, in the shape a ledger row wants (COST-004). */
+export interface TurnCharge {
+  costUsd: number | null;
+  pricing: "billed" | "estimated" | "unknown";
+  rateKey: string | null;
+  modelId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+}
+
+/**
+ * Price one turn, preferring what the provider billed over what we can derive.
+ *
+ * This is the single call an ingest site makes, so that wiring the ledger into a file this loop does
+ * not own is one line rather than a policy decision copied into three places. The tier comes from
+ * the response: a turn carrying `costUsdTicks` is `billed`, a turn priced from a rate is
+ * `estimated`, and a turn whose model is in no rate table is `unknown` — never a zero.
+ */
+export function turnCharge(usage: TokenUsage, rates = DEFAULT_RATES): TurnCharge {
+  const shared = {
+    modelId: usage.modelId,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cachedTokens: usage.cachedReadTokens,
+    reasoningTokens: usage.reasoningTokens,
+  };
+  const rateKey = resolveRate(usage.modelId, rates)?.[0] ?? null;
+
+  if (usage.costUsdTicks !== undefined) {
+    return { ...shared, costUsd: usage.costUsdTicks / USD_TICKS_PER_DOLLAR, pricing: "billed", rateKey };
+  }
+  if (!rateKey) return { ...shared, costUsd: null, pricing: "unknown", rateKey: null };
+  return { ...shared, costUsd: estimateCost(usage, rates).costUsd, pricing: "estimated", rateKey };
 }
