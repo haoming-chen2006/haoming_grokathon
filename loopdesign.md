@@ -62,7 +62,7 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 63
+## 2. State as of iteration 64
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
@@ -181,8 +181,17 @@ The checklist is complete. Useful work still available, in rough order of value:
    long-running flake was finally captured with `toolCalls=0` and the agent explaining that
    `exit 37` would terminate its own shell, so the status could not be captured — a correct reading
    of an ambiguous instruction in the test. Three iterations had filed it under "irreducibly
-   model-dependent"; it was a test defect, fixed with `sh -c 'exit 37'` (iteration 63). One capture
-   on the read test remains unattributed: `toolCalls=1`, agent claimed a present value was absent.
+   model-dependent"; it was a test defect, fixed with `sh -c 'exit 37'` (iteration 63).
+
+   **Name the operation, not just the goal.** The second flake said a file "does not contain a line
+   where a numeric value is assigned to x" — the wording of a *search* that missed, with one tool
+   call, from an instruction that said only "read the file". It now says "open it and read its
+   entire contents" (iteration 64). That cause is inferred from the phrasing rather than
+   demonstrated, and is recorded as probable so a recurrence can confirm or refute it.
+
+   When reviewing a live prompt, ask what a losing interpretation would look like — `exit 37` read
+   as "terminate yourself", "read the file" read as "grep it". Seven of the eight prompts admit
+   none; both that did have now failed at least once.
 
    **When safety comes from the absence of something, write that down.** `ProjectStore` is
    concurrency-safe only because no mutation contains an `await` — not from locking, not from
