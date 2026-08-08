@@ -245,6 +245,19 @@ html, body {
   overflow: hidden;
 }
 
+/*
+ * The board's ground.
+ *
+ * `design/mockups/agents-page.html` draws MAIN on the AGENTS page as a dotted field — a 22px grid
+ * of 1px dots — which is what makes the area columns read as tiles laid on a surface rather than
+ * as panels stacked in a list. It is a background-image and not a colour, so it cannot be a
+ * Tailwind token; it resolves through one all the same, and the two themes swap underneath it.
+ */
+.dotted-field {
+  background-image: radial-gradient(rgb(var(--border-strong)) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 /* React Flow canvas */
 .react-flow {
   background: rgb(var(--canvas)) !important;
