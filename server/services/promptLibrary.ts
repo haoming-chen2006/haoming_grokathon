@@ -125,6 +125,33 @@ export function composeAgentInstructions(params: {
   return sections.join("\n\n");
 }
 
+/**
+ * The `rules` text an agent's session should be opened with: its persona plus its assigned skills.
+ *
+ * Shared by the session manager and the planner because both open sessions for a configured agent,
+ * and the planner previously opened one with no rules at all — so a Planner persona could be set
+ * (both `bun run new` and the Control Room set one) and silently do nothing.
+ *
+ * An unknown skill id is skipped rather than fatal: a deleted skill must not stop an agent from
+ * starting.
+ */
+export function rulesForAgent(
+  agent: { persona?: string; skills?: string[] } | undefined,
+  library: Pick<PromptLibrary, "getSkill">,
+): string | undefined {
+  if (!agent) return undefined;
+  const skills: Skill[] = [];
+  for (const id of agent.skills ?? []) {
+    try {
+      skills.push(library.getSkill(id));
+    } catch {
+      // Skipped, not fatal.
+    }
+  }
+  const composed = composeAgentInstructions({ persona: agent.persona, skills });
+  return composed.trim() ? composed : undefined;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }

@@ -158,6 +158,14 @@ export interface RunPlannerOptions {
   cwd: string;
   port: number;
   agentId?: string;
+  /** Persona and skills of the Planner agent, appended to the session's system prompt (§14). */
+  rules?: string;
+  /**
+   * How the connection is built. Injectable so a test can read what `session/new` is actually
+   * handed: testing the composer alone proves nothing about the call site, which is how the
+   * planner came to open sessions with no rules while every unit test stayed green.
+   */
+  createConnection?: (opts: ConstructorParameters<typeof AcpConnection>[0]) => AcpConnection;
   timeoutMs?: number;
 }
 
@@ -167,13 +175,18 @@ export interface RunPlannerOptions {
  */
 export async function runPlanner(opts: RunPlannerOptions): Promise<GeneratedPlan> {
   const agentId = opts.agentId ?? "planner";
-  const conn = new AcpConnection({ agentId, cwd: opts.cwd, requestTimeoutMs: 120_000 });
+  const build = opts.createConnection ?? ((o: ConstructorParameters<typeof AcpConnection>[0]) => new AcpConnection(o));
+  const conn = build({ agentId, cwd: opts.cwd, requestTimeoutMs: 120_000 });
   try {
     conn.start();
     await conn.initialize();
-    await conn.newSession(opts.cwd, [
-      { type: "http", name: "openui-project", url: projectMcpUrl(opts.port, opts.projectId, agentId), headers: [] },
-    ]);
+    await conn.newSession(
+      opts.cwd,
+      [{ type: "http", name: "openui-project", url: projectMcpUrl(opts.port, opts.projectId, agentId), headers: [] }],
+      // The Planner's persona was configurable and reached nothing: this path opened its session
+      // with no rules, so a persona set by `bun run new` or the Control Room did nothing at all.
+      opts.rules ? { rules: opts.rules } : {},
+    );
 
     const reply = await conn.prompt(PLANNER_PROMPT, { timeoutMs: opts.timeoutMs ?? 300_000 });
     return { ...normalisePlan(extractJson(reply.text), reply.text), usage: reply.usage };

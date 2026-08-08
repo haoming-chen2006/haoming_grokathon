@@ -4335,6 +4335,73 @@ bun run verify → exit 0, 718 pass / 0 fail, four audits clean
 
 ---
 
+## The Planner's persona, and two probes I designed wrong (iteration 71)
+
+Iteration 70 deferred this deliberately: `runPlanner` passed no `rules`, so a Planner persona could
+be configured and reach nothing. The deciding argument for doing it now is that **`bun run new` and
+the Control Room both set one** — a configured value that silently does nothing, the same class as
+the per-task cap (52), `agent.tools` (54) and `onPauseAll` (55).
+
+One composer now serves both session paths. `rulesForAgent` lives in `promptLibrary.ts` and is used
+by the session manager and by the plan route; two composers would drift, and the drift would read
+as a persona working for task agents and not for the Planner — which is exactly the state it
+replaced.
+
+### The control experiment caught me repeating my own lesson
+
+Removing `rules:` from the route left **all 19 tests green**. Iteration 53 recorded the rule —
+*test the call site, not the argument builder* — and this had tested only the builder.
+
+Fixed the way that iteration fixed it: `runPlanner` now takes an injectable connection factory, and
+five tests read what `session/new` is actually handed.
+
+```text
+rules reach session/new when supplied
+no rules are sent when the agent has none, rather than an empty string
+the project MCP server is handed over at the planner's own URL and port
+the turn's usage is returned so it can be charged
+the session opens in the repository it was told to plan for
+```
+
+### Two probes designed wrong, both mine
+
+I tried to prove end to end that the persona reaches the planning session, and failed twice:
+
+```text
+probe 1   persona: "Always give the first task the exact id PROBE_FIRST"
+          → ids came back t1, t2
+          The prompt's schema shows "id": "t1" as a concrete example, and normalisePlan fills the
+          field when the model omits it. A persona cannot outvote a worked example.
+
+probe 2   persona: "Begin every task objective with 'PROBE_FIRST: '"
+          → objectives came back unprefixed
+          A formatting instruction in a system-level persona loses to the immediate prompt's
+          demand for a specific JSON shape.
+```
+
+Before concluding the wiring was broken I checked that the route still contained the fix — it did —
+and that the mechanism works: **iteration 59's step 10 already proves `rules` reach a session**,
+using the same mechanism with a fact only the rules could supply. So the wiring was never in doubt;
+the probes were.
+
+The probe was removed rather than forced. What the acceptance run now asserts is the actual risk of
+this change — that **a plan still parses with a persona applied** — and the end-to-end proof that
+rules reach a session stays where it already worked. Recording the two failures because the lesson
+is about probe design: **a probe must ask for something nothing else in the system also decides.**
+
+### One honest note on the acceptance run
+
+One run failed at `commit failed` — the agent did not edit the file that time — and passed on
+re-run. That step depends on a live agent performing a task, which is irreducible; it is noted
+rather than presented as a clean sweep.
+
+```text
+bun run verify → exit 0, 727 pass / 0 fail, four audits clean
+bun run acceptance → all 20 steps
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4361,7 +4428,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 718 pass / 0 fail, 42 files;
+[x] Required tests pass.                    — 727 pass / 0 fail, 43 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -4431,9 +4498,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 89 ahead of main
+commits 91 ahead of main
 build   bun run build exit 0
-tests   718 pass / 0 fail across 42 files
+tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller
 ```
 

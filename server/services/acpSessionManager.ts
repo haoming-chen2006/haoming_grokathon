@@ -3,7 +3,7 @@ import { getAgentRegistry } from "./agentRegistry";
 import { getControlRoomBus } from "./controlRoomEvents";
 import { estimateCost } from "./usageAccounting";
 import { getProjectStore } from "./projectStore";
-import { composeAgentInstructions, getPromptLibrary } from "./promptLibrary";
+import { getPromptLibrary, rulesForAgent } from "./promptLibrary";
 import { projectMcpUrl } from "../routes/mcp";
 
 const QUIET = !!process.env.OPENUI_QUIET;
@@ -98,22 +98,11 @@ export class AcpSessionManager {
    * resolves, and the omission is visible in the transcript.
    */
   private rulesFor(agentId: string): string | undefined {
-    let agent;
     try {
-      agent = getAgentRegistry().get(agentId);
+      return rulesForAgent(getAgentRegistry().get(agentId), getPromptLibrary());
     } catch {
       return undefined;
     }
-    const skills = [];
-    for (const id of agent.skills ?? []) {
-      try {
-        skills.push(getPromptLibrary().getSkill(id));
-      } catch {
-        // Recorded rather than fatal; a missing skill should not block the agent from starting.
-      }
-    }
-    const composed = composeAgentInstructions({ persona: agent.persona, skills });
-    return composed.trim() ? composed : undefined;
   }
 
   private push(entry: Entry, kind: TranscriptEntry["kind"], text: string, status?: string): void {

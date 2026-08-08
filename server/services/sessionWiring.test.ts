@@ -5,7 +5,7 @@ import { join } from "path";
 import { AcpSessionManager } from "./acpSessionManager";
 import { ProjectStore, getProjectStore } from "./projectStore";
 import { getAgentRegistry } from "./agentRegistry";
-import { getPromptLibrary } from "./promptLibrary";
+import { getPromptLibrary, rulesForAgent } from "./promptLibrary";
 
 /**
  * What a launched agent is actually handed at session/new.
@@ -322,5 +322,46 @@ describe("live turns record cost against the task (§16)", () => {
 
     expect(store.getProject(projectId).tasks.find((t) => t.id === "t-live")!.costUsd).toBe(0);
     expect(getAgentRegistry().get(agent.id).costUsd).toBeGreaterThan(0);
+  });
+});
+
+describe("one composer serves both session paths (§14)", () => {
+  test("persona and skills compose in order, with the persona first", () => {
+    const skill = getPromptLibrary().createSkill({ name: "Decompose", instructions: "Small tasks." });
+    const rules = rulesForAgent(
+      { persona: "Break work into reviewable pieces.", skills: [skill.id] },
+      getPromptLibrary(),
+    )!;
+    expect(rules).toContain("# Persona");
+    expect(rules).toContain("# Skill: Decompose");
+    expect(rules.indexOf("# Persona")).toBeLessThan(rules.indexOf("# Skill:"));
+  });
+
+  test("an agent with neither yields nothing rather than an empty header", () => {
+    expect(rulesForAgent({}, getPromptLibrary())).toBeUndefined();
+    expect(rulesForAgent(undefined, getPromptLibrary())).toBeUndefined();
+  });
+
+  test("a deleted skill is skipped, not fatal", () => {
+    // Refusing to open a session because a skill was removed would strand the agent.
+    const skill = getPromptLibrary().createSkill({ name: "Real", instructions: "Do it." });
+    const rules = rulesForAgent({ persona: "P", skills: [skill.id, "skill_gone"] }, getPromptLibrary())!;
+    expect(rules).toContain("# Skill: Real");
+  });
+
+  test("the session manager and the planner get identical rules for the same agent", () => {
+    // Two composers would drift, and the drift would show as a persona working in one path and
+    // not the other — which is exactly the state this replaced.
+    const skill = getPromptLibrary().createSkill({ name: "Shared", instructions: "Same text." });
+    const agent = getAgentRegistry().create({
+      projectId, name: "Planner", role: "Planner", persona: "Plan carefully.", skills: [skill.id],
+    });
+
+    const manager = new AcpSessionManager(() => "/tmp/wt");
+    const viaManager = (manager as any).rulesFor(agent.id) as string;
+    const viaPlanner = rulesForAgent(getAgentRegistry().get(agent.id), getPromptLibrary());
+
+    expect(viaManager).toBe(viaPlanner!);
+    expect(viaManager).toContain("Plan carefully.");
   });
 });

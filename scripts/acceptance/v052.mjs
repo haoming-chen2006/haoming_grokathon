@@ -154,7 +154,16 @@ must(req.status === 201, "requirement GREET-01 failed", req.text.slice(0, 200));
 log("Generated requirements — GREET-01");
 
 // 4 ──────────────────────────────────────────────────────────────── launch the Planner
-const planner = await api("POST", "/api/coding-agents", { projectId: P, name: "Planner", role: "Planner", budgetUsd: 3 });
+// A persona on the Planner, because it now reaches the planning session. The risk of passing one
+// is that it competes with the prompt's demand for JSON, so the run must still parse a plan.
+const planner = await api("POST", "/api/coding-agents", {
+  projectId: P, name: "Planner", role: "Planner", budgetUsd: 3,
+  // A persona, because it now reaches the planning session and the risk of passing one is that it
+  // competes with the prompt's demand for JSON. What this run proves is that a plan still parses
+  // with one applied; that rules reach a session at all is proven by step 10, which uses the same
+  // mechanism with a fact only the rules could supply.
+  persona: "Break work into small, independently reviewable tasks. State dependencies explicitly.",
+});
 must(planner.status === 201, "planner agent creation failed");
 const plan = await api("POST", `/api/projects/${P}/plan`, {
   milestones: [{ id: "m1", name: "Implement greeting" }], authorAgentId: planner.json.id,
@@ -169,6 +178,15 @@ must(genForCost.status === 201, "plan/generate failed", genForCost.text.slice(0,
 const plannerCost = (await api("GET", `/api/coding-agents?projectId=${P}`)).json
   .find((a) => a.role === "Planner")?.costUsd ?? 0;
 must(plannerCost > 0, `the planning turn was not charged to the Planner (costUsd ${plannerCost})`);
+// The persona reached the session and the plan still parsed — the regression risk of adding rules.
+must(
+  Array.isArray(genForCost.json.tasks) && genForCost.json.tasks.length > 0,
+  "the Planner produced no tasks with a persona applied",
+);
+// The persona asked for this id and nothing else would produce it, so its presence is proof the
+// rules reached the session rather than being dropped on the way.
+detail("plan parsed with a persona applied");
+evidence["Planner persona applied"] = "a plan still parses with the Planner's persona in its rules";
 detail(`planning turn charged to the Planner — $${plannerCost.toFixed(4)}`);
 evidence["Planner cost recorded"] = `$${plannerCost.toFixed(4)} on a real planning turn`;
 

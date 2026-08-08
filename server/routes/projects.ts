@@ -16,6 +16,7 @@ import { runPlanner, uncoveredRequirements } from "../services/planner";
 import { reviewSubmission } from "../services/designReview";
 import type { Actor } from "../types/project";
 import { estimateCost } from "../services/usageAccounting";
+import { getPromptLibrary, rulesForAgent } from "../services/promptLibrary";
 
 export const projectRoutes = new Hono();
 
@@ -289,6 +290,7 @@ projectRoutes.post("/:id/plan/generate", async (c) => {
       cwd: project.repositoryPath,
       port: Number(process.env.PORT) || 6968,
       agentId: plannerId,
+      rules: rulesForAgent(plannerAgent, getPromptLibrary()),
     });
 
     // Recorded before the plan is persisted: the tokens were spent whether or not the parse
