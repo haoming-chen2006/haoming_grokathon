@@ -43,6 +43,11 @@ export function costOf(asset: MockAsset): { usd: number; unpriced: number } {
 }
 
 export function formatCost(asset: MockAsset): string {
+  // No charges at all is not a price of zero. A user upload cost nothing because no agent ran, and
+  // rendering "$0.00" there reads as a figure we computed — which is how a fabricated number gets
+  // into a UI that was careful everywhere else. Caught by a smoke render, which found "$0.00" on
+  // the page an hour after this module was written to prevent exactly that.
+  if (asset.charges.length === 0) return "—";
   const { usd, unpriced } = costOf(asset);
   if (unpriced > 0 && usd === 0) return "unknown";
   if (unpriced > 0) return `$${usd.toFixed(2)} + unpriced`;

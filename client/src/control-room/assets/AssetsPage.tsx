@@ -2,13 +2,16 @@
  * ASSETS — MAIN. Mounted by the shell through `WorkspacePageComponent`.
  *
  * Everything an agent produces lands here, previewed as itself. The page receives exactly
- * `{ projectId, selectionId, onSelect }` and holds no state of its own: the selection is in the
- * URL, so a deep link, the browser back button and a notification all land on the same asset.
+ * `{ projectId, selectionId, onSelect }`. The SELECTION is in the URL, never in this component, so
+ * a deep link, the browser back button and an agent's notification all land on the same asset.
+ * The type filter is local state, and that is the line: a selection is a location, a filter is a
+ * preference, and only the first belongs in the URL.
  */
+import { useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { AssetPreview } from "./AssetPreview";
-import { TYPE_LABELS, type MockAsset } from "./mockAssets";
-import { formatCost, useAssets } from "./useAssets";
+import { TYPE_LABELS, type MockAsset, type MockAssetType } from "./mockAssets";
+import { byType, formatCost, useAssets } from "./useAssets";
 
 /** The mono, tracked, uppercase micro-label the shell uses for every region heading. */
 function Label({ children }: { children: React.ReactNode }) {
@@ -88,8 +91,83 @@ function AssetCard({
   );
 }
 
+/**
+ * The selected deliverable, large.
+ *
+ * A 190px card is enough to recognise a deck; it is not enough to read one. Selecting an asset
+ * opens it at a size where the thing itself is legible, with the grid still underneath — the
+ * inspector answers "where did this come from", and this answers "what is it".
+ */
+function OpenAsset({ asset, onClose }: { asset: MockAsset; onClose(): void }) {
+  return (
+    <section
+      data-testid="asset-open"
+      className="flex min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-accent"
+    >
+      <header className="flex shrink-0 items-baseline gap-3 border-b border-border px-4 py-2">
+        <span className="min-w-0 truncate text-[15px] text-ink">{asset.title}</span>
+        <Label>{TYPE_LABELS[asset.type].replace(/s$/, "")}</Label>
+        <span className="ml-auto shrink-0 font-mono text-[11px] text-ink-muted">
+          {formatCost(asset)}
+        </span>
+        <button
+          type="button"
+          data-testid="asset-open-close"
+          onClick={onClose}
+          aria-label="Close this deliverable"
+          className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-ink-faint hover:bg-surface-hover"
+        >
+          Close
+        </button>
+      </header>
+      <div className="h-[340px] shrink-0 overflow-auto bg-surface">
+        <AssetPreview body={asset.body} />
+      </div>
+    </section>
+  );
+}
+
+/** Filter chips. Local view state on purpose: it is a preference, not a location. */
+function TypeFilter({
+  counts,
+  active,
+  onPick,
+}: {
+  counts: { type: MockAssetType; items: MockAsset[] }[];
+  active: MockAssetType | "all";
+  onPick(next: MockAssetType | "all"): void;
+}) {
+  const chip = (key: MockAssetType | "all", label: string, count: number) => (
+    <button
+      key={key}
+      type="button"
+      data-testid={`asset-filter-${key}`}
+      onClick={() => onPick(key)}
+      aria-pressed={active === key}
+      className={`rounded-full border px-2.5 py-[2px] text-[12px] ${
+        active === key
+          ? "border-accent text-ink"
+          : "border-border text-ink-faint hover:bg-surface-hover"
+      }`}
+    >
+      {label} <span className="font-mono text-[10px] text-ink-ghost">{count}</span>
+    </button>
+  );
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-5 pt-4">
+      {chip("all", "All", counts.reduce((n, c) => n + c.items.length, 0))}
+      {counts.map((c) => chip(c.type, TYPE_LABELS[c.type], c.items.length))}
+    </div>
+  );
+}
+
 export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
   const { assets, usingMockData } = useAssets(projectId);
+  const [filter, setFilter] = useState<MockAssetType | "all">("all");
+
+  const counts = byType(assets);
+  const open = assets.find((a) => a.id === selectionId);
+  const shown = filter === "all" ? assets : assets.filter((a) => a.type === filter);
 
   if (assets.length === 0) {
     return (
@@ -115,8 +193,16 @@ export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
           Sample data — the assets service is not wired to this page yet.
         </div>
       ) : null}
-      <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-4 overflow-auto p-5 xl:grid-cols-2">
-        {assets.map((asset) => (
+      <TypeFilter counts={counts} active={filter} onPick={setFilter} />
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-5">
+        {open ? <OpenAsset asset={open} onClose={() => onSelect(undefined)} /> : null}
+        {shown.length === 0 ? (
+          <p className="py-8 text-center text-[13px] text-ink-faint">
+            No {TYPE_LABELS[filter as MockAssetType].toLowerCase()} yet.
+          </p>
+        ) : null}
+        <div className="grid grid-cols-1 content-start gap-4 xl:grid-cols-2">
+        {shown.map((asset) => (
           <AssetCard
             key={asset.id}
             asset={asset}
@@ -124,6 +210,7 @@ export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
             onSelect={onSelect}
           />
         ))}
+        </div>
       </div>
     </div>
   );
