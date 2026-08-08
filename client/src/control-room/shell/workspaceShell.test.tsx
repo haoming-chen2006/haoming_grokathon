@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { workspaceUrl } from "./contract";
 import { PAGES } from "./pages";
-import { navigate } from "./router";
+import { DEFAULT_PAGE, navigate } from "./router";
 import { Notifications, WorkspaceShell } from "./WorkspaceShell";
 import { NAVIGATOR } from "./regions";
 
@@ -75,7 +75,12 @@ describe("the three regions", () => {
     // element will contain that page's markup, and a blanket "no buttons in the inspector" rule
     // asserted here would fail on their branch for a judgement made on this one. The rule for
     // page-supplied inspectors is stated in loops/handoff/pivot-shell.md, where they can read it.
-    expect(PAGES.every((p) => p.inspector === undefined)).toBe(true);
+    //
+    // 08-users-x: that is exactly what happened — USERS now supplies an inspector, and the
+    // blanket `PAGES.every(p => p.inspector === undefined)` that stood here failed on this branch
+    // for a judgement made on 07-shell's. Narrowed to the page actually mounted, which is what the
+    // paragraph above asks for and what keeps the two assertions below meaningful.
+    expect(PAGES.find((p) => p.id === DEFAULT_PAGE)?.inspector).toBeUndefined();
     expect(inspector.querySelectorAll("button").length).toBe(0);
     expect(inspector.querySelectorAll("a").length).toBe(0);
   });
@@ -205,13 +210,33 @@ describe("location is in the URL", () => {
 
 describe("an unmerged page is stated, never faked", () => {
   test("every slot says which branch builds it, and shows no empty list or spinner", async () => {
-    for (const page of PAGES) {
+    // Only the pages that have not merged. 08-users-x narrowed this from `PAGES`: the rule is
+    // "an UNMERGED page is stated, never faked", and once a page merges there is nothing left to
+    // state about it. Iterating all five made the test assert that nothing had merged, which was
+    // true on 07-shell's branch and is a fact about the calendar rather than about the shell.
+    const unmerged = PAGES.filter((p) => !p.main);
+    expect(unmerged.length).toBeGreaterThan(0);
+
+    for (const page of unmerged) {
       atUrl(workspaceUrl(page.id));
       await mount();
       const notice = screen.getByTestId("not-merged-yet");
       expect(notice.textContent).toContain(page.label);
       expect(notice.textContent).toContain(page.builtBy!);
       expect(notice.textContent).toContain("not in this build");
+      cleanup();
+    }
+  });
+
+  test("a merged page renders itself, and the notice is gone rather than behind it", async () => {
+    // The counterpart the test above needs to still mean something. Without it, deleting the
+    // NotMergedYet component entirely would leave the suite green for every merged page.
+    const merged = PAGES.filter((p) => p.main);
+    for (const page of merged) {
+      atUrl(workspaceUrl(page.id));
+      await mount();
+      expect(screen.queryByTestId("not-merged-yet")).toBeNull();
+      expect(screen.getByTestId("main").textContent?.length).toBeGreaterThan(0);
       cleanup();
     }
   });
