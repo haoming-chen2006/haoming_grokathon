@@ -17,6 +17,7 @@
  */
 import { useEffect, useState } from "react";
 import type { PageDescriptor, ToolsSection, WorkspacePageProps } from "./contract";
+import { GuideModal } from "./GuideModal";
 import { NotMergedYet } from "./NotMergedYet";
 import { PAGES, TOOLS_PANEL } from "./pages";
 import { INSPECTOR, NAVIGATOR, RAIL, layout, useRegion } from "./regions";
@@ -366,6 +367,7 @@ export function WorkspaceShell() {
   const navigator = useRegion(NAVIGATOR.key);
   const inspector = useRegion(INSPECTOR.key);
 
+  const [guideOpen, setGuideOpen] = useState(false);
   const [available, setAvailable] = useState(() =>
     typeof window === "undefined" ? 1280 : window.innerWidth,
   );
@@ -423,6 +425,15 @@ export function WorkspaceShell() {
         >
           Tools
           <span aria-hidden="true" className="font-mono text-[10px] text-ink-ghost">⌘T</span>
+        </button>
+        <button
+          type="button"
+          data-testid="guide-open"
+          onClick={() => setGuideOpen(true)}
+          aria-label="Open the welcome guide"
+          className="grid h-6 w-6 place-items-center rounded-[5px] border border-border text-[13px] text-ink-faint hover:bg-surface-hover"
+        >
+          ?
         </button>
         <button
           type="button"
@@ -517,6 +528,8 @@ export function WorkspaceShell() {
           </aside>
         )}
       </div>
+
+      {guideOpen ? <GuideModal page={page.id} onClose={() => setGuideOpen(false)} /> : null}
     </div>
   );
 }
