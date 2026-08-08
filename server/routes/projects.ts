@@ -311,12 +311,17 @@ projectRoutes.post("/:id/plan/generate", async (c) => {
       { milestones: generated.milestones.map((m) => ({ id: m.id, name: m.name, ownerAgentId: undefined })), authorAgentId: body?.agentId ?? "planner" },
       { kind: "user", id: "user" },
     );
+    // The Planner assigns a role to every task; resolve it to an agent on this project so the
+    // plan is launchable. Without this a user approves a plan and every task is refused with
+    // NO_AGENT, with nothing in the product to assign one — the plan is approved and inert.
+    const byRole = new Map(registry.list(projectId).map((a) => [a.role, a.id]));
     for (const task of generated.tasks) {
       try {
         store.addTask(
           projectId,
           {
             id: task.id, objective: task.objective, requirementId: task.requirementId,
+            assignedAgentId: byRole.get(task.role),
             dependsOn: task.dependsOn, expectedFiles: task.expectedFiles, requiredTests: task.requiredTests,
           },
           { kind: "user", id: "user" },

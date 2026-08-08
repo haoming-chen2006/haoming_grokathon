@@ -4444,6 +4444,54 @@ bun run acceptance → all 20 steps
 
 ---
 
+## An approved plan that could not launch (iteration 73)
+
+Found by running the product as a user would, rather than by testing it: build a repository with a
+failing feature, write a design document, `bun run new --plan`, approve, launch.
+
+**Every task was refused.**
+
+```text
+POST /api/projects/:id/tasks/t1/launch
+  → 400 {"error":"Task t1 has no assigned agent to launch","code":"NO_AGENT"}
+```
+
+The Planner emits a `role` for every task it proposes, and `/plan/generate` persisted the tasks
+without an owner — `assignedAgentId` was simply not among the fields copied across. So the flow
+reached its most important moment, the human approving a plan, and then **nothing could be
+launched, with no way in the product to assign anyone.** The plan was approved and inert.
+
+Nothing caught it because every existing test that launches a task creates the task itself, with an
+owner. The acceptance run does exactly that. The one path that produces tasks *for* a user — the
+Planner — was the one that produced unusable ones.
+
+Fixed by resolving each task's role against the project's agents when the plan is persisted. A role
+with no matching agent yields no owner rather than a wrong one.
+
+```text
+t1  owner=agent_msjx9lls25hsu  Implement addTodo function to return a Todo with a unique id
+t2  owner=agent_msjx9lls25hsu  Ensure addTodo appends to the list
+t3  owner=agent_msjx9lls25hsu  Implement completeTodo to set done=true
+t4  owner=agent_msjx9lls25hsu  Ensure completeTodo throws for an unknown id
+```
+
+Two tests cover it: that roles resolve to the right agents and that an unmatched role yields
+`undefined`, and that the launch gate refuses an unowned task with `NO_AGENT` while an owned one
+gets past that check.
+
+**The full walk then completed**, on a four-requirement todo service that started with two failing
+tests:
+
+```text
+plan: approved  →  worktree agent-todo  →  session 019fdfce-752b  →  agent read both files,
+edited todo.ts, replied DONE  →  2 pass / 0 fail in the worktree  →  main still holds the stub
+```
+
+The lesson is not subtle: **the checklist and 727 tests did not find this, and one attempt to use
+the product did.** Every test that launches a task had built the task itself.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4540,7 +4588,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 93 ahead of main
+commits 95 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller

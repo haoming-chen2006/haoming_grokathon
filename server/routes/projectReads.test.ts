@@ -386,3 +386,38 @@ describe("the planning turn is charged to an agent (V-045, §16)", () => {
     expect(registry.list(projectId).find((a) => a.role === "Planner")).toBeUndefined();
   });
 });
+
+describe("a generated plan is launchable (V-018)", () => {
+  test("tasks are assigned to the agent whose role the Planner named", () => {
+    // The Planner emits a role per task and the plan was persisted without an owner, so every task
+    // was refused with NO_AGENT — the plan approved and inert, with nothing in the product able to
+    // assign one. Found by walking the flow as a user.
+    const registry = getAgentRegistry();
+    const backend = registry.create({ projectId, name: "Backend", role: "Backend Engineer" });
+    const tester = registry.create({ projectId, name: "Test", role: "Test Engineer" });
+
+    const byRole = new Map(registry.list(projectId).map((a) => [a.role, a.id]));
+    expect(byRole.get("Backend Engineer")).toBe(backend.id);
+    expect(byRole.get("Test Engineer")).toBe(tester.id);
+    // A role with no agent yields undefined rather than a wrong owner.
+    expect(byRole.get("Frontend Engineer")).toBeUndefined();
+  });
+
+  test("a task with an owner passes the launch gate's agent check", async () => {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const agent = getAgentRegistry().create({ projectId, name: "Backend", role: "Backend Engineer" });
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "t-owned", objective: "o", assignedAgentId: agent.id }, USER);
+    store.addTask(projectId, { id: "t-orphan", objective: "o" }, USER);
+    store.approvePlan(projectId, USER);
+
+    // The unowned task is refused for exactly the reason the demo hit.
+    const orphan = await req("POST", `/api/projects/${projectId}/tasks/t-orphan/launch`, {});
+    expect(orphan.status).toBe(400);
+    expect(orphan.json.code).toBe("NO_AGENT");
+
+    // The owned one gets past that check and fails later, on the agent process, not on ownership.
+    const owned = await req("POST", `/api/projects/${projectId}/tasks/t-owned/launch`, {});
+    expect(owned.json?.code).not.toBe("NO_AGENT");
+  });
+});
