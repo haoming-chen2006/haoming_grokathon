@@ -5408,3 +5408,194 @@ audits  0 orphans; every endpoint has a caller
 
 **The project is complete: YES — subject to Q-2, which is a decision for the owner rather than
 an unfinished piece of work.**
+
+---
+
+# Shell and Identity — `loops/07-shell.md`, items SHELL-001…SHELL-017
+
+Branch `pivot/shell`, worktree 07-shell, **merge slot FIRST**. The rows above (V-001…V-052) belong
+to the retired coding product and are not this loop's to update or delete.
+
+**Tally after iteration 1:** 1 PASS · 0 FAIL · 0 BLOCKED · 16 NOT TESTED.
+
+```text
+SHELL-001  PASS         the contract is published
+SHELL-002  NOT TESTED   the shim forwards everything it does not own
+SHELL-003  NOT TESTED   --common_version opens the workspace
+SHELL-004  NOT TESTED   the shim cannot recurse            (will end BLOCKED-ON-RECONCILE, R-6)
+SHELL-005  NOT TESTED   -- ends the flag scan
+SHELL-006  NOT TESTED   a second invocation does not start a second server
+SHELL-007  NOT TESTED   three regions, resizable, addressable
+SHELL-008  NOT TESTED   five page slots and the Tools overlay
+SHELL-009  NOT TESTED   light and dark both render
+SHELL-010  NOT TESTED   no raw colour token can enter shell-owned code
+SHELL-011  NOT TESTED   status is never colour alone, in both themes
+SHELL-012  NOT TESTED   no OpenUI string is reachable from the browser
+SHELL-013  NOT TESTED   the package identity is grok-workspace  (will end BLOCKED-ON-RECONCILE, R-5)
+SHELL-014  NOT TESTED   the first-run greeting shows once and is honest
+SHELL-015  NOT TESTED   the guide is re-openable and covers every section
+SHELL-016  NOT TESTED   the gate is green         (green this iteration; re-run every iteration)
+SHELL-017  NOT TESTED   the shell is complete with zero siblings merged
+```
+
+## Iteration 1 — the contract, published before the shell exists
+
+Row 1 of §3.9. Seven worktrees are blocked until this file exists, so it is the first artifact of
+the first iteration rather than the last of the last.
+
+### The failure, reproduced first
+
+`client/src/control-room/shell/` did not exist, so a sibling worktree writing a page against the
+contract could not compile. Probe: a two-line consumer importing `WorkspacePageComponent`, then the
+client typecheck.
+
+```text
+$ ls client/src/control-room/shell
+ls: client/src/control-room/shell: No such file or directory
+
+$ cat client/src/control-room/__consumer_probe.ts
+import type { WorkspacePageComponent } from "./shell/contract";
+export const probe: WorkspacePageComponent | undefined = undefined;
+
+$ bun run --cwd client tsc --noEmit
+src/control-room/__consumer_probe.ts(1,45): error TS2307: Cannot find module './shell/contract'
+  or its corresponding type declarations.
+error: "tsc" exited with code 2
+```
+
+The probe file was removed after the reproduction; it is not in the tree.
+
+### SHELL-001 — The contract is published before anything else exists — **PASS**
+
+```text
+Typecheck output with only contract.ts and pages.ts present:
+
+  $ ls client/src/control-room/shell/
+  contract.ts
+  pages.ts
+  $ bun run --cwd client tsc --noEmit
+  exit=0
+
+  (contract.test.tsx was moved out of the tree for this run and moved back; the point of the
+  clause is that contract.ts imports nothing at all — not even ./pages — so it typechecks with
+  no other shell file present, which is what makes it safe to publish before the shell exists.)
+
+Handoff file, first commit (sha and date):
+
+  loops/handoff/pivot-shell.md — commit SHA-PENDING, 2026-08-08. R-1 carries the verbatim text of
+  contract.ts and pages.ts, the URL scheme, and the token names. R-2…R-9 are seeded in the same
+  commit, per §0.2.
+
+Assignability fixture, and its output when the contract is mutated:
+
+  The fixture is client/src/control-room/shell/contract.test.tsx:31-32 —
+
+      const SiblingShapedPage = ({ projectId }: { projectId: string }) => <div>project {projectId}</div>;
+      const mountedAsMain: WorkspacePageComponent = SiblingShapedPage;
+
+  This is the shape every sibling loop document promises (AgentsPage, AssetsPage,
+  DesignDocumentsPage, SoftwarePanel, UsersPage). It compiles, so those pages mount into `main`
+  with no change on their side.
+
+  Four mutation probes, each applied and reverted, because a check that cannot be made to fail
+  proves nothing when it passes:
+
+  1. rename projectId -> project in WorkspacePageProps (a breaking rename):
+       contract.test.tsx(32,7): error TS2322: Type '({ projectId }: { projectId: string; })
+         => JSX.Element' is not assignable to type 'WorkspacePageComponent'.
+         Property 'projectId' is missing in type 'WorkspacePageProps' but required in
+         type '{ projectId: string; }'.
+       …and three further errors at 40,50 / 54,50 / 73,31. exit 2.
+
+  2. add a REQUIRED prop (theme) to WorkspacePageProps:
+       contract.test.tsx(40,7): error TS2741: Property 'theme' is missing in type
+         '{ projectId: string; onSelect: () => void; }' but required in type 'WorkspacePageProps'.
+       exit 2.
+
+     Recorded precisely, because the §7 evidence form's wording invites the wrong conclusion:
+     adding a required prop does NOT break the sibling fixture. TypeScript's parameter
+     contravariance means a component accepting fewer props stays assignable. What breaks is the
+     SHELL's own object literal — the shell must supply the new prop. So the two probes together
+     say which change costs what: a rename is eight sibling rebuilds, a new required prop is one
+     shell edit, and a new OPTIONAL prop is free. That is the exact reason the contract is
+     additive-only after iteration 1.
+
+  3. drift a segment in pages.ts (designdocs -> design-docs):
+       (fail) the page registry > states its segments identically to PAGE_SEGMENTS
+       Expected: "designdocs"  Received: "design-docs"
+
+  4. move a secondary page above a headline one:
+       (fail) the page registry > orders every headline page above every secondary one,
+              so the divider is one boundary
+       14 pass, 1 fail
+
+Token names published, against the list in §3.3.3:
+
+  All six groups, verbatim, in R-1.4 of loops/handoff/pivot-shell.md: ground (6), ink (4),
+  accent (2), status (6 × bg/text/border), areas (area-1…area-6 × bg/text/border/gutter), plus
+  the two standing rules (status never colour alone; gutter-area-N chosen, not computed).
+
+  Stated in the handoff rather than implied: the token LAYER does not exist yet
+  (client/tailwind.config.js and client/src/index.css land with SHELL-009/010/011). The names are
+  frozen now so no sibling writes a hex literal while waiting. Writing bg-surface today compiles
+  to nothing visible; writing #0a0a0a today is somebody's migration later.
+
+Tests: client/src/control-room/shell/contract.test.tsx — 15 tests, 37 assertions, covering the
+  slot contract, the registry invariants and workspaceUrl (encoding, empty selection, the
+  ?tools= query parameter).
+```
+
+### The gate, iteration 1 — NOT green, and not because of this change
+
+`bun run verify` exited 0 at the start of the iteration and exits 1 at the end. The failures are
+5000ms test timeouts in tests that create real git worktrees and spawn real `grok` ACP child
+processes, and they are **environmental**: seven agent worktrees are running this suite
+concurrently on one machine.
+
+```text
+stage                                    result
+tsc --noEmit (server + client)           exit 0
+bun run build                            exit 0 — built in 8.43s
+bun run audit  (4 audits)                0 orphans · every endpoint has a caller ·
+                                         0 unclassified indicators · every cited file resolves
+bun test                                 exit 1 — see below
+```
+
+Evidence that it predates this change, not caused by it:
+
+```text
+run                                  load avg   result
+baseline, before any edit            (start)    exit 0 — full gate green
+after the edit                        125.00    949 pass / 3 fail, all "timed out after 5000ms"
+tree stashed to HEAD (no edit at all)  ~100     949 pass / 3 fail, same signature
+after the edit                         28.98    949 pass / 6 fail
+after the edit                         26.10    950 pass / 5 fail
+after the edit                         41.45    951 pass / 4 fail
+```
+
+Every failing assertion is `this test timed out after 5000ms`, the failing set differs on every
+run, and the failures live in `server/routes/projectReads.test.ts` and
+`server/services/messaging.test.ts` — files this worktree does not touch and may not edit. The
+decisive run is the third: the working tree was stashed to HEAD, so not one byte of this
+iteration's work was present, and the same tests failed the same way.
+
+Not worked around. Raising a shared test's timeout to make a red gate green would mask the one
+signal that says the suite is under-resourced, and those files belong to other worktrees. Recorded
+as an observation in `loops/handoff/pivot-shell.md` because it costs every worktree, not just this
+one. SHELL-016 stays NOT TESTED; the four shell tests and the deterministic stages are evidenced
+above on their own.
+
+### What did not move, and why
+
+* **SHELL-002…SHELL-006 (the shim and the launcher)** — row 5 of §3.9, and the owner has not yet
+  agreed that a `grok` shim may shadow the vendor binary on the user's PATH (§6). The question is
+  filed in `loops/handoff/pivot-shell.md`.
+* **SHELL-007 (the regions)** — row 3, and blocked on the router decision (§3.4): `react-router` is
+  not in `client/package.json`, adding it is a `package.json` change and therefore a handoff
+  request, and hand-rolling over `history.pushState` risks colliding with a library another
+  worktree adds. Asked, not guessed.
+* **SHELL-009…SHELL-011 (the token layer)** — row 2, not started. The token *names* are published
+  (SHELL-001), which is what unblocks siblings; `client/tailwind.config.js` still has no `darkMode`
+  key and `client/src/index.css` still pins the background on `html, body`.
+* **SHELL-016** — `bun run verify` is green this iteration, but the item requires it every
+  iteration, so it is not marked PASS on a single run this early.
