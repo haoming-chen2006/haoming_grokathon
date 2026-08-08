@@ -6195,3 +6195,387 @@ navigation. Read as compatible, flagged for 03-design-docs, whose region it is.
 The full suite's only failures remain the live-Grok ACP tests (V-006, V-007, V-032, V-033, V-042,
 V-050), which spawn real `grok` processes and fail under machine contention from seven concurrent
 worktrees; zero client failures, and this work touches no server file.
+# AGENTS page — evidence ledger (branch `pivot/agents`)
+
+Items `AGENTS-001…AGENTS-018` are defined in `loops/01-agents.md` §8. The `V-0NN` rows above belong
+to the retired coding product and are not this loop's to update or delete.
+
+**Tally after iteration 4:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
+
+**PASS (1):** AGENTS-001
+**NOT TESTED (17):** AGENTS-002 … AGENTS-018. Four of them are partly evidenced and held for the
+rest — AGENTS-002 (two clauses of three), AGENTS-003 (half of one), AGENTS-007 (one of four),
+AGENTS-008 (one of two). Each entry below names the clause it is missing and why.
+
+**Blocked on hot files, all three requests filed with signatures in `loops/handoff/pivot-agents.md`:**
+
+```text
+server/services/projectStore.ts        designSection is not patchable    AGENTS-002 clause 1
+server/types/agent.ts                  no areaId, no capabilities        AGENTS-003, AGENTS-007
+server/services/projectMcpServer.ts    capability does not gate tools    AGENTS-007, AGENTS-008
+```
+
+## AGENTS-001: A work area is a record — PASS (iteration 1)
+
+```text
+Item:     AGENTS-001
+Command:  bun test server/services/workArea.test.ts server/services/boundary.test.ts \
+                   server/routes/agentRoutes.test.ts
+Observed: 34 pass, 0 fail, 187 expect() calls — five consecutive runs, no fixed sleeps.
+Reached from a launched agent or a rendered component: yes — GET and POST
+          /api/coding-agents/areas on the mounted agents router (server/routes/agents.ts),
+          exercised over HTTP in server/routes/agentRoutes.test.ts. `bun run audit` reports
+          0 orphans and every endpoint covered.
+Clause not evidenced: none.
+```
+
+**Clause 1 — the record.** `WorkArea` (`server/services/workArea.ts`) carries `id`, `projectId`,
+`name`, `colorToken`, `glyph`, `briefSectionAnchor`, `milestoneId`, `rootPath`, optional
+`ownerAgentId` and `budgetUsd`, and timestamps. Accents and glyphs are assigned from the fixed
+ordered palette in area-creation order — red and green land last and non-adjacent, asserted rather
+than described (`expect(Math.abs(tokens.indexOf("red") - tokens.indexOf("green"))).toBeGreaterThan(1)`).
+Two invariants are enforced at creation and each has a test: two areas in one project may not claim
+the same milestone, and an agent may not be hired into a second area. A missing field is refused by
+name, not anonymously.
+
+**Clause 2 — `rootPath` is stored canonicalised, and a symlink inside the root pointing outside it
+is resolved before any comparison.** `canonical()` was copied into `server/services/boundary.ts`
+from `server/routes/repository.ts` rather than re-derived; `isInsideRoot()` is the only comparison
+and canonicalises both halves. Each probe in `server/services/boundary.test.ts` asserts the naive
+string comparison first, so the test records what the guard prevents:
+
+```text
+probe                                     naive comparison   isInsideRoot
+<root>/escape -> <outside>/stolen.txt     inside  (true)     refused
+<link-to-real-root> vs realpath/note.md   outside (false)    allowed
+<root>-other/file.md                      inside  (true)     refused
+/etc/passwd                               —                  refused
+```
+
+Shown to fail before the guard, by mutation — replacing both `canonical()` calls in `isInsideRoot`
+with `resolve()`:
+
+```text
+(fail) a symlink inside the root pointing outside it is refused          Expected: false  Received: true
+(fail) a symlinked area root does not falsely refuse a path reported
+       under its real name                                               Expected: true   Received: false
+ 6 pass, 2 fail
+```
+
+And in the store, by mutation — replacing `rootPath: canonical(rootPath)` with `rootPath`: the
+symlinked-root and does-not-exist-yet tests both fail. Restored, both pass.
+
+**Clause 3 — status is derived, never stored.** `deriveAreaStatus()` is pure and total; every
+branch has a test, including the two that would otherwise fabricate a status: an owner reporting
+`complete` while milestone tasks remain reads as `waiting`, not `complete`, and an empty milestone
+(0 of 0) does not read as done. `unstaffed` carries the label "Nobody assigned" — an area nobody is
+hired into is not `idle`, because `idle` claims a session exists. Nothing writes a status: the area
+file the store persists into the data directory is read back and asserted to have no `status` key,
+and a `status` supplied at creation is discarded. Shown to fail before the change, by mutation — adding `status: "complete"` to
+the created record fails both.
+
+The derivation runs in the product, not only in a probe: `GET /api/coding-agents/areas` computes it
+on every read from the owning agent's live status and the milestone's task counts, and the HTTP test
+moves an agent from `idle` to `working` and sees the area follow, then completes both of the
+milestone's tasks and sees the area read `complete`. An `ownerAgentId` that resolves to nobody is
+reported as `unresolvedOwnerAgentId` rather than being silently rendered as unstaffed.
+
+**Registration order.** `/areas` is registered before `/:agentId`, the same mechanism `/statuses`
+and `/templates` already rely on. Shown to be load-bearing, by mutation — moving the route below
+`/:agentId` turns five of the HTTP tests red with `Expected: 200, Received: 404`.
+
+**Gate at iteration 1:**
+
+```text
+typecheck   tsc --noEmit && client tsc --noEmit          exit 0
+build       bun run build                                exit 0 — built in 2.46s
+audit       reachability / endpoints / quality / docs    exit 0 — 0 orphans, every endpoint
+                                                         covered, 0 dead controls, every citation
+                                                         resolves
+tests       agent suites                                 34 pass / 0 fail, five consecutive runs
+            server/services/agentTeam.test.ts,
+            server/services/agentRegistry.test.ts        72 pass / 0 fail
+```
+
+**One suite outside this branch's row is failing under machine load**, and it is not this branch's.
+Every failure is a 5000 ms timeout in `server/routes/projectReads.test.ts`, in a test that spawns a
+real `grok` process through `POST /api/projects/:projectId/tasks/:taskId/launch`:
+
+```text
+start of iteration   bun run verify                        exit 0 — 940 pass, 0 fail
+with this branch     bun run verify                        972 pass, 2 fail
+                       "a second task must not reuse the merged branch of the first" ×2
+this branch stashed  bun test .../projectReads.test.ts     40 pass, 1 fail
+with this branch     bun run verify (second run)           972 pass, 2 fail
+                       "launching gives the agent an isolated worktree (§9, V-009)" ×1
+                       "a second task must not reuse the merged branch of the first" ×1
+machine              load average 43.28 / 61.50 / 45.86, 18 grok and 13 bun processes
+                     (seven worktrees running at once)
+```
+
+A different pair of tests failed in each run, and the suite fails with this branch's changes
+removed, so this is contention for the machine rather than a regression. Recorded in
+`loops/handoff/pivot-agents.md` for the reconciler rather than worked around, because the file is
+adjacent to `server/routes/projects.ts`, which the partition assigns to nobody. Every suite this
+branch owns is green five runs in a row.
+
+## AGENTS-002: Every area maps to one section and one milestone — NOT TESTED (iteration 2)
+
+Two of three clauses are evidenced. The item is held, not upgraded: a partially-satisfied item is
+NOT TESTED, not PASS.
+
+```text
+Item:     AGENTS-002
+Command:  bun test server/services/workArea.test.ts server/routes/agentRoutes.test.ts
+Observed: 70 pass, 0 fail, 223 expect() calls.
+Reached from a launched agent or a rendered component: partly — POST
+          /api/coding-agents/areas/:areaId/tasks and GET /api/coding-agents/areas/coverage are
+          mounted on the agents router and exercised over HTTP. Neither has a client caller yet,
+          because the AGENTS page is A-11. G-4 is not satisfied for them and does not claim to be.
+Clause not evidenced: clause 1 — "creating an area sets Requirement.designSection for the
+          requirements it covers". Blocked on a hot file; see below.
+```
+
+**Clause 1 — `Requirement.designSection`. NOT DONE, and not worked around.** The field is declared
+(`server/types/project.ts:79`) and settable only at creation: `ProjectStore.addRequirement` accepts
+it, and `updateRequirement`'s patch is a `Pick<>` allow-list that omits it. Requirements normally
+exist before areas do — they are imported from the design document by `parseRequirements`
+(`shared/designDocument.ts`) — so area creation needs the update path, and `server/services/projectStore.ts`
+is a hot file no worktree edits directly. The one-word request, with the full signature and the
+consumer that will call it, is filed in `loops/handoff/pivot-agents.md`. No producer was built on
+the create path to claim the clause: that would be an endpoint the product does not use, standing in
+for one it does.
+
+**Clause 2 — every task created inside an area carries that area's `milestoneId`, and the
+milestone's `taskIds` is non-empty. PASS.** `createTaskInArea()`
+(`server/services/workArea.ts`) sets `milestoneId` from the area and merges it *after* the caller's
+parameters, so the area decides which milestone its work belongs to and a caller cannot name a
+different one — the same reasoning that keeps an agent's identity off MCP tool parameters. The HTTP
+test asserts the effect rather than the response: after one `POST /areas/:areaId/tasks`, the plan's
+milestone `taskIds` equals `[task.id]`.
+
+The refusal matters as much as the write. `ProjectStore.addTask` links the task to its milestone
+with `project.plan.milestones.find((m) => m.id === task.milestoneId)?.taskIds.push(task.id)` —
+optional all the way down. A task naming a milestone that is not in the plan is stored happily, the
+relation silently does not run, and nothing reports it. That is how `Milestone.taskIds` came to be
+decorative through 900+ tests. `createTaskInArea` therefore refuses with `MILESTONE_NOT_IN_PLAN`,
+naming the area's milestone and listing the plan's, and refuses the no-plan case with the same code.
+
+**Clause 3 — sections of the brief with no area are listed as uncovered. Computed and served; not
+yet on a page.** `coverBrief()` returns the brief's sections in document order, each with the area
+covering it, plus `uncovered` and `coveredCount` — the "3 of 5 sections of your brief have nobody
+working on them" line. Served at `GET /api/coding-agents/areas/coverage?projectId=`. The rendering
+half of the clause waits for A-11, and is why the item is held.
+
+Two resolution failures are named rather than dropped, because an anchor on an area is a string a
+model wrote during team assembly and the heading is a string the user wrote:
+
+```text
+"Deck" against a brief heading "§3 Deck"     resolves, matchKind: "normalised"
+"§9 Podcast" against a brief with no such    unmatchedAreas: [{ areaId, name, briefSectionAnchor }]
+  heading                                    — the area is not silently dropped
+a second area claiming a taken section       the first keeps it; the second is reported unmatched
+a heading inside a fenced code block         not a section; a brief showing a shell transcript
+                                             would otherwise sprout headings nobody wrote
+```
+
+**Shown to fail before the change**, by mutation — each of these was applied, the suites run, and
+the mutation reverted:
+
+```text
+mutation                                            test that failed
+drop the MILESTONE_NOT_IN_PLAN guard                "a milestone that is not in the plan is refused"
+                                                    "a project with no plan at all is refused"
+                                                    (task stored, milestone.taskIds still empty)
+spread the caller's params last                     "the area decides the milestone"
+stop skipping fenced code blocks                    "a heading inside a fenced code block"
+match anchors exactly only                          "an anchor a model wrote differently"
+ 65 pass, 5 fail — restored, 70 pass, 0 fail
+```
+
+**Gate at iteration 2:** both typechecks exit 0; all four audits exit 0 — 0 orphans, 87 endpoints
+covered by a caller, 0 dead controls, every citation resolves. The five suites this branch owns are
+green five runs in a row (462 expect() calls per run).
+
+The `projectReads.test.ts` timeouts recorded under AGENTS-001 have grown with the machine's load —
+six of them in the iteration-2 full run (986 pass, 6 fail), every one a 5000 ms timeout in a test
+that spawns a real `grok` process. Reproduced decisively at baseline: with every file this branch
+touched stashed, the same suite fails five tests of the same shape (36 pass, 5 fail). Not this
+branch's, and not this branch's file to fix — recorded in `loops/handoff/pivot-agents.md`.
+
+## AGENTS-003: An agent is spawned into an area — NOT TESTED (iteration 3)
+
+The relation exists and is enforced. Everything about *spawning* is blocked on files no worktree
+owns, and is recorded as such rather than approximated.
+
+```text
+Item:     AGENTS-003
+Command:  bun test server/routes/agentRoutes.test.ts server/services/workArea.test.ts
+Observed: 79 pass, 0 fail, 259 expect() calls.
+Reached from a launched agent or a rendered component: partly — PATCH
+          /api/coding-agents/:agentId/area is mounted on the agents router and exercised over
+          HTTP. No client caller yet; the AGENTS page is A-11.
+Clause not evidenced: clause 1's second half (branch/worktree removed from the record), and
+          clauses 2 and 3 entirely. All three need files outside this row; see below.
+```
+
+**Clause 1 — the agent record carries `areaId`; `branch` and `worktree` no longer exist on it.
+HALF DONE.** The relation is built and enforced, on `WorkArea.ownerAgentId` rather than on the
+agent record: `CodingAgent` lives in `server/types/agent.ts`, a hot file. One writer of a relation
+is the point of putting it there, and `areaId` is requested in the handoff as a mirror for display,
+not as a second authority. Deleting `branch`/`worktree` is requested in the same entry, together
+with the two callers that pass them today — one of which is the launch route and dies with A-5.
+
+`assignArea(agentId, areaId | null)` (`server/services/workArea.ts`) is the whole relation, and
+`PATCH /api/coding-agents/:agentId/area` is its surface:
+
+```text
+behaviour                                          evidence
+the area records which agent works in it           the stored record is re-read, not just the reply
+hiring into a second area is a move                the old area's ownerAgentId is cleared and
+                                                   previousAreaId names it
+an occupied area is refused                        409 AREA_OCCUPIED
+  ...and the refusal names the remedy              the message contains the exact call that frees
+                                                   it, and the test then makes that call and
+                                                   succeeds
+another project's area is refused                  409 AREA_WRONG_PROJECT, naming both projects —
+                                                   otherwise the agent's cwd would be a directory
+                                                   outside its own project
+unknown agent / unknown area                       404, and nothing is written
+re-hiring into the area already held               not reported as a move
+```
+
+`appliesAtNextStart` is on the response because a session's cwd is fixed at `session/new`:
+reassigning an agent that already has a live session changes where its *next* session runs and
+nothing about the one running now. Reporting that as done would be the dead control the quality
+audit forbids. The false case is asserted; the true case needs a live session and is held with
+clause 2.
+
+**Shown to fail before the change**, by mutation — each applied, the suites run, and reverted:
+
+```text
+mutation                                      test that failed
+allow cross-project hiring                    "an agent may not be hired into another project's area"
+allow two agents in one area                  "an occupied area is refused, and the refusal names
+                                              the remedy"
+stop releasing the old area on a move         "hiring into a second area is a move"
+ 49 pass, 3 fail — restored, 52 pass, 0 fail
+```
+
+**Clause 2 — the session's cwd is the area root, obtained from `resolveAgentEnvironment`. NOT DONE.**
+`resolveAgentEnvironment()` is deliberately not half-built. Its declared return type
+(`loops/01-agents.md` A-1) includes `capabilities`, which cannot be read from an agent record that
+has no capability field, and `hookConfigPath`, which is A-6. The signature is the contract handed to
+reconciliation, so shipping a version of it missing two fields would hand over the wrong contract.
+It lands whole at A-5/A-6.
+
+**Clause 3 — launching an agent with no area is refused with `NO_AREA`, and no session is opened.
+NOT DONE.** The launch route is `server/routes/projects.ts:461-526` and the cwd comes from
+`cwdFor` in `server/services/acpSessionManager.ts`. Both are treated as hot by this worktree and by
+the partition, which assigns them to nobody. Filed, not edited.
+
+**Gate at iteration 3: green.**
+
+```text
+bun run verify   exit 0 — 1001 pass, 0 fail, 52 files, 176s
+                 both typechecks exit 0; production build exit 0
+                 0 orphans; every endpoint has a caller; 0 dead controls; every citation resolves
+```
+
+The baseline run at the start of this iteration was also green — 992 pass, 0 fail, exit 0 in 114s at
+load average 19 — which settles the question left open in the two entries above: the
+`projectReads.test.ts` launch timeouts recorded under AGENTS-001 and AGENTS-002 were contention for
+the machine between seven parallel worktrees, not a defect. Nothing was changed to fix them.
+
+Two runs between those two greens each failed exactly one test, and the failure moved:
+`projectReads.test.ts` "relaunching the SAME task reuses its worktree" at 5139 ms, then
+`agentExecution.test.ts` "V-032: an agent edits files in its own worktree and nowhere else" at
+4843 ms. Both files then ran clean three times in a row (45 pass, 0 fail each) at the same load.
+Recorded rather than hidden: every failure this branch has seen is a timeout in a test that spawns a
+real `grok` process, none is in a suite this branch owns, and the owned suites have never failed a
+run.
+
+## AGENTS-007 / AGENTS-008: Capability bounds the agent — NOT TESTED (iteration 4)
+
+The capability model, the tool mapping and the four presets are built, served and tested. The
+registration that makes them bind is `server/services/projectMcpServer.ts`, a hot file, and the
+field that records the choice is on `server/types/agent.ts`, another one. Both requests are filed.
+
+```text
+Item:     AGENTS-007
+Command:  bun test server/services/boundary.test.ts server/routes/agentRoutes.test.ts
+Observed: 74 pass, 0 fail, 338 expect() calls.
+Reached from a launched agent or a rendered component: partly — GET /api/coding-agents/capabilities
+          is mounted and exercised over HTTP. No client caller yet; the creation form is A-10/A-11.
+Clause not evidenced: clauses 1, 2 and 3 — recording {images, voice} on the agent needs the type
+          field, and a tools/list response reflecting capability needs the MCP registration.
+Clause evidenced: clause 4 — no clause of this item needed a network call or XAI_API_KEY, and
+          nothing added this iteration can make one.
+```
+
+**What exists.** `server/services/boundary.ts` now holds the capability model:
+
+```text
+base Grok              no media tool at all           every media tool withheld
+Grok + images          generate_image, edit_image,    narrate and transcribe withheld
+                       image_to_video, poll_video_job
+Grok + voice           narrate, transcribe            all four image tools withheld
+Grok + voice + images  the union                      nothing withheld
+```
+
+Video sits under `images` and is not a third flag, because it is the same endpoint family, the same
+credential and the same rate family; a picker offering it separately would imply a credential
+boundary that does not exist. A property test asserts that granted and withheld always *partition*
+the media tools, for all four combinations — so a tool added to one list and forgotten in the other
+fails the suite rather than becoming quietly unreachable or quietly universal.
+
+No per-unit price appears anywhere in this module. The rate table and the ledger are
+06-tools-cost's; two documents specifying the same prices is how they come to disagree.
+
+**Served, so the creation form cannot invent it.** `GET /api/coding-agents/capabilities` returns the
+four presets with their labels, their media tools and a one-line note on what each can spend on —
+the same reason `/statuses` exists. The badge names what the agent may *call*, and a test asserts
+that no preset id, label or spend note, and no tool name, contains "slide", "deck", "pptx",
+"powerpoint", "presentation", "docx" or "pdf". There is no xAI endpoint for any of them: the two
+surfaces that look like one are a Microsoft 365 add-in and a consumer chat product, both user
+interfaces.
+
+```text
+Item:     AGENTS-008
+Clause 1 (a base-Grok agent instructed to generate an image produces no image and no api.x.ai
+          request): NOT DONE. It needs the MCP registration to be capability-gated and a live
+          agent turn. Filed, not approximated.
+Clause 2 (the reason is the absence of the tool, and a test fails if that explanation is removed
+          from the code): PASS. server/services/boundary.test.ts reads boundary.ts and asserts four
+          sentences are present — that enforcement is registration rather than refusal, why an
+          advertised tool that always fails invites a retry, the DELIBERATELY_USER_ONLY precedent,
+          and that no slide tool exists. Deleting any of them fails the suite with a message naming
+          which explanation went.
+```
+
+**Shown to fail before the change**, by mutation — each applied, the suites run, and reverted:
+
+```text
+mutation                                       tests that failed
+let voice also grant the image tools           4 — including the granted/withheld partition
+rename the images badge "Grok + slides"        2 — the service test and the HTTP test
+delete two sentences of the explanation        1 — naming which explanation was removed
+ 67 pass, 7 fail — restored, 74 pass, 0 fail
+```
+
+**Why this is not simply deferred to whoever owns `projectMcpServer.ts`.** The mapping is the part
+that has to be right: a tool named in the wrong list is a media capability granted or denied by
+accident, and the file that registers the tools is edited by a reconciler who has not read this
+document. The handoff entry hands over a call — `toolsForCapability(ctx.capabilities ??
+BASE_CAPABILITIES)` — rather than a design, and warns that `PROJECT_MCP_TOOLS` is asserted
+element-for-element by three existing suites, so media tools must be a separate list.
+
+**Gate at iteration 4:** typechecks, build and all four audits exit 0 (0 orphans; every endpoint has
+a caller; 0 dead controls; every citation resolves). The five suites this branch owns are green five
+runs in a row, 644 expect() calls each.
+
+`bun run verify` is red on the known load flake and nothing else: 1010 pass, 5 fail, every failure a
+5000 ms timeout in a `projectReads.test.ts` test that spawns a real `grok` process, at load average
+50.38. Baselined again at that same load with this iteration's four files stashed — 40 pass, 1 fail,
+same shape. The control is iteration 3's run of the same suite at load 19: green, 1001 pass, 0 fail,
+with the launch path untouched by anything added since.
