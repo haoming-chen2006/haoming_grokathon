@@ -5426,7 +5426,7 @@ SHELL-004  NOT TESTED   the shim cannot recurse            (will end BLOCKED-ON-
 SHELL-005  NOT TESTED   -- ends the flag scan
 SHELL-006  NOT TESTED   a second invocation does not start a second server
 SHELL-007  NOT TESTED   three regions, resizable, addressable  (3 of 5 clauses, iteration 3)
-SHELL-008  NOT TESTED   five page slots and the Tools overlay
+SHELL-008  PASS         five page slots and the Tools overlay
 SHELL-009  NOT TESTED   light and dark both render         (3 of 4 clauses evidenced, iteration 3)
 SHELL-010  PASS         no raw colour token can enter shell-owned code
 SHELL-011  NOT TESTED   status is never colour alone       (2 of 5 clauses evidenced, iteration 2)
@@ -7346,3 +7346,66 @@ before reconciliation.
 version history cannot exist without a write path. That does **not** make DD-007 or DD-008 PASS:
 their remaining clauses — concurrent two-section writes, the cross-section stale sweep, and the
 suggestion-accept path — are untested, and the items are held.
+
+## Iteration 4 — the Tools overlay
+
+Row 4 of §3.9. The five page slots and `NotMergedYet` landed with the frame; this is the overlay.
+
+### SHELL-008 — Five page slots and the Tools overlay — **PASS**
+
+```text
+Pages reachable, and their rank:
+  Agents, Assets, Design Documents above the navigator divider (headline); Users, X below it
+  (secondary). Asserted as an exact ordered list including the divider's position, so a page
+  moving across the divider fails rather than passing quietly.
+
+NotMergedYet text for each unmerged slot:
+  "<Page> is not in this build. It is built on branch <01-agents|02-assets|03-design-docs|
+  08-users-x>, which has not merged yet." Asserted for all five. The Tools panel carries its own:
+  "The Tools panel is not in this build. It is built on branch 06-tools-cost…" — so an unmerged
+  page and an unmerged panel show two notices at once, which the test asserts rather than
+  working around.
+
+Panel opened from each page (URL before / during / after):
+  /assets/asset_1  ->  /assets/asset_1?tools=prompts  ->  /assets/asset_1
+  A query parameter, never a path segment, so opening it cannot lose the page underneath.
+  Opened from all five pages; the page's own aria-current survives.
+
+State of the underlying page after Esc:
+  Unchanged, and the parameter is gone. closeTools uses replace:true so dismissing an overlay
+  does not leave a history entry the back button walks the user back into.
+```
+
+Four dismissal and mount properties, each with a probe:
+
+```text
+PROBE 17  take the overlay out of flow (drop absolute inset-0)
+            (fail) opens over MAIN from every page, and the page underneath stays mounted
+PROBE 17b render the overlay outside MAIN
+            7 failures
+PROBE 18  let Esc close the DOM without writing the URL
+            (fail) Esc dismisses it and restores the page unchanged, with the parameter removed
+PROBE 19  let an unmerged panel render an empty div
+            (fail) renders the unmerged notice until 06-tools-cost lands, never an empty panel
+```
+
+### The probe that found a weak test rather than a weak implementation
+
+PROBE 17's first run **passed**. The test asserted that `tools-overlay` and `main` both exist,
+which stays true when the overlay stops overlaying — the same class of bug as iteration 2's
+`darkMode` assertion matching its own doc comment.
+
+Rewritten to assert the three facts that actually make it an overlay: it lives inside MAIN, MAIN's
+own content is still mounted beside it, and it is taken out of flow. Positioning is asserted on the
+class attribute rather than on computed style, because happy-dom loads no CSS — stated here rather
+than left to look stronger than it is. Both re-probes now fail.
+
+### The boundary held
+
+06-tools-cost owns everything inside the panel; this worktree owns the mount, the scrim, the Esc
+key and the route. The panel receives `{ projectId, section, onClose }` and nothing about its own
+visibility, so there is exactly one dismissal path and the query parameter cannot desynchronise
+from the DOM. `⌘T` opens it — the shortcut both wireframes print on their Tools control.
+
+**Gate:** 135 tests / 0 fail across 4 shell files, 854 assertions; typecheck, build and all four
+audits exit 0.

@@ -354,3 +354,102 @@ describe("a workspace with no project", () => {
     expect(screen.queryByTestId("not-merged-yet")).toBeNull();
   });
 });
+
+describe("the Tools overlay", () => {
+  test("opens over MAIN from every page, and the page underneath stays mounted", async () => {
+    for (const page of PAGES) {
+      atUrl(workspaceUrl(page.id));
+      await mount();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("tools-open"));
+      });
+      const overlay = screen.getByTestId("tools-overlay");
+      const main = screen.getByTestId("main");
+
+      // Over MAIN, not instead of it. Asserting that both elements merely EXIST is not enough —
+      // that stays true when the overlay stops overlaying, which a mutation probe demonstrated.
+      // Three facts together make it an overlay: it lives inside MAIN, MAIN's own content is
+      // still mounted beside it, and it is taken out of flow.
+      expect(main.contains(overlay)).toBe(true);
+      expect(main.querySelector("[data-testid='not-merged-yet']")).not.toBeNull();
+      expect(overlay.className).toContain("absolute");
+      expect(overlay.className).toContain("inset-0");
+      expect(screen.getByTestId(`page-${page.id}`).getAttribute("aria-current")).toBe("page");
+      cleanup();
+    }
+  });
+
+  test("is a query parameter, so the page underneath is not lost", async () => {
+    atUrl(workspaceUrl("assets", "asset_1"));
+    await mount();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("tools-open"));
+    });
+    expect(location.pathname).toBe("/assets/asset_1");
+    expect(location.search).toBe("?tools=prompts");
+  });
+
+  test("Esc dismisses it and restores the page unchanged, with the parameter removed", async () => {
+    atUrl(workspaceUrl("designdocs", "doc_1", "skills"));
+    await mount();
+    expect(screen.getByTestId("tools-overlay")).toBeDefined();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(screen.queryByTestId("tools-overlay")).toBeNull();
+    expect(location.pathname).toBe("/designdocs/doc_1");
+    expect(location.search).toBe("");
+    expect(screen.getByTestId("page-designdocs").getAttribute("aria-current")).toBe("page");
+  });
+
+  test("clicking the scrim is the same dismissal as Esc", async () => {
+    atUrl(workspaceUrl("agents", undefined, "workflows"));
+    await mount();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("tools-scrim"));
+    });
+    expect(screen.queryByTestId("tools-overlay")).toBeNull();
+    expect(location.search).toBe("");
+  });
+
+  test("Cmd-T opens it, the shortcut both wireframes print on the control", async () => {
+    await mount();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "t", metaKey: true });
+    });
+    expect(screen.getByTestId("tools-overlay")).toBeDefined();
+    expect(location.search).toBe("?tools=prompts");
+  });
+
+  test("a url naming a section opens that section on a cold mount", async () => {
+    atUrl(workspaceUrl("assets", undefined, "skills"));
+    await mount();
+    expect(screen.getByTestId("tools-panel").textContent).toContain("skills");
+  });
+
+  test("renders the unmerged notice until 06-tools-cost lands, never an empty panel", async () => {
+    atUrl(workspaceUrl("agents", undefined, "prompts"));
+    await mount();
+    // Scoped to the panel: MAIN is also unmerged, so the page carries two of these notices, and
+    // an unscoped query would be ambiguous — which is itself the honest signal that both holes
+    // are being stated rather than one being faked.
+    const notice = screen.getByTestId("tools-panel").querySelector("[data-testid='not-merged-yet']");
+    expect(notice?.textContent).toContain("Tools panel");
+    expect(notice?.textContent).toContain("06-tools-cost");
+    expect(screen.getAllByTestId("not-merged-yet").length).toBe(2);
+  });
+
+  test("the shell owns the dismissal, so the panel needs no visibility of its own", async () => {
+    atUrl(workspaceUrl("agents", undefined, "prompts"));
+    await mount();
+    // If the panel rendered its own scrim or Esc handler, two dismissal paths would fight and the
+    // query parameter would desynchronise from the DOM. The scrim and the close control are both
+    // the shell's, and both write the URL.
+    expect(screen.getByTestId("tools-scrim")).toBeDefined();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("tools-close"));
+    });
+    expect(location.search).toBe("");
+  });
+});
