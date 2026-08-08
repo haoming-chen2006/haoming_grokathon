@@ -801,6 +801,20 @@ describe("the capability choices are served, not invented by the form", () => {
     }
   });
 
+  test("the response states that every tier is a whole Grok Build agent (A-0)", async () => {
+    // A picker of four tiers, one of them with an empty tool list, implies a stripped-down agent
+    // unless the payload says otherwise. The form must not have to know this on its own.
+    const { json } = await req("GET", "/api/coding-agents/capabilities");
+    expect(json.nativeSurface).toContain("file reading and editing");
+    expect(json.nativeSurface).toContain("web search");
+    expect(json.nativeSurface).toContain("subagents");
+    expect(json.nativeSurfaceNote).toContain("full Grok Build agent");
+    expect(json.nativeSurfaceNote).toContain("never removes anything");
+    // The native surface is not per tier — there is nowhere to express a smaller agent.
+    for (const preset of json.presets) expect(preset.nativeSurface).toBeUndefined();
+    expect(json.presets[0].spendNote).toContain("full Grok Build agent");
+  });
+
   test("capabilities resolves as its own route, not as an agent id", async () => {
     const agent = makeAgent();
     const { json } = await req("GET", "/api/coding-agents/capabilities");

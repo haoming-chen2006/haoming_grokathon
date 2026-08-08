@@ -130,8 +130,10 @@ ADD       ProjectMcpContext gains two fields:
             areaId?: string
             capabilities?: AgentCapabilities          // import type from ./boundary
 CHANGE    createProjectMcpServer(ctx) registers the media tools named by
-          toolsForCapability(ctx.capabilities ?? BASE_CAPABILITIES) and registers no other media
-          tool. Default is base Grok: an absent capabilities field must grant nothing.
+          mediaToolsForCapability(ctx.capabilities ?? BASE_CAPABILITIES) and registers no other
+          media tool. Default is base Grok: an absent capabilities field must grant nothing.
+          It must not gate anything else: PROJECT_MCP_TOOLS and Grok's own native tools are
+          registered for every agent at every capability (A-0, below).
 ADD       export const MEDIA_MCP_TOOLS = MEDIA_TOOLS   (or re-export) so a tools/list assertion can
           name them without importing two modules.
 WHY       AGENTS-007 — "an agent without images has no image or video tool in its tools/list
@@ -151,12 +153,22 @@ export const BASE_CAPABILITIES: AgentCapabilities            // { images: false,
 export const IMAGE_TOOLS   // generate_image, edit_image, image_to_video, poll_video_job
 export const VOICE_TOOLS   // narrate, transcribe
 export const MEDIA_TOOLS   // the union
-export function toolsForCapability(c: AgentCapabilities): string[]
-export function toolsWithheldByCapability(c: AgentCapabilities): string[]
+export function mediaToolsForCapability(c: AgentCapabilities): string[]
+export function mediaToolsWithheldByCapability(c: AgentCapabilities): string[]
 export const CAPABILITY_PRESETS: CapabilityPreset[]          // the four the product offers
 export function capabilityPreset(c: AgentCapabilities): CapabilityPreset
 export function capabilityLabel(c: AgentCapabilities): string
+export const GROK_NATIVE_SURFACE: readonly string[]          // what every tier keeps (A-0)
+export const GROK_NATIVE_SURFACE_NOTE: string                // one sentence, renderable verbatim
 ```
+
+**Renamed at iteration 5, and a caller written against the old names will not compile.**
+`toolsForCapability` → `mediaToolsForCapability`, `toolsWithheldByCapability` →
+`mediaToolsWithheldByCapability`. `loops/01-agents.md` §9 still lists the old name; this entry is
+the current one. The old names said capability decides *which tools exist*, which is the reading
+A-0 forbids — capability decides which **media** tools exist and touches nothing else. Both
+functions range over `MEDIA_TOOLS` alone, so an empty return means "no media endpoints", never "no
+tools".
 
 **Note for the reconciler and for 04-generation.** `PROJECT_MCP_TOOLS` in that file is asserted
 element-for-element by three test files (`server/routes/mcp.test.ts`,
@@ -201,6 +213,23 @@ of one document drift, which is the reason `shared/designDocument.ts` exists at 
 
 ## Notices to the reconciler
 
+**SUPERSEDED, iteration 5 — the diagnosis below is wrong and pivot/shell found the real cause.**
+`c9b9edc` (SHELL-016, on `grok-control-room`) shows the timeouts are a **missing `.env`**, not
+contention. `.env` is gitignored, so `git worktree add` never copied it here, and every test that
+spawns a `grok` process has been running unauthenticated: the handshake retries a 401 until the
+5000 ms limit expires. Load only changed *which* tests were slow enough to trip it, which is what
+made contention look sufficient for three iterations. Reproduced in this worktree at load 11 —
+10 failures with no environment, all in tests that spawn `grok` — so the fix is to source it, not
+to raise a timeout:
+
+```text
+set -a; . /Users/haoming/openui/.env; set +a && bun run verify
+```
+
+The measurements below stand as measurements and the "not caused by this branch" conclusion still
+holds; only the cause was misattributed. Kept rather than deleted, because a reconciler reading
+three iterations of "contention" elsewhere needs to find the correction attached to it.
+
 **A test flake under machine load, outside this worktree's row.** Every failure is a 5000 ms
 timeout in `server/routes/projectReads.test.ts`, in a test that spawns a real `grok` process through
 `POST /api/projects/:projectId/tasks/:taskId/launch`.
@@ -236,8 +265,12 @@ worktree's edit to make. Recorded rather than worked around.
 **Settled, iteration 3.** `bun run verify` ran green — **992 pass, 0 fail, exit 0, 114s** — at load
 average 19.28, with nothing changed to make it so. It was contention, not a defect. The suggestion
 below still stands as a robustness improvement, but it is no longer blocking anything.
+*(Iteration 5: "it was contention, not a defect" is half right — not a defect, but not contention
+either. What differed on that run was not established at the time; the load was recorded and the
+environment was not. See the supersede note above.)*
 
 **Suggested fix for whoever owns it at reconciliation:** these tests await the HTTP launch and then
 read the registry; the 5000 ms default is a guess about process-spawn scheduling on an idle machine.
 `waitFor` (`server/services/testSupport.ts`) exists for exactly this and is already the house
-pattern.
+pattern. Still worth doing — but it is a robustness improvement now, not a fix for anything, since
+an unauthenticated `grok` never completes the launch no matter how long the test waits.

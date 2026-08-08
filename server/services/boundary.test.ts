@@ -6,6 +6,7 @@ import { join, sep } from "path";
 import {
   BASE_CAPABILITIES,
   CAPABILITY_PRESETS,
+  GROK_NATIVE_SURFACE,
   IMAGE_TOOLS,
   MEDIA_TOOLS,
   VOICE_TOOLS,
@@ -13,9 +14,10 @@ import {
   capabilityLabel,
   capabilityPreset,
   isInsideRoot,
-  toolsForCapability,
-  toolsWithheldByCapability,
+  mediaToolsForCapability,
+  mediaToolsWithheldByCapability,
 } from "./boundary";
+import { PROJECT_MCP_TOOLS } from "./projectMcpServer";
 
 /**
  * AGENTS-001, second clause: a symlink inside the root pointing outside it is resolved before any
@@ -114,35 +116,35 @@ describe("isInsideRoot", () => {
 
 describe("capability decides which tools exist", () => {
   test("base Grok grants no media tool at all", () => {
-    expect(toolsForCapability(BASE_CAPABILITIES)).toEqual([]);
+    expect(mediaToolsForCapability(BASE_CAPABILITIES)).toEqual([]);
     // And every media tool is withheld — the list is exhaustive, not a sample.
-    expect(toolsWithheldByCapability(BASE_CAPABILITIES).sort()).toEqual([...MEDIA_TOOLS].sort());
+    expect(mediaToolsWithheldByCapability(BASE_CAPABILITIES).sort()).toEqual([...MEDIA_TOOLS].sort());
   });
 
   test("images grants image and video tools; voice grants neither", () => {
-    expect(toolsForCapability({ images: true, voice: false })).toEqual([...IMAGE_TOOLS]);
+    expect(mediaToolsForCapability({ images: true, voice: false })).toEqual([...IMAGE_TOOLS]);
     for (const tool of VOICE_TOOLS) {
-      expect(toolsForCapability({ images: true, voice: false })).not.toContain(tool);
+      expect(mediaToolsForCapability({ images: true, voice: false })).not.toContain(tool);
     }
   });
 
   test("voice grants narration and transcription; images grants neither", () => {
-    expect(toolsForCapability({ images: false, voice: true })).toEqual([...VOICE_TOOLS]);
+    expect(mediaToolsForCapability({ images: false, voice: true })).toEqual([...VOICE_TOOLS]);
     for (const tool of IMAGE_TOOLS) {
-      expect(toolsForCapability({ images: false, voice: true })).not.toContain(tool);
+      expect(mediaToolsForCapability({ images: false, voice: true })).not.toContain(tool);
     }
   });
 
   test("voice + images grants the union and withholds nothing", () => {
-    expect(toolsForCapability({ images: true, voice: true }).sort()).toEqual([...MEDIA_TOOLS].sort());
-    expect(toolsWithheldByCapability({ images: true, voice: true })).toEqual([]);
+    expect(mediaToolsForCapability({ images: true, voice: true }).sort()).toEqual([...MEDIA_TOOLS].sort());
+    expect(mediaToolsWithheldByCapability({ images: true, voice: true })).toEqual([]);
   });
 
   test("granted and withheld always partition the media tools, for every capability", () => {
     for (const images of [true, false]) {
       for (const voice of [true, false]) {
         const capabilities = { images, voice };
-        const both = [...toolsForCapability(capabilities), ...toolsWithheldByCapability(capabilities)];
+        const both = [...mediaToolsForCapability(capabilities), ...mediaToolsWithheldByCapability(capabilities)];
         expect(both.sort()).toEqual([...MEDIA_TOOLS].sort());
       }
     }
@@ -151,8 +153,8 @@ describe("capability decides which tools exist", () => {
   test("video is granted by images, because it is the same endpoint family", () => {
     // Not a separate flag: one credential, one rate family. A capability picker offering "video"
     // separately would imply a credential boundary that does not exist.
-    expect(toolsForCapability({ images: true, voice: false })).toContain("image_to_video");
-    expect(toolsForCapability({ images: true, voice: false })).toContain("poll_video_job");
+    expect(mediaToolsForCapability({ images: true, voice: false })).toContain("image_to_video");
+    expect(mediaToolsForCapability({ images: true, voice: false })).toContain("poll_video_job");
   });
 });
 
@@ -165,7 +167,7 @@ describe("the four presets", () => {
         const preset = capabilityPreset({ images, voice });
         expect(seen.has(preset.id)).toBe(false);
         seen.add(preset.id);
-        expect(preset.mediaTools.sort()).toEqual(toolsForCapability({ images, voice }).sort());
+        expect(preset.mediaTools.sort()).toEqual(mediaToolsForCapability({ images, voice }).sort());
       }
     }
   });
@@ -215,5 +217,70 @@ describe("the safety is the absence of the tool, and the code says so", () => {
     );
     expect(src, "the DELIBERATELY_USER_ONLY precedent was removed").toContain("DELIBERATELY_USER_ONLY");
     expect(src, "the no-slide-endpoint explanation was removed").toContain("There is no slide, deck or document tool");
+  });
+});
+
+// ------------------------------------------------- A-0: capability adds, it never subtracts
+
+describe("every agent is a whole Grok Build agent (A-0)", () => {
+  test("no capability tier can express the removal of anything", () => {
+    // The model has exactly one varying field and it ranges over MEDIA_TOOLS. There is nowhere to
+    // put a subtraction, which is the point: a tier is a grant on top of a whole agent.
+    for (const preset of CAPABILITY_PRESETS) {
+      expect(Object.keys(preset).sort()).toEqual(["capabilities", "id", "label", "mediaTools", "spendNote"]);
+      for (const tool of preset.mediaTools) expect(MEDIA_TOOLS).toContain(tool as any);
+    }
+  });
+
+  test("granted and withheld both range over the media tools and nothing else", () => {
+    for (const images of [true, false]) {
+      for (const voice of [true, false]) {
+        for (const tool of mediaToolsForCapability({ images, voice })) expect(MEDIA_TOOLS).toContain(tool as any);
+        for (const tool of mediaToolsWithheldByCapability({ images, voice })) {
+          expect(MEDIA_TOOLS).toContain(tool as any);
+        }
+      }
+    }
+  });
+
+  test("a media tool never collides with a project MCP tool, so the media list is purely additive", () => {
+    // If a name in MEDIA_TOOLS matched a project tool, gating "media" registration would silently
+    // gate a tool every agent must have.
+    for (const tool of MEDIA_TOOLS) expect(PROJECT_MCP_TOOLS).not.toContain(tool as any);
+  });
+
+  test("the native surface is the same at every tier, and base Grok is not a smaller agent", () => {
+    expect(GROK_NATIVE_SURFACE.length).toBeGreaterThan(0);
+    for (const expected of ["file reading and editing", "web search", "X search", "skills", "subagents"]) {
+      expect(GROK_NATIVE_SURFACE).toContain(expected as any);
+    }
+    // Nothing in the model is per-tier, so there is no way for one tier to have less of it.
+    expect(CAPABILITY_PRESETS.every((p) => !("nativeSurface" in p))).toBe(true);
+  });
+
+  test("base Grok is described by what it is, before what it cannot spend on", () => {
+    // "Cannot reach any per-unit endpoint" alone reads as a stripped-down agent, which is the
+    // picture A-0 forbids. Every tier says it is the full Grok Build agent first.
+    for (const preset of CAPABILITY_PRESETS) {
+      expect(preset.spendNote, `${preset.id} does not say it is a full Grok Build agent`).toContain(
+        "full Grok Build agent",
+      );
+    }
+    expect(CAPABILITY_PRESETS[0]!.spendNote.indexOf("full Grok Build agent")).toBeLessThan(
+      CAPABILITY_PRESETS[0]!.spendNote.indexOf("cannot"),
+    );
+  });
+
+  test("the A-0 explanation is in the source, and this test fails if it is deleted", () => {
+    const src = readFileSync(join(import.meta.dir, "boundary.ts"), "utf8");
+    expect(src, "the A-0 statement was removed from boundary.ts").toContain(
+      "capability adds to it — capability never subtracts",
+    );
+    expect(src, "the job-runner-wearing-an-agent's-name warning was removed").toContain(
+      "ships a job runner wearing an agent's name",
+    );
+    expect(src, "the note that base Grok is not a smaller agent was removed").toContain(
+      "is not a smaller agent",
+    );
   });
 });
