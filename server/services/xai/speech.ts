@@ -91,7 +91,8 @@ export async function generateSpeech(args: GenerateSpeechArgs): Promise<Generate
   if (text.trim() === "") throw new XaiError("there is nothing to say: the text is empty", "invalid_argument");
   if (text.length > TTS_MAX_CHARACTERS) {
     throw new XaiError(
-      `${text.length} characters exceeds the ${TTS_MAX_CHARACTERS}-character REST limit for /v1/tts. ` +
+      `${text.length} characters exceeds the ${TTS_MAX_CHARACTERS.toLocaleString("en-US")}-character ` +
+        `REST limit for /v1/tts. ` +
         `Longer text needs the WebSocket surface, which is not built. Split the narration instead — ` +
         `truncating it here would silently drop the end of what someone asked to be said.`,
       "invalid_argument",
