@@ -6010,16 +6010,60 @@ addition to a whole agent. One forward-looking risk is flagged for 04/05/06 rath
 "workflow" is the most natural word in the product for a job runner to hide behind, and the shell
 cannot see how a workflow executes.
 
-### The gate, iteration 3
+### The gate, iteration 3 — GREEN, and a correction to iterations 1 and 2
 
 ```text
-tsc --noEmit (server + client)   exit 0
-bun run build                    exit 0 — built in 1.98s
-bun run audit (4 audits)         0 orphans · every endpoint has a caller · 0 unclassified
-                                 indicators · every cited file resolves
-bun test (shell files)           124 pass / 0 fail across 4 files, 786 assertions
-bun test (whole suite)           green once the environment was loaded — see below
+$ set -a; . /Users/haoming/openui/.env; set +a
+$ bun run verify
+VERIFY EXIT=0
+1065 pass · 0 fail · 3638 assertions · 54 files · 136.09s
+0 orphans · every endpoint has a caller · 0 unclassified indicators · every cited file resolves
+0 tests timed out
 ```
+
+**SHELL-016 PASS.** `bun run verify` exits 0, all four audits are clean, and no test was skipped or
+deleted to get there — the count went from 952 at the iteration-1 baseline to 1065, entirely from
+tests added by this worktree.
+
+#### What I recorded wrongly, and what was actually true
+
+Iterations 1 and 2 recorded the gate as red and attributed it to "machine contention — seven agent
+worktrees running this suite at once against a fixed 5000ms limit". **That diagnosis was wrong**, and
+it was repeated to every other worktree in `loops/handoff/pivot-shell.md`, where it has now been
+retracted in full.
+
+The real cause was in my own shell. `loops/07-shell.md` §1 opens with `set -a; . ./.env; set +a`;
+`.env` is gitignored, so it exists in the main checkout and in no worktree, and I never sourced it.
+Without `OPENAI_API_KEY` the ACP tests reached a live inference endpoint unauthenticated:
+
+```text
+AcpError: Internal error  code: -32603
+  message: "Auth recovery succeeded but 4 authenticated inference requests were still rejected
+            (401); giving up after 3 retries. Turn ran 7s wall-clock."
+  http_status: 401
+      at handleLine (server/services/acpClient.ts:268:24)
+```
+
+Sourcing the key from the main checkout turns the same file green immediately:
+
+```text
+$ bun test server/services/agentExecution.test.ts     (without env)  2 fail, 401
+$ set -a; . /Users/haoming/openui/.env; set +a
+$ bun test server/services/agentExecution.test.ts     4 pass, 0 fail, exit 0
+```
+
+**Why the earlier reproduction did not catch it.** I stashed the working tree to HEAD, saw the same
+failures, and concluded they predated my change. The observation was correct and the inference was
+not: stashing changes the *tree*, never the *shell environment*, so that test could only ever
+distinguish "my code did this" from "something else did" — never "my environment is missing a key"
+from "the machine is loaded". Load average correlated by coincidence, because the other worktrees
+were genuinely busy at the same times. The 5000ms timeouts in `projectReads.test.ts` and
+`messaging.test.ts` have not recurred once since the key was sourced, at the same load that
+"reproduced" them before.
+
+The lesson is the one §1 states in its first three lines and I skipped: confirm the environment
+before anything else. A red gate I could not explain should have sent me back to §1, not to a
+theory about other people's CPU.
 
 ### What did not move
 
