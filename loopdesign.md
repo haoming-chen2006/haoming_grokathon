@@ -62,11 +62,11 @@ not affect session creation or prompt results. Do not spend iterations on it.
 
 ---
 
-## 2. State as of iteration 67
+## 2. State as of iteration 69
 
 ```text
 52 PASS · 0 FAIL · 0 BLOCKED · 0 NOT TESTED
-Gate: 701 tests across 42 suites, both typechecks, the production build, and four
+Gate: 715 tests across 42 suites, both typechecks, the production build, and four
       audits — reachability (85 modules, 0 orphans), endpoints (84, all covered),
       quality (§22.18: 0 unclassified, 0 dead controls), and docs (every cited
       file and command resolves).
@@ -107,7 +107,10 @@ The checklist is complete. Useful work still available, in rough order of value:
 1. **Composition checks.** Four iterations of these each found real bugs: unreachable modules,
    untested wiring, UI↔API contract drift. The reachability audit is now `bun run audit` and runs
    as part of `bun run verify`, so a new orphan fails the gate rather than waiting to be noticed.
-   Endpoint coverage is `bun run audit:endpoints`, also part of `verify`. Both audits are only
+   Endpoint coverage is `bun run audit:endpoints`, also part of `verify`. **When the UI gains a
+   call, extend `server/routes/uiContract.test.ts` in the same iteration** — it guards the shapes
+   the stubbed shell tests only assume, and by iteration 69 six UI calls had accumulated behind it.
+   Diff what `useControlRoom.ts` calls against what that file covers; the gap is the work. Both audits are only
    as good as their own correctness — each has had real bugs that produced confident wrong
    answers, so verify a surprising result before acting on it.
 
