@@ -55,9 +55,10 @@ export const XAI_BASE_URL = "https://api.x.ai/v1";
  * is built, so it can never be confused with a 401 from a request that should not have been sent.
  */
 export const NO_CREDENTIAL_MESSAGE =
-  "no xAI credential is configured; media generation is unavailable. Set XAI_API_KEY in the " +
-  "environment. This is a different credential from the one that signs the `grok` CLI in — " +
-  "signing the CLI in does not enable media generation, and setting this does not sign the CLI in.";
+  "no xAI credential is configured; media generation is unavailable. Set XAI_API_KEY (or " +
+  "xai_api_key) in the environment. This is a different credential from the one that signs the " +
+  "`grok` CLI in — signing the CLI in does not enable media generation, and setting this does not " +
+  "sign the CLI in.";
 
 // ───────────────────────────────────────────────────────────────────────── endpoints
 
@@ -321,7 +322,13 @@ export class XaiClient {
   constructor(options: XaiClientOptions = {}) {
     // Read once, here. A per-call read would let a key rotated into the environment mid-process
     // change behaviour halfway through a job, and would give three places to leak it from.
-    this.apiKey = options.apiKey ?? process.env.XAI_API_KEY;
+    //
+    // `xai_api_key` is read as well because that is the name the credential actually has in this
+    // repository's `.env`, and a client that only looks for `XAI_API_KEY` reports "no credential"
+    // on a machine where the credential is present — the most expensive kind of wrong answer,
+    // because it sends someone to fix a key that was never broken. `XAI_API_KEY` still wins, so an
+    // environment that sets both behaves exactly as before.
+    this.apiKey = options.apiKey ?? process.env.XAI_API_KEY ?? process.env.xai_api_key;
     this.baseUrl = options.baseUrl ?? XAI_BASE_URL;
     this.clock = options.clock ?? REAL_CLOCK;
     this.timeouts = { ...XAI_TIMEOUTS, ...options.timeouts };
