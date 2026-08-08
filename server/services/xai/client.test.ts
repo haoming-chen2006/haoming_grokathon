@@ -6,7 +6,7 @@
  * a silently-inert mock makes a real, billed call.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SecretExposureError } from "../secrets";
 import { XaiError, type CostEvent } from "./types";
 import {
@@ -89,6 +89,29 @@ afterEach(() => {
 });
 
 describe("the credential path (GEN-001)", () => {
+  /**
+   * "No key" has to mean no key in the environment either.
+   *
+   * `apiKey: undefined` falls through to the environment read, so this test was asserting the
+   * absence of a credential while depending on the developer's shell not to have one — and
+   * README.md tells developers to `set -a; . ./.env` before running the server, which exports
+   * exactly the variable in question. The test then fails for someone who followed the
+   * instructions, which is the worst possible audience for a spurious failure.
+   */
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const name of ["XAI_API_KEY", "xai_api_key"]) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+  afterEach(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
   test("a missing key fails with the named error before any request is sent", async () => {
     const calls = recordTransport({ now: () => 0 }, () => json({}));
     const client = new XaiClient({ apiKey: undefined, clock: virtualClock() });
@@ -570,6 +593,54 @@ describe("a response that is not a result", () => {
     expect(err.code).toBe("invalid_argument");
     expect(err.isRetryable).toBe(false);
     expect(err.message).toContain("Moderation blocks");
+  });
+
+  /**
+   * The body below is verbatim from api.x.ai on 2026-08-08, from a real call to
+   * `/v1/images/generations` with a key the account does not recognise.
+   *
+   * Two things about it were not what this client expected. The envelope is flat — `error` is the
+   * *message*, and the code sits beside it — where the documented one nests. And the code is
+   * hyphenated. Before this was handled, a rejected credential surfaced as "HTTP 400
+   * (invalid_argument) … Moderation blocks arrive under this code", so the one sentence that said
+   * what was actually wrong never reached anybody, and the hint pointed at the prompt.
+   */
+  test("the flat error envelope the live API actually returns is read, not discarded", async () => {
+    const clock = virtualClock();
+    recordTransport(clock, () =>
+      json(
+        { code: "invalid-argument", error: "Incorrect API key provided. You can obtain an API key from https://console.x.ai." },
+        { status: 400 },
+      ),
+    );
+    const client = new XaiClient({ apiKey: KEY, clock });
+
+    const err = (await client
+      .request({ endpoint: "image_generate", path: "/images/generations", body: { prompt: "x" } })
+      .catch((e: unknown) => e)) as XaiError;
+
+    expect(err.message).toContain("Incorrect API key provided");
+    // A rejected key is a credential problem, whatever status it arrives under. Reported as
+    // invalid_argument it reads as "your prompt was bad" and sends someone to rewrite a good prompt.
+    expect(err.code).toBe("permission_denied");
+    expect(err.message).toContain("begin `xai-`");
+    expect(err.message).not.toContain("Moderation blocks");
+    expect(err.isRetryable).toBe(false);
+  });
+
+  test("the documented nested envelope still maps by its own code", async () => {
+    const clock = virtualClock();
+    recordTransport(clock, () =>
+      json({ error: { code: "failed_precondition", message: "job expired" } }, { status: 400 }),
+    );
+    const client = new XaiClient({ apiKey: KEY, clock });
+
+    const err = (await client
+      .request({ endpoint: "video_poll", path: "/videos/x" })
+      .catch((e: unknown) => e)) as XaiError;
+
+    expect(err.code).toBe("failed_precondition");
+    expect(err.message).toContain("job expired");
   });
 
   test("a 503 is the one server failure marked retryable", async () => {

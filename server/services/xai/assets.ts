@@ -221,37 +221,57 @@ export interface PersistArgs {
  * caller cannot accidentally hold on to the dying link — the only way to reach these bytes
  * afterwards is through the asset id.
  */
-export async function persistGenerated(args: PersistArgs): Promise<AssetPutResult> {
-  const store = assetSink();
-  const { payload } = args;
-
+/**
+ * Turn a generation response into verified bytes — download if it is a URL, decode if it is base64,
+ * and refuse anything that is not the media it claims to be.
+ *
+ * Split out of `persistGenerated` so that a caller which files bytes onto an **existing**
+ * deliverable can still go through the four rules at the top of this file. `AssetSink.put` always
+ * creates a new asset, so `persistGenerated` is the wrong shape for "add a picture to the document
+ * this agent is already writing" — but the verification is the same verification, and a second copy
+ * of it in another module would be a second chance to forget the zero-byte check.
+ *
+ * It does not touch the store, so it does **not** fail closed: bytes returned from here are not yet
+ * anywhere. The caller is responsible for reporting success only once they have been persisted.
+ */
+export async function materialiseGenerated(
+  payload: GeneratedPayload,
+  expect: MediaFamily,
+  what: string,
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const supplied = [payload.url, payload.b64, payload.bytes].filter((v) => v !== undefined).length;
   if (supplied !== 1) {
     throw new XaiError(
-      `a generated ${args.kind} must arrive as exactly one of url, b64 or bytes; ${supplied} were supplied`,
+      `a generated ${what} must arrive as exactly one of url, b64 or bytes; ${supplied} were supplied`,
       "invalid_argument",
     );
   }
 
-  let bytes: Uint8Array;
-  let mimeType: string;
-
   if (payload.url !== undefined) {
     const response = await downloader(payload.url);
-    ({ bytes, mimeType } = await readVerifiedMedia(response, args.expect, payload.url));
-  } else if (payload.b64 !== undefined) {
-    bytes = Uint8Array.from(Buffer.from(payload.b64, "base64"));
-    mimeType = payload.mimeType ?? `${FAMILY_PREFIX[args.expect]}*`;
-    if (bytes.byteLength === 0) {
-      throw new XaiError(`a generated ${args.kind} decoded from base64 to zero bytes`, "bad_response");
-    }
-  } else {
-    bytes = payload.bytes as Uint8Array;
-    mimeType = payload.mimeType ?? `${FAMILY_PREFIX[args.expect]}*`;
-    if (bytes.byteLength === 0) {
-      throw new XaiError(`a generated ${args.kind} was handed over as zero bytes`, "bad_response");
-    }
+    return readVerifiedMedia(response, expect, payload.url);
   }
+
+  if (payload.b64 !== undefined) {
+    const bytes = Uint8Array.from(Buffer.from(payload.b64, "base64"));
+    if (bytes.byteLength === 0) {
+      throw new XaiError(`a generated ${what} decoded from base64 to zero bytes`, "bad_response");
+    }
+    return { bytes, mimeType: payload.mimeType ?? `${FAMILY_PREFIX[expect]}*` };
+  }
+
+  const bytes = payload.bytes as Uint8Array;
+  if (bytes.byteLength === 0) {
+    throw new XaiError(`a generated ${what} was handed over as zero bytes`, "bad_response");
+  }
+  return { bytes, mimeType: payload.mimeType ?? `${FAMILY_PREFIX[expect]}*` };
+}
+
+export async function persistGenerated(args: PersistArgs): Promise<AssetPutResult> {
+  const store = assetSink();
+  const { payload } = args;
+
+  const { bytes, mimeType } = await materialiseGenerated(payload, args.expect, args.kind);
 
   // Nothing before this line has reported success, and nothing after it may report success unless
   // this resolves. Settling a job or emitting an asset id ahead of put() loses the asset.

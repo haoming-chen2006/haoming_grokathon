@@ -9,6 +9,8 @@ import { getControlRoomBus } from "./controlRoomEvents";
 import type { Actor } from "../types/project";
 import { commitAgentWork, listRepositoryFiles } from "./repository";
 import { getAgentRegistry } from "./agentRegistry";
+import { DELIVERABLE_TOOLS, registerMediaTools } from "./mcp/media";
+import type { AgentCapabilities } from "./boundary";
 
 /**
  * The Project MCP server (product-design.md §13).
@@ -22,6 +24,16 @@ export interface ProjectMcpContext {
   agentId: string;
   /** Scoped grant allowing this agent to write the canonical document. Off by default (§4). */
   canWriteDocument?: boolean;
+  /**
+   * Which api.x.ai endpoint families this agent may spend on (`boundary.ts`).
+   *
+   * Absent means base Grok: `generate_image` and `narrate` are **not registered**, so the agent
+   * cannot reach a per-unit endpoint at all. That is the safe default and it is also, today, the
+   * only value production ever passes — nothing stores a capability per agent yet, so no live agent
+   * is granted media. The one-line change that fixes it is R-2 in `loops/handoff/pivot-media.md`;
+   * it belongs to `server/routes/mcp.ts` and 01-agents, neither of which this worktree may edit.
+   */
+  capabilities?: AgentCapabilities;
   /**
    * Stores the tools read and write. Injected so a server can be pointed at a test fixture, and
    * so this module does not depend on process-wide singletons being initialised in a given order.
@@ -684,6 +696,17 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
     );
   }
 
+  // ─────────────────────────── deliverables (pivot/media)
+  //
+  // The tools that let an agent produce something the user can open. Registered last and from their
+  // own module: the identity is passed through unchanged, so a deliverable tool sees exactly the
+  // project and agent every tool above sees, and cannot be told otherwise.
+  registerMediaTools(server, {
+    projectId: ctx.projectId,
+    agentId: ctx.agentId,
+    ...(ctx.capabilities !== undefined ? { capabilities: ctx.capabilities } : {}),
+  });
+
   return server;
 }
 
@@ -738,4 +761,8 @@ export const PROJECT_MCP_TOOLS = [
   "attach_test_report",
   "attach_api_contract",
   "attach_screenshot",
+  // Deliverables. Only the three that cost nothing appear here: `generate_image` and `narrate` are
+  // registered per capability and live in `boundary.ts`'s `MEDIA_TOOLS`, which is asserted disjoint
+  // from this list precisely so that gating them cannot gate a tool every agent must have.
+  ...DELIVERABLE_TOOLS,
 ] as const;

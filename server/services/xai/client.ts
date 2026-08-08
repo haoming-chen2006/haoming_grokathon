@@ -55,9 +55,10 @@ export const XAI_BASE_URL = "https://api.x.ai/v1";
  * is built, so it can never be confused with a 401 from a request that should not have been sent.
  */
 export const NO_CREDENTIAL_MESSAGE =
-  "no xAI credential is configured; media generation is unavailable. Set XAI_API_KEY in the " +
-  "environment. This is a different credential from the one that signs the `grok` CLI in — " +
-  "signing the CLI in does not enable media generation, and setting this does not sign the CLI in.";
+  "no xAI credential is configured; media generation is unavailable. Set XAI_API_KEY (or " +
+  "xai_api_key) in the environment. This is a different credential from the one that signs the " +
+  "`grok` CLI in — signing the CLI in does not enable media generation, and setting this does not " +
+  "sign the CLI in.";
 
 // ───────────────────────────────────────────────────────────────────────── endpoints
 
@@ -321,7 +322,13 @@ export class XaiClient {
   constructor(options: XaiClientOptions = {}) {
     // Read once, here. A per-call read would let a key rotated into the environment mid-process
     // change behaviour halfway through a job, and would give three places to leak it from.
-    this.apiKey = options.apiKey ?? process.env.XAI_API_KEY;
+    //
+    // `xai_api_key` is read as well because that is the name the credential actually has in this
+    // repository's `.env`, and a client that only looks for `XAI_API_KEY` reports "no credential"
+    // on a machine where the credential is present — the most expensive kind of wrong answer,
+    // because it sends someone to fix a key that was never broken. `XAI_API_KEY` still wins, so an
+    // environment that sets both behaves exactly as before.
+    this.apiKey = options.apiKey ?? process.env.XAI_API_KEY ?? process.env.xai_api_key;
     this.baseUrl = options.baseUrl ?? XAI_BASE_URL;
     this.clock = options.clock ?? REAL_CLOCK;
     this.timeouts = { ...XAI_TIMEOUTS, ...options.timeouts };
@@ -545,9 +552,26 @@ async function readJson(response: Response, endpoint: XaiEndpoint): Promise<unkn
  * `error.code` when it sent one.
  */
 function errorFor(status: number, payload: unknown, endpoint: XaiEndpoint): XaiError {
-  const error = (payload as { error?: { code?: unknown; message?: unknown } } | null)?.error;
-  const providerCode = typeof error?.code === "string" ? error.code : null;
-  const providerMessage = typeof error?.message === "string" ? error.message : null;
+  // api.x.ai uses two error envelopes, and only one of them was read here before. The documented
+  // shape is nested — `{error: {code, message}}` — and it is what the video job endpoints return.
+  // The live images endpoint returns a FLAT one: `{"code": "invalid-argument", "error": "Incorrect
+  // API key provided."}`, where `error` is the message and the code is hyphenated rather than
+  // underscored. Reading only the nested shape produced "failed with HTTP 400 (invalid_argument)"
+  // and threw the sentence that said what was actually wrong on the floor — observed against the
+  // live API on 2026-08-08, where it cost an afternoon to discover that a *credential* problem was
+  // being reported as a bad argument. Both shapes are read, and the code is normalised.
+  const flat = payload as { code?: unknown; error?: unknown } | null;
+  const nested = (flat?.error ?? null) as { code?: unknown; message?: unknown } | null;
+
+  const rawCode =
+    typeof nested?.code === "string" ? nested.code : typeof flat?.code === "string" ? flat.code : null;
+  const providerCode = rawCode ? rawCode.replace(/-/g, "_") : null;
+  const providerMessage =
+    typeof nested?.message === "string"
+      ? nested.message
+      : typeof flat?.error === "string"
+        ? flat.error
+        : null;
 
   const known = new Set([
     "invalid_argument",
@@ -557,16 +581,24 @@ function errorFor(status: number, payload: unknown, endpoint: XaiEndpoint): XaiE
     "internal_error",
   ]);
 
+  // A rejected key comes back as HTTP 400 `invalid-argument`, not as a 401. Left alone it reads as
+  // "your prompt was bad", which sends someone to rewrite a prompt that was fine.
+  const isCredentialRejection = /api key/i.test(providerMessage ?? "");
+
   let code: XaiError["code"];
-  if (providerCode && known.has(providerCode)) code = providerCode as XaiError["code"];
+  if (isCredentialRejection) code = "permission_denied";
+  else if (providerCode && known.has(providerCode)) code = providerCode as XaiError["code"];
   else if (status === 429) code = "rate_limited";
   else if (status === 401 || status === 403) code = "permission_denied";
   else if (status === 400 || status === 422) code = "invalid_argument";
   else if (status === 503 || status === 502 || status === 504) code = "service_unavailable";
   else code = "internal_error";
 
-  const hint =
-    code === "permission_denied"
+  const hint = isCredentialRejection
+    ? " The credential was present and api.x.ai rejected it: the value in XAI_API_KEY (or " +
+      "xai_api_key) is not a valid api.x.ai key. Keys are issued at https://console.x.ai and begin " +
+      "`xai-`. This is not the `grok` CLI's sign-in, and signing the CLI in will not fix it."
+    : code === "permission_denied"
       ? " This is a plan or tier restriction on the XAI_API_KEY account, not a bug, and not the `grok` CLI's sign-in."
       : code === "invalid_argument"
         ? " Moderation blocks arrive under this code; retrying spends money to be refused again."
