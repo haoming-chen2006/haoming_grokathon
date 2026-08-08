@@ -4402,6 +4402,48 @@ bun run acceptance → all 20 steps
 
 ---
 
+## Making the acceptance run say what went wrong (iteration 72)
+
+Iteration 71 noted a run that failed at `commit failed` because the agent had not edited the file.
+That message names the wrong step and explains nothing, which is the same defect as the one
+iteration 61 fixed in the unit tests — asserting an outcome while discarding the evidence.
+
+**The step asserted the wrong thing.** After the agent's turn it checked only
+`work.status === 200`, which says the turn completed, not that anything happened:
+
+```text
+before   HTTP 200 → "Agent implemented the feature in its worktree"   (it may not have)
+         …two steps later…  FAILED: commit failed
+after    the worktree's greet.ts must no longer hold the stub, at the step that edits it
+```
+
+**A hypothesis checked and disproved first.** The instruction contains `` `Hello, ${name}!` ``, and
+if that string were a template literal in the script it would interpolate to `Hello, undefined!` and
+explain everything. It is built with double quotes, so `${name}` reaches the agent literally. Worth
+recording because it was the most plausible cause and it was wrong.
+
+**The diagnostic was empty on the first try.** The failure message read `reply=""` — the code read
+`work.json.transcript`, and the endpoint returns `{ added }`. That is precisely the failure this
+change exists to prevent, one level up: an assertion that captures nothing is no better than no
+assertion. Reading the right field then produced `agent: SK | agent: IPP | agent: ED`, because the
+text arrives as stream chunks, so same-kind runs are now concatenated:
+
+```text
+control — an instruction the agent can satisfy without editing anything:
+  FAILED: the agent did not implement greet — worktree still holds the stub. reply="agent: SKIPPED"
+```
+
+The failure now names the step that failed, and quotes what the agent said while failing. A future
+occurrence of the intermittent variance noted in iteration 71 will distinguish a refusal from a
+misread from a silent no-op, instead of surfacing as `commit failed`.
+
+```text
+bun run verify → exit 0, 727 pass / 0 fail, four audits clean
+bun run acceptance → all 20 steps
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4498,7 +4540,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 91 ahead of main
+commits 93 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller

@@ -234,6 +234,39 @@ const work = await api("POST", `/api/coding-agents/${B}/session/message`, {
     "Do not change anything else. Reply with only DONE when finished.",
 });
 must(work.status === 200, "agent work failed", work.text.slice(0, 200));
+
+// Check the edit here, not two steps later.
+//
+// This asserted only that the HTTP call returned 200 — which says the turn completed, not that the
+// agent did anything. When it did not, the run failed further down with "commit failed", a message
+// that names the wrong step and explains nothing. The reply goes into the failure so the next
+// occurrence says whether the agent refused, misread, or claimed success without acting.
+const worktreeGreet = join(wt.json.path, "greet.ts");
+const afterTurn = existsSync(worktreeGreet) ? readFileSync(worktreeGreet, "utf8") : "";
+// POST /session/message replies { added: TranscriptEntry[] } — the lines this turn produced.
+// A first version read `transcript` and captured nothing, which is the failure this change
+// exists to prevent, one level up.
+// The agent's text arrives as stream chunks, so joining with a separator renders "SKIPPED" as
+// "SK | IPP | ED". Concatenate same-kind runs so the failure shows what the agent actually said.
+const replyText = (work.json?.added ?? [])
+  .filter((t) => t.kind !== "user")
+  .reduce((acc, t) => {
+    const last = acc[acc.length - 1];
+    if (last && last.kind === t.kind) last.text += t.text;
+    else acc.push({ kind: t.kind, text: t.text });
+    return acc;
+  }, [])
+  .map((t) => `${t.kind}: ${t.text}`)
+  .join(" | ")
+  .slice(0, 400);
+must(
+  !afterTurn.includes("not implemented"),
+  `the agent did not implement greet — worktree still holds the stub. reply=${JSON.stringify(replyText)}`,
+);
+must(
+  afterTurn.includes("Hello,"),
+  `greet.ts does not contain the implementation. contents=${JSON.stringify(afterTurn.slice(0, 200))}`,
+);
 log("Agent implemented the feature in its worktree");
 
 // The agent's edits must be committed on its branch, or a later merge carries nothing — the flow
