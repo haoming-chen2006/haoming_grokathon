@@ -78,6 +78,18 @@ describe("V-032: agent can modify code in its worktree", () => {
     if (!grokBinaryPath()) throw new Error("grok binary unavailable");
 
     const wt = createAgentWorktree(repo, { agentId: "reader", branch: "agent/reader", baseBranch: "main" });
+
+    // Precondition, checked before the model is involved at all.
+    //
+    // This test fails intermittently with the agent reporting it could not find the value — a
+    // claim that is either true (the worktree is missing the fixture, a real defect) or false (the
+    // model misread a file that was there). Asserting the fixture first partitions those two, so a
+    // future failure is attributable rather than ambiguous.
+    const fixture = join(wt.path, "app.ts");
+    expect(existsSync(fixture), `the worktree is missing app.ts at ${fixture}`).toBe(true);
+    expect(readFileSync(fixture, "utf8"), "the worktree's app.ts does not hold the fixture value")
+      .toContain("8317");
+
     const conn = await agentIn(wt.path, "reader");
     try {
       // Assert an effect on disk, not the wording of a reply.
@@ -132,6 +144,9 @@ describe("V-033: agent can run repository commands", () => {
     if (!grokBinaryPath()) throw new Error("grok binary unavailable");
 
     const wt = createAgentWorktree(repo, { agentId: "failer", branch: "agent/failer", baseBranch: "main" });
+    // Same partition as the read test: prove the worktree is sane before blaming the model.
+    expect(existsSync(join(wt.path, "app.ts")), "the worktree is missing its fixture").toBe(true);
+
     const conn = await agentIn(wt.path, "failer");
     try {
       // The observed exit code is written to a file rather than spoken, for the same reason as
