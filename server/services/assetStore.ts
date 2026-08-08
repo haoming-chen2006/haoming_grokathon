@@ -179,7 +179,7 @@ function isAssetType(value: unknown): value is AssetType {
  * ```text
  * <root>/<assetId>/asset.json          the envelope
  * <root>/<assetId>/files/<fileId>.<ext>  the persisted bytes
- * <root>/<assetId>/files/<fileId>.json   the per-file provenance sidecar
+ * <root>/<assetId>/files/<fileId>.meta.json   the per-file provenance sidecar
  * ```
  *
  * **The listing is derived from those directories, never from an index.** An index that can
@@ -476,7 +476,12 @@ export async function persistFile(input: PersistFileInput, store: AssetStore): P
 
   await writeFile(join(dir, `${id}.${ext}`), bytes);
   // The provenance sidecar sits beside the bytes so a directory scan can rebuild the envelope.
-  await writeFile(join(dir, `${id}.json`), JSON.stringify(descriptor, null, 2));
+  // `.meta.json`, not `.json`. The sidecar used to be `<fileId>.json`, which IS the path a stored
+  // JSON file gets — MIME_EXT maps application/json to "json" — so saving JSON wrote the bytes and
+  // then overwrote them with their own metadata, leaving an envelope whose sha256 and byte count
+  // described content no longer on disk. Found by storing TTS timings, and only because the test
+  // read the file back instead of trusting the descriptor.
+  await writeFile(join(dir, `${id}.meta.json`), JSON.stringify(descriptor, null, 2));
 
   return descriptor;
 }

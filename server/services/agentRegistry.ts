@@ -168,6 +168,8 @@ export class AgentRegistry {
     persona?: string;
     skills?: string[];
     tools?: string[];
+    /** Which priced endpoints this agent may reach. Absent is base Grok — no media at all. */
+    capabilities?: { images: boolean; voice: boolean };
     permissions?: Partial<AgentPermissions>;
     budgetUsd?: number;
     branch?: string;
@@ -183,6 +185,7 @@ export class AgentRegistry {
       persona: params.persona,
       skills: params.skills ?? [],
       tools: params.tools ?? [],
+      ...(params.capabilities ? { capabilities: params.capabilities } : {}),
       branch: params.branch,
       worktree: params.worktree,
       // A new agent has no session, so it is idle — never "working" by default.

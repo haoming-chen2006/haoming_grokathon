@@ -111,6 +111,14 @@ export interface CodingAgent {
   persona?: string;
   skills: string[];
   tools: string[];
+  /**
+   * Which priced api.x.ai endpoint families this agent may reach — `boundary.ts`'s AgentCapabilities.
+   *
+   * Absent means base Grok: the media tools are not registered at all, so the agent cannot call a
+   * per-unit endpoint. Enforcement is registration rather than refusal, because an advertised tool
+   * that always fails invites a retry, and a retry against a priced endpoint is a spend loop.
+   */
+  capabilities?: { images: boolean; voice: boolean };
   avatar?: string;
   color?: string;
 
@@ -150,6 +158,14 @@ export interface AgentTemplate {
   persona?: string;
   skills: string[];
   tools: string[];
+  /**
+   * Which priced api.x.ai endpoint families this agent may reach — `boundary.ts`'s AgentCapabilities.
+   *
+   * Absent means base Grok: the media tools are not registered at all, so the agent cannot call a
+   * per-unit endpoint. Enforcement is registration rather than refusal, because an advertised tool
+   * that always fails invites a retry, and a retry against a priced endpoint is a spend loop.
+   */
+  capabilities?: { images: boolean; voice: boolean };
   permissions: AgentPermissions;
   budgetUsd?: number;
   createdAt: string;
