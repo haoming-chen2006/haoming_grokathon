@@ -1,5 +1,6 @@
 import { AcpConnection } from "./acpClient";
 import { projectMcpUrl } from "../routes/mcp";
+import type { TokenUsage } from "./usageAccounting";
 
 /**
  * The Planner (product-design.md §10 step 4, V-017).
@@ -32,6 +33,16 @@ export interface GeneratedPlan {
   tasks: PlannedTask[];
   /** Raw model output, kept so a bad parse can be diagnosed rather than guessed at. */
   raw: string;
+  /**
+   * What the planning turn consumed.
+   *
+   * This is a real Grok session costing real money, and it was measured by the ACP layer and
+   * discarded here — so the Planner ran for free as far as the ledger was concerned, the project
+   * total understated real spending, and the budget caps of V-046 could not see it. It matters
+   * more now that the Control Room has a "Generate plan" button, where a user would watch a
+   * minute-long agent turn and then read $0.00.
+   */
+  usage?: TokenUsage;
 }
 
 export class PlanParseError extends Error {
@@ -165,7 +176,7 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<GeneratedPlan
     ]);
 
     const reply = await conn.prompt(PLANNER_PROMPT, { timeoutMs: opts.timeoutMs ?? 300_000 });
-    return normalisePlan(extractJson(reply.text), reply.text);
+    return { ...normalisePlan(extractJson(reply.text), reply.text), usage: reply.usage };
   } finally {
     conn.stop();
   }

@@ -162,6 +162,16 @@ const plan = await api("POST", `/api/projects/${P}/plan`, {
 must(plan.status === 201 && plan.json.state === "draft", "plan did not land as a draft");
 log(`Launched Planner — plan ${plan.json.id} created as "${plan.json.state}"`);
 
+// The Planner's own turn must be charged to it. It was measured by the ACP layer and discarded,
+// so a real agent turn cost real money and the ledger read zero.
+const genForCost = await api("POST", `/api/projects/${P}/plan/generate`, {});
+must(genForCost.status === 201, "plan/generate failed", genForCost.text.slice(0, 200));
+const plannerCost = (await api("GET", `/api/coding-agents?projectId=${P}`)).json
+  .find((a) => a.role === "Planner")?.costUsd ?? 0;
+must(plannerCost > 0, `the planning turn was not charged to the Planner (costUsd ${plannerCost})`);
+detail(`planning turn charged to the Planner — $${plannerCost.toFixed(4)}`);
+evidence["Planner cost recorded"] = `$${plannerCost.toFixed(4)} on a real planning turn`;
+
 // agents and the task
 const backend = await api("POST", "/api/coding-agents", { projectId: P, name: "Backend Engineer", role: "Backend Engineer", budgetUsd: 3 });
 const reviewer = await api("POST", "/api/coding-agents", { projectId: P, name: "Reviewer", role: "Reviewer", budgetUsd: 3 });

@@ -4283,6 +4283,58 @@ bun run verify → exit 0, 715 pass / 0 fail, four audits clean
 
 ---
 
+## The Planner was running for free (iteration 70)
+
+Auditing every place a Grok session is created — the same sweep that found the `loadSession` branch
+in iteration 54 — turned up a **third** path, and it was leaking money:
+
+```text
+acpSessionManager.ts:181   loadSession   mcpServers ✓   (fixed in 54)
+acpSessionManager.ts:184   newSession    mcpServers ✓   rules ✓   usage recorded ✓   (fixed in 53)
+planner.ts:163             newSession    mcpServers ✓   rules ✗   usage recorded ✗
+```
+
+`runPlanner` builds its own connection, and `conn.prompt()` returns the turn's token usage, which
+it discarded. So **a real Grok session costing real money was recorded nowhere**: the project total
+understated actual spending, and V-046's caps could not see it. It also could not have been caught
+by the budget work of iterations 52 and 60, which covered the two session-manager paths.
+
+It matters more since iteration 68 put a **Generate plan** button in the Control Room — a user
+watches a minute-long agent turn and then reads `$0.00`.
+
+**A second problem underneath it: there was nothing to charge.** `runPlanner` uses `agentId
+"planner"`, a string, not a registered agent. The route now resolves the project's Planner-role
+agent — the one both `bun run new` and the Control Room create — and charges the turn to it.
+Attribution is deliberately not a precondition: a project created straight through the API may have
+no agents, and refusing to plan would be worse than not charging.
+
+**Measured on a real planning turn**, through the acceptance run:
+
+```text
+planning turn charged to the Planner — $0.0651
+Total cost   $0.17 of $10.00        (it read $0.12 before; the difference was always being spent)
+```
+
+```text
+control experiment — the recording removed:
+  FAILED: the planning turn was not charged to the Planner (costUsd 0)
+  restored: All 20 steps passed.
+```
+
+**Not fixed: the Planner gets no persona or skills.** `runPlanner` passes no `rules`, so the
+Planner-role agent's persona — which `bun run new` sets — does not reach the planning session. That
+is the same defect iteration 53 fixed for task agents, in the path it did not touch. It is recorded
+rather than fixed here because the planning prompt is a fixed template that already states the
+Planner's job, so a persona would be additive rather than corrective, and changing what the Planner
+is told is a behavioural change that deserves its own iteration rather than being smuggled into a
+cost fix.
+
+```text
+bun run verify → exit 0, 718 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4309,7 +4361,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 715 pass / 0 fail, 42 files;
+[x] Required tests pass.                    — 718 pass / 0 fail, 42 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -4379,9 +4431,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 87 ahead of main
+commits 89 ahead of main
 build   bun run build exit 0
-tests   715 pass / 0 fail across 42 files
+tests   718 pass / 0 fail across 42 files
 audits  0 orphans; every endpoint has a caller
 ```
 

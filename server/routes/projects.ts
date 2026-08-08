@@ -15,6 +15,7 @@ import { detectTestCommand, runTests } from "../services/testRunner";
 import { runPlanner, uncoveredRequirements } from "../services/planner";
 import { reviewSubmission } from "../services/designReview";
 import type { Actor } from "../types/project";
+import { estimateCost } from "../services/usageAccounting";
 
 export const projectRoutes = new Hono();
 
@@ -274,12 +275,32 @@ projectRoutes.post("/:id/plan/generate", async (c) => {
     const store = getProjectStore();
     const project = store.getProject(projectId);
 
+    // Attribute the planning turn to a real agent when the project has one, so its cost lands in
+    // the ledger instead of vanishing. The caller may name an agent; otherwise the project's
+    // Planner-role agent is used, which is what `bun run new` and the Control Room both create.
+    const registry = getAgentRegistry();
+    const plannerAgent =
+      (body?.agentId ? registry.list(projectId).find((a) => a.id === body.agentId) : undefined) ??
+      registry.list(projectId).find((a) => a.role === "Planner");
+    const plannerId = plannerAgent?.id ?? body?.agentId ?? "planner";
+
     const generated = await runPlanner({
       projectId,
       cwd: project.repositoryPath,
       port: Number(process.env.PORT) || 6968,
-      agentId: body?.agentId ?? "planner",
+      agentId: plannerId,
     });
+
+    // Recorded before the plan is persisted: the tokens were spent whether or not the parse
+    // succeeded, and a budget stop must surface rather than be swallowed.
+    if (plannerAgent && generated.usage && generated.usage.totalTokens > 0) {
+      const estimate = estimateCost(generated.usage);
+      registry.recordUsage(
+        plannerAgent.id,
+        { costUsd: estimate.costUsd, tokens: generated.usage.totalTokens, estimated: true },
+        project.budgetUsd,
+      );
+    }
 
     // The generated plan is persisted as a DRAFT and its tasks created, so the user can edit
     // assignments and budgets before anything launches (V-018).

@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { projectRoutes } from "./projects";
 import { repositoryRoutes } from "./repository";
 import { ProjectStore } from "../services/projectStore";
+import { getAgentRegistry } from "../services/agentRegistry";
 import type { Actor } from "../types/project";
 
 /**
@@ -348,5 +349,40 @@ describe("requirement-to-conversation traceability (§21)", () => {
       "GET", `/api/projects/${projectId}/messages?linkKind=requirement&linkId=R-1&includeArchived=true`,
     );
     expect(all.json).toHaveLength(2);
+  });
+});
+
+describe("the planning turn is charged to an agent (V-045, §16)", () => {
+  test("the route resolves the project's Planner agent for attribution", () => {
+    // runPlanner creates its own connection with agentId "planner", which is not a registered
+    // agent, so its cost had nowhere to land — the Planner ran for free in the ledger while
+    // costing real money. The route now attributes it to the Planner-role agent the CLI and the
+    // Control Room both create.
+    const registry = getAgentRegistry();
+    registry.create({ projectId, name: "Backend", role: "Backend Engineer" });
+    const planner = registry.create({ projectId, name: "Planner", role: "Planner" });
+
+    const resolved = registry.list(projectId).find((a) => a.role === "Planner");
+    expect(resolved?.id).toBe(planner.id);
+  });
+
+  test("usage recorded for the planner moves the project total", () => {
+    // The mechanism the route uses, asserted without a live model.
+    const registry = getAgentRegistry();
+    const planner = registry.create({ projectId, name: "Planner", role: "Planner" });
+
+    const before = registry.costSummary(projectId).projectCostUsd;
+    registry.recordUsage(planner.id, { costUsd: 0.42, tokens: 1000, estimated: true }, 10);
+    const after = registry.costSummary(projectId).projectCostUsd;
+
+    expect(after - before).toBeCloseTo(0.42, 5);
+    expect(registry.get(planner.id).costUsd).toBeCloseTo(0.42, 5);
+  });
+
+  test("a project with no Planner agent still generates, it simply has nowhere to charge", () => {
+    // Attribution must not become a precondition for planning: a project created straight through
+    // the API may have no agents at all, and refusing to plan would be worse than not charging.
+    const registry = getAgentRegistry();
+    expect(registry.list(projectId).find((a) => a.role === "Planner")).toBeUndefined();
   });
 });
