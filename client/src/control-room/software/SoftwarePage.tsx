@@ -56,8 +56,38 @@ function apps(): SoftwareAppView[] {
   return MOCK_APPS;
 }
 
-function appFor(selectionId: string | undefined): SoftwareAppView {
-  return apps().find((a) => a.assetId === selectionId) ?? apps()[0]!;
+/**
+ * The app the URL is pointing at.
+ *
+ * Three outcomes rather than one, because they are three different facts and a page that collapses
+ * them lies about two of them: there are no apps at all; the URL names one that is not here (a link
+ * from a message about an app since deleted); or here it is. Falling back to "the first app" for an
+ * unknown id would show the user a different app as though it were the one they asked for.
+ */
+type Resolution =
+  | { kind: "none" }
+  | { kind: "unknown"; assetId: string }
+  | { kind: "app"; app: SoftwareAppView };
+
+function resolveApp(selectionId: string | undefined): Resolution {
+  const all = apps();
+  if (all.length === 0) return { kind: "none" };
+  if (selectionId === undefined) return { kind: "app", app: all[0]! };
+  const found = all.find((a) => a.assetId === selectionId);
+  return found ? { kind: "app", app: found } : { kind: "unknown", assetId: selectionId };
+}
+
+/** The same sentence in all three regions, so a broken link reads the same wherever it is seen. */
+function Absent({ resolution }: { resolution: Exclude<Resolution, { kind: "app" }> }) {
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <p className="max-w-xs text-center text-sm text-ink-faint">
+        {resolution.kind === "none"
+          ? "No apps here yet. One appears when an agent starts building what a design document describes."
+          : "That app isn't in this project."}
+      </p>
+    </div>
+  );
 }
 
 /** The banner that stops anyone reading this page as if it were live. */
@@ -79,8 +109,20 @@ function MockBanner() {
  * an empty frame — a blank iframe and a broken app look identical, and only one of them is true.
  */
 export function SoftwarePage({ selectionId }: WorkspacePageProps) {
-  const app = appFor(selectionId);
+  const resolution = resolveApp(selectionId);
   const [reloadKey, setReloadKey] = useState(0);
+  const [showChanges, setShowChanges] = useState(false);
+
+  if (resolution.kind !== "app") {
+    return (
+      <div className="flex h-full flex-col bg-canvas">
+        <MockBanner />
+        <Absent resolution={resolution} />
+      </div>
+    );
+  }
+
+  const app = resolution.app;
   const { preview } = app;
 
   return (
@@ -94,10 +136,44 @@ export function SoftwarePage({ selectionId }: WorkspacePageProps) {
             data-testid="software-preview"
             title={`${app.name}, running`}
             className="h-full w-full border-0 bg-white"
+            /*
+             * The app in here is code a model wrote, and it runs in the user's browser.
+             *
+             * Against a real preview that is a dev server on another port, so it is cross-origin
+             * and already walled off. Against `srcDoc` it would be **same-origin** — the mock is a
+             * document of ours, so without this attribute an app could reach into the workspace
+             * that is displaying it. `allow-scripts` because an app that cannot run scripts is not
+             * the app; `allow-same-origin` is deliberately absent, which is what keeps the frame in
+             * its own opaque origin. Deliberately not `allow-top-navigation`: a preview must not be
+             * able to navigate the workspace away from itself.
+             */
+            sandbox="allow-scripts allow-forms allow-popups"
             {...(preview.previewHtml ? { srcDoc: preview.previewHtml } : { src: preview.url })}
           />
         ) : (
           <PreviewAbsent app={app} />
+        )}
+
+        {/*
+          The wireframe's second control. The inspector carries the same prose, but it is a region
+          the user can collapse — and on a narrow window the summary is the first thing to go. This
+          puts it over the app on demand without navigating away from it.
+        */}
+        {showChanges && (
+          <div className="absolute inset-x-0 bottom-0 max-h-[50%] overflow-y-auto border-t border-border bg-surface/95 px-4 py-3">
+            <h3 className="text-xs uppercase tracking-wide text-ink-faint">What changed</h3>
+            {app.summary.length > 0 ? (
+              <ul className="mt-2 space-y-1.5">
+                {app.summary.map((line) => (
+                  <li key={line} className="text-sm leading-relaxed text-ink-muted">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-ink-faint">Nothing yet — this app is still being worked on.</p>
+            )}
+          </div>
         )}
       </div>
 
@@ -109,6 +185,13 @@ export function SoftwarePage({ selectionId }: WorkspacePageProps) {
           className="rounded-md border border-border px-3 py-1.5 text-xs text-ink hover:bg-surface-hover disabled:cursor-not-allowed disabled:text-ink-ghost"
         >
           Reload
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowChanges((v) => !v)}
+          className="rounded-md border border-border px-3 py-1.5 text-xs text-ink hover:bg-surface-hover"
+        >
+          {showChanges ? "Hide what changed" : "What changed"}
         </button>
         <span className="text-xs text-ink-faint">
           {preview.state === "running"
@@ -168,7 +251,9 @@ function PreviewAbsent({ app }: { app: SoftwareAppView }) {
 
 /** Every app in this project. The list is names and states — never branches. */
 export function SoftwareNavigator({ selectionId, onSelect }: WorkspacePageProps) {
-  const selected = appFor(selectionId);
+  const resolution = resolveApp(selectionId);
+  if (resolution.kind === "none") return <Absent resolution={resolution} />;
+  const selectedId = resolution.kind === "app" ? resolution.app.assetId : undefined;
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <p className="px-3 pb-1 pt-3 text-xs uppercase tracking-wide text-ink-faint">Apps</p>
@@ -178,7 +263,7 @@ export function SoftwareNavigator({ selectionId, onSelect }: WorkspacePageProps)
           type="button"
           onClick={() => onSelect(app.assetId)}
           className={`flex flex-col items-start gap-1 border-l-2 px-3 py-2 text-left hover:bg-surface-hover ${
-            app.assetId === selected.assetId
+            app.assetId === selectedId
               ? "border-accent bg-surface-active"
               : "border-transparent"
           }`}
@@ -201,7 +286,9 @@ export function SoftwareNavigator({ selectionId, onSelect }: WorkspacePageProps)
  * `src/DeckList.jsx` and never a unified diff.
  */
 export function SoftwareInspector({ selectionId }: WorkspacePageProps) {
-  const app = appFor(selectionId);
+  const resolution = resolveApp(selectionId);
+  if (resolution.kind !== "app") return <Absent resolution={resolution} />;
+  const app = resolution.app;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
