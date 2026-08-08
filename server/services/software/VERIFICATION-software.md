@@ -6,16 +6,16 @@ Evidence for the items in `loops/05-software.md` §7.
 this worktree does not own. It is written in §7's format so the reconciliation pass can move it in
 whole. That request is recorded in `loops/handoff/pivot-software.md`.
 
-**Last iteration:** 2 (2026-08-08)
-**Tally:** 1 PASS · 0 FAIL · 3 BLOCKED · 12 NOT TESTED
+**Last iteration:** 3 (2026-08-08)
+**Tally:** 2 PASS · 0 FAIL · 3 BLOCKED · 11 NOT TESTED
 
 ```text
 SW-001  PASS         the template builds before any agent touches it
 SW-002  BLOCKED      waits on 03-design-docs (read interface)
 SW-003  NOT TESTED
 SW-004  NOT TESTED   3 of 4 clauses evidenced; HELD on the 4th, which needs the submission path
-SW-005  NOT TESTED   next: preview.ts, §6 stage 0.3
-SW-006  NOT TESTED
+SW-005  PASS         a preview is a process with a lifecycle
+SW-006  NOT TESTED   3 of 4 clauses evidenced; HELD on the 4th, which needs the UI (stage 2.1)
 SW-007  NOT TESTED
 SW-008  NOT TESTED
 SW-009  BLOCKED      waits on 02-assets (store accepting kind: "software")
@@ -157,6 +157,101 @@ spawned closed. `/bin/sh` exiting says nothing about the `vite` that `sh` starte
 drops the kill in exactly the case the escalation is for. Mutating the escalation away
 (`if (false && groupExists())`) fails that test, and leaves two `sh` processes running on the
 machine afterwards, which is the defect made visible.
+
+---
+
+## SW-005 — A preview is a process with a lifecycle — PASS
+
+All five required clauses hold, each against a real vite dev server. Reproduce with:
+
+```bash
+bun test server/services/software/preview.test.ts
+```
+
+```text
+URL and port:                   http://127.0.0.1:5173/ — the port is read off the dev server's own
+                                stdout, never chosen by us. Fetching it returns the app's own root
+                                element, id="app-root". Two previews started together took 5173 and
+                                5174 and served independently.
+Process id:                     not exposed. `stop` waits on the child's close event, so a returned
+                                `stop` means the OS reaped it; a pid in the status would be a
+                                process detail on its way to a surface that shows none (§4.3).
+Port state after stop:          free, checked by binding it — the OS's answer, not our map's. The
+                                dev server is a grandchild (sh -> bun -> vite), so this is also the
+                                proof the process *group* is signalled rather than the child alone.
+Idle timeout observed:          a preview with a 700 ms idle bound stopped itself, its port freed,
+                                and its message reads "Stopped after 0 minutes with nobody looking
+                                at it." Polling `status` deliberately does not count as looking:
+                                a client polling every two seconds would otherwise keep every
+                                preview alive forever and the timeout would be decorative. The
+                                client says a person is watching by calling `touch`, and a test
+                                touches for 1.5 s against a 1 s bound to prove it holds, then stops
+                                touching and watches it die.
+Cap behaviour and message shown:
+                                with a cap of 1, starting a second preview stopped the first and
+                                left it with: "Stopped to make room for the preview of asset-new.
+                                1 previews can run at once; this was the one you had not looked at
+                                for longest. Open it again whenever you like." Never a silent kill.
+Orphan check after shutdown:    stopAll() left both previews stopped and both ports bindable, and
+                                is idempotent — shutdown paths get called twice more often than
+                                once. stopAllPreviews() is safe before anything has started.
+```
+
+**Defects this found in its own subject, before the gate saw them.** Three, each fixed:
+
+* **A `stop` arriving while a preview was starting did nothing at all.** The entry was registered
+  after the first `await`, so an early `stop` looked the asset up, found nothing, and returned —
+  and the preview came up anyway, unstoppable by the caller that had already asked for it to go.
+  The entry is now registered before any await.
+* **A cap of one evicted the preview it was making room for.** The incoming entry counted itself in
+  `live()`. It is excluded from both the count and the candidates.
+* **`start` could resolve `running` before the line that condemned it.** vite prints `Local:` before
+  `Network:`, in a separate chunk; a check that stopped at the first usable URL accepted a server
+  bound to `0.0.0.0`. Every chunk is now checked for an off-machine address, before any URL is
+  accepted and for as long as the preview runs.
+
+---
+
+## SW-006 — A failing preview reports the real error — NOT TESTED, held on one clause
+
+Three of four clauses hold; the fourth needs a UI that does not exist yet.
+
+```text
+Injected failure:               src/App.jsx rewritten to import "react-datepicker", which is not
+                                installed. The dev server starts — the failure is per request, not
+                                at boot — and requesting /src/App.jsx is what makes it resolve, the
+                                same thing a browser loading the page does.
+Error text surfaced:            "Failed to resolve import "react-datepicker" from "src/App.jsx"",
+                                kept in the preview's output, and the package named on its own:
+                                missingPackages === ["react-datepicker"]. A scoped name keeps two
+                                segments, a plain one keeps the first, and a relative import is a
+                                missing file rather than a package to install (§3.4 item 4).
+Source stream:                  the child process's own stdout/stderr. Nothing in this area reads
+                                an iframe, and a test greps every non-test file in it for
+                                contentDocument, contentWindow and shadowRoot so it stays that way.
+                                Upstream's whole detector sits in a `catch {}` that swallows the
+                                cross-origin exception which always fires, so it reports nothing,
+                                silently; the structural guarantee against shipping the same dead
+                                code is not having the code.
+Latency to visible:             NOT TESTED. There is no UI yet (§6 stage 2.1), so "visible within
+                                one polling interval" cannot be honestly measured. This is the
+                                clause the item is held on.
+Cross-origin behaviour:         the preview is cross-origin from the workspace page by construction
+                                — a different port is a different origin — and nothing in the path
+                                depends on reading into it. Noted from the first iteration: bun's
+                                test preload registers happy-dom, whose `fetch` enforces the same
+                                origin policy and rejects a request to a dev server on another
+                                port. It is the first place this bites and it will not be the last;
+                                the client will need the preview's own URL in an iframe and its
+                                errors over our WebSocket, never by reaching into the frame.
+```
+
+**The preview binds to the loopback interface, and does not rely on the template to.** The dev
+command is run with `-- --host 127.0.0.1` appended, because `vite.config.js` is a file an agent can
+edit and this is the one property that must not depend on it. Mutating the flag away makes a test
+fail with `Received: "http://localhost:5173/"` from a config asking for `0.0.0.0` — so the flag is
+load-bearing, not decorative. A preview that announces an address off this machine is stopped, and
+says so. This is evidence toward SW-011 and SW-011 is not claimed on it.
 
 ---
 

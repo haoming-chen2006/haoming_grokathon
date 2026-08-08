@@ -22,9 +22,9 @@
  *     a child process you did not kill is still running.
  */
 
-import { spawn } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
+import { SIGKILL_GRACE_MS, groupExists, killGroup, spawnDetached } from "./processGroup.ts";
 
 /**
  * 5 minutes. A production build of an app this template's size finishes in under three seconds;
@@ -34,10 +34,7 @@ import { join, resolve } from "path";
  */
 export const DEFAULT_BUILD_TIMEOUT_MS = 300_000;
 
-/** How long a killed process gets to exit before it is killed harder. */
-const SIGKILL_GRACE_MS = 2_000;
-
-export interface BuildCommand {
+export interface DetectedCommand {
   command: string;
   /** Where the command came from, so a wrong detection is diagnosable. */
   source: "configured" | "package.json";
@@ -68,24 +65,33 @@ export interface BuildRunResult {
  * Find the build command for a directory. An explicitly configured command always wins; detection
  * is a convenience, never an override — the same rule `detectTestCommand` follows.
  */
-export function detectBuildCommand(dirPath: string, configured?: string): BuildCommand | null {
+export function detectScriptCommand(
+  dirPath: string,
+  script: string,
+  configured?: string,
+): DetectedCommand | null {
   if (configured?.trim()) return { command: configured.trim(), source: "configured" };
 
   const pkgPath = join(dirPath, "package.json");
   if (!existsSync(pkgPath)) return null;
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { scripts?: Record<string, string> };
-    if (!pkg.scripts?.build) return null;
+    if (!pkg.scripts?.[script]) return null;
     // Which runner installed this decides which one can run it. The template is installed with bun,
     // which writes bun.lock; anything else is npm's until we are told otherwise.
     const runner =
       existsSync(join(dirPath, "bun.lock")) || existsSync(join(dirPath, "bun.lockb")) ? "bun" : "npm";
-    return { command: `${runner} run build`, source: "package.json" };
+    return { command: `${runner} run ${script}`, source: "package.json" };
   } catch {
     // A malformed package.json is not a reason to crash detection; it is a reason to find no
     // command, which the caller reports as an unrunnable build rather than as a failure.
     return null;
   }
+}
+
+/** The build command for a directory. */
+export function detectBuildCommand(dirPath: string, configured?: string): DetectedCommand | null {
+  return detectScriptCommand(dirPath, "build", configured);
 }
 
 function unrunnable(reason: string, command: string | null, durationMs = 0): BuildRunResult {
@@ -131,9 +137,7 @@ export async function runBuild(
 
   const started = Date.now();
   return await new Promise<BuildRunResult>((settle) => {
-    // detached: the child leads its own process group, so the timeout can kill the whole tree.
-    // `bun run build` spawns vite; killing only what we spawned leaves vite running (§8).
-    const child = spawn("/bin/sh", ["-c", detected.command], { cwd, detached: true });
+    const child = spawnDetached(detected.command, cwd);
 
     let stdout = "";
     let stderr = "";
@@ -141,36 +145,13 @@ export async function runBuild(
     child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
 
-    const killGroup = (signal: NodeJS.Signals): void => {
-      try {
-        process.kill(-child.pid!, signal);
-      } catch {
-        // Already gone, or never started. Either way there is nothing to kill.
-      }
-    };
-
-    /** Signal 0 kills nothing; it asks whether the group still has a member. */
-    const groupExists = (): boolean => {
-      try {
-        process.kill(-child.pid!, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    // A build that ignores SIGTERM is still a build that has to stop.
-    //
-    // The escalation deliberately survives the direct child's exit. `/bin/sh` dying tells us the
-    // process we spawned is gone; it says nothing about the vite that sh started, which is the
-    // process actually holding the CPU. Cancelling here would drop SIGKILL in exactly the case the
-    // escalation exists for. It is probed rather than fired blindly so a group that has already
-    // emptied is not signalled, and it is unref'd so a pending kill never holds the process open.
+    // A build that ignores SIGTERM is still a build that has to stop; the escalation and the
+    // reason it outlives the direct child are in processGroup.ts.
     const timer = setTimeout(() => {
       timedOut = true;
-      killGroup("SIGTERM");
+      killGroup(child, "SIGTERM");
       setTimeout(() => {
-        if (groupExists()) killGroup("SIGKILL");
+        if (groupExists(child)) killGroup(child, "SIGKILL");
       }, SIGKILL_GRACE_MS).unref?.();
     }, timeoutMs);
 

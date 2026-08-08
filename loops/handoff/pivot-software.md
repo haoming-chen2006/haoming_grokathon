@@ -94,3 +94,54 @@ mutation-tested here: swapping `process.kill(-child.pid, signal)` for `child.kil
 timeout test hang for its full 30 s while the grandchild survives. Anything spawning a child that
 outlives a request — previews, dev servers, long commands — should spawn `detached` and signal the
 group. This is the concrete form of §8's "a child process you did not kill is still running".
+
+---
+
+## Iteration 3 — 2026-08-08
+
+### Requests
+
+**8. `server/index.ts` — one line in the shutdown path: `await stopAllPreviews()`.**
+
+- File: `server/index.ts` (hot).
+- Change: in the shutdown handler, alongside the other cleanup,
+  `await stopAllPreviews()`, imported from `server/services/software/preview.ts`.
+- Signature: `export async function stopAllPreviews(): Promise<void>` — idempotent, safe to call
+  when nothing has started, resolves only once every preview process has been reaped.
+- Reason: a preview is a child process running a dev server. A server that exits without stopping
+  it leaves vite holding a port until the machine reboots. This is §0's anticipated request 2, and
+  unlike the router mount it is requestable now because the export exists and is tested.
+
+**9. `server/services/controlRoomEvents.ts` — two variants on the `ControlRoomEvent` union.**
+
+- File: `server/services/controlRoomEvents.ts` (owned by no worktree, so this worktree may not
+  edit it; not on the hot list, but the same rule applies).
+- Change: add to the union, exactly as §10 of the loop document names them:
+
+```ts
+  | { type: "software.preview_state"; assetId: string; state: "starting" | "running" | "failed" | "stopped"; port?: number; error?: string }
+  | { type: "software.build_finished"; assetId: string; exitCode: number; durationMs: number }
+```
+
+- Reason: the preview supervisor already reports every state change through an `onChange` callback
+  it takes at construction, so publishing these is one call site rather than a change to this area.
+  `PreviewSupervisor`'s status carries `state`, `port?` and `message?`; `message` maps to `error`
+  when the state is `failed`, and is also what the user is told when a preview was stopped to make
+  room for another or after going idle, so a UI that shows it only on failure will drop something
+  the user needs.
+
+### Findings other worktrees need
+
+**10. A dev server's advertised address must be forced on the command line, not trusted to config.**
+`vite.config.js` in the template sets `host: "127.0.0.1"`, and an agent is told never to edit it —
+but §8 says an agent will report work it did not do, and a config file is a file. The preview
+supervisor appends `-- --host 127.0.0.1` to the detected dev command, which both `bun run` and
+`npm run` forward to the underlying command. Mutating the flag away makes the test fail with
+`http://localhost:5173/` from a config asking for `0.0.0.0`. **04-generation** and anything else
+that starts a server a user can reach should assume the same: the config is a suggestion, the flag
+is the guarantee.
+
+**11. `status()` must not count as viewing, or an idle timeout is decorative.** A client polling a
+preview's status every two seconds would keep every preview alive forever if polling reset the
+countdown. The supervisor separates them: `status()` reads, `touch()` says a person is looking.
+Anything else with an idle bound — sessions, work areas — has the same trap.
