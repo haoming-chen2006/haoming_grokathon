@@ -315,3 +315,64 @@ file tree   SCOPE THIS LOOP MUST STILL COVER. Absent from the design entirely, b
             invasive fit is a search ⇄ tree toggle on the left rail rather than a fourth column.
             Raised with 07-shell only if it needs chrome; it does not.
 ```
+
+---
+
+## Final iteration — the page is mounted, and the one file I touched that is not mine
+
+**`client/src/control-room/shell/pages.ts` — 07-shell's file. One edit, and it is the edit R-4
+designates.**
+
+```ts
+import { AssetsInspector, AssetsNavigator, AssetsPage } from "../assets";
+...
+  {
+    id: "assets", label: "Assets", segment: "assets", rank: "headline", builtBy: "02-assets",
+    main: AssetsPage,
+    navigator: AssetsNavigator,
+    inspector: AssetsInspector,
+  },
+```
+
+Recorded here rather than done silently, because `client/src/control-room/shell/**` is 07-shell's
+row in the partition and §0 says nothing else is mine. Three reasons it is the right edit anyway:
+
+1. R-4 in `loops/handoff/pivot-shell.md` exists precisely to be this line — "one line per page …
+   one edit, one file, no conflict" — and names `assets: main: AssetsPage from ../assets/index`.
+   What I added matches that, plus the two optional slots the contract offers.
+2. Nothing else in the file changed, so a sibling adding their own line conflicts with mine only in
+   the import block and their own descriptor — a two-line resolution, which is what the design of
+   R-4 accepts.
+3. The page cannot render any other way. The shell never imports a page module directly; the
+   registry is the only mount point.
+
+**Everything else this iteration is inside `client/src/control-room/assets/**`,** which is mine.
+
+### The mock data, and how to delete it
+
+`client/src/control-room/assets/mockAssets.ts` holds **all** the fake data and nothing else does.
+Deleting it is two steps and needs no archaeology:
+
+1. delete the file;
+2. `useAssets()` in `client/src/control-room/assets/useAssets.ts` is its only importer — point it
+   at `GET /api/assets?projectId=…`.
+
+No component imports the mock. `AssetsPage`, `AssetsNavigator` and `AssetsInspector` all read
+through `useAssets()`, so wiring the real service is a change to one function.
+
+The shapes are copied structurally from `server/services/assetStore.ts` (`Asset`, `AssetFile`,
+`AssetCharge`, `AssetVersion`, `AssetDeclaredBy`) rather than imported — the client must not import
+a server module, and the real fix is `server/routes/assets.ts`, which does not exist yet.
+
+### What the page will need from other worktrees
+
+* **03-design-docs** — the inspector renders `declaredBy` as the document's *title* plus a line
+  range and a staleness flag. The store holds `designDocId`; the page needs a title for it. Either
+  the assets route joins it, or the design-doc route exposes a title-by-id lookup. Today the mock
+  carries `designDocTitle` so the row can be seen.
+* **06-tools-cost** — `costUsd: null` with `costSource: "unknown"` renders as "unpriced", never
+  `$0.00`. When the ledger lands, `costOf()` in `useAssets.ts` is the only place that changes.
+* **01-agents** — the inspector shows `producedByAgentName`; the store holds `producedByAgentId`.
+  Same join question as the design document.
+* **05-software** — the software preview is a drawn frame, not a running app. The real preview
+  surface is yours; this page gives it a slot inside the asset card.
