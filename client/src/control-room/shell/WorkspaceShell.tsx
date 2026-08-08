@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 import type { PageDescriptor, ToolsSection, WorkspacePageProps } from "./contract";
 import { NotMergedYet } from "./NotMergedYet";
 import { SlotBoundary } from "./SlotBoundary";
+import { StartProject } from "../agents";
 import { PAGES, TOOLS_PANEL } from "./pages";
 import { INSPECTOR, NAVIGATOR, RAIL, layout, useRegion } from "./regions";
 import { useWorkspaceRoute } from "./router";
@@ -490,11 +491,13 @@ export function WorkspaceShell() {
           {project ? (
             <Slot component={page.main} page={page} what={page.label} props={pageProps} />
           ) : (
-            <div data-testid="no-project" className="flex h-full items-center justify-center p-8">
-              <p className="max-w-sm text-center text-[13px] text-ink-faint">
-                No project yet. A project starts by writing a design document — describe what you
-                need, and a team of agents does the work.
-              </p>
+            // The empty state IS the front door, not a notice about one. It said "a project starts
+            // by writing a design document" and then offered nowhere to write it, which left a new
+            // user with a correct sentence and no way to act on it.
+            <div data-testid="no-project" className="h-full overflow-auto">
+              <SlotBoundary what="Starting a project">
+                <StartProject />
+              </SlotBoundary>
             </div>
           )}
           {route.tools ? (

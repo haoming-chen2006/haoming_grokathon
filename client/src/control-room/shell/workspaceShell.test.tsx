@@ -470,13 +470,14 @@ describe("the Tools overlay", () => {
   test("renders the unmerged notice until 06-tools-cost lands, never an empty panel", async () => {
     atUrl(workspaceUrl("agents", undefined, "prompts"));
     await mount();
-    // Scoped to the panel: MAIN is also unmerged, so the page carries two of these notices, and
-    // an unscoped query would be ambiguous — which is itself the honest signal that both holes
-    // are being stated rather than one being faked.
+    // Scoped to the panel rather than queried globally. When this was written MAIN was unmerged
+    // too and the page carried two notices; the AGENTS page has since landed, so the Tools panel is
+    // the only hole left and the count is 1. Scoping is what kept the assertion meaningful across
+    // that change instead of failing for a reason unrelated to what it guards.
     const notice = screen.getByTestId("tools-panel").querySelector("[data-testid='not-merged-yet']");
     expect(notice?.textContent).toContain("Tools panel");
     expect(notice?.textContent).toContain("06-tools-cost");
-    expect(screen.getAllByTestId("not-merged-yet").length).toBe(2);
+    expect(screen.getAllByTestId("not-merged-yet").length).toBe(1);
   });
 
   test("the shell owns the dismissal, so the panel needs no visibility of its own", async () => {

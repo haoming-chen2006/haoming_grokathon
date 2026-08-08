@@ -11,6 +11,7 @@
  * — never an empty list, never a spinner, never a plausible-looking zero.
  */
 import type { PageDescriptor, ToolsPanelComponent } from "./contract";
+import { AGENTS_PAGE_SLOTS } from "../agents";
 import { AssetsInspector, AssetsNavigator, AssetsPage } from "../assets";
 import {
   DesignDocumentInspector,
@@ -20,7 +21,7 @@ import {
 import { USERS_PAGE_SLOTS } from "../users";
 
 export const PAGES: PageDescriptor[] = [
-  { id: "agents", label: "Agents", segment: "agents", rank: "headline", builtBy: "01-agents" },
+  { id: "agents", label: "Agents", segment: "agents", rank: "headline", builtBy: "01-agents", ...AGENTS_PAGE_SLOTS },
   {
     id: "assets",
     label: "Assets",
