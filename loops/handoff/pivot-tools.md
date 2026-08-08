@@ -261,6 +261,39 @@ disk (brief §7).
 
 ---
 
+## 5. Two small corrections for whoever writes the next brief
+
+**Prompt placeholders are `{single}` braces, not `{{double}}`.** The brief for this worktree says
+"one line of copy-and-paste text, with `{{variables}}`". The shipped engine disagrees:
+`promptLibrary.ts` matches `/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g`, and every existing test and stored
+template uses one brace. The panel follows the code, because `renderPrompt` is the thing that
+actually resolves them and a UI that advertised `{{x}}` would produce prompts that render as
+literal text. Worth fixing in the brief rather than in the engine — changing the engine would
+invalidate every template already in a user's `library.json`.
+
+**`package.json` pins `@xai-official/grok` at `^0.2.118`; the installed CLI is `1.0.0`.** Not
+touched — `package.json` is hot — but it is the same version drift that made §10.2 wrong, and
+somebody should decide which one is authoritative before another surface builds against the older
+assumption.
+
+---
+
+## 6. The partition is asserted, not just described
+
+`client/src/control-room/tools/boundary.test.ts` reads the shipped files and fails if:
+
+* anything here imports `agents/`, `assets/`, `designdoc/`, `software/` or `users/`;
+* anything here imports a `shell/` module other than the published `shell/contract`;
+* anything here imports a hot file (`useControlRoom`, `ControlRoomApp`);
+* any sibling page reaches past `tools/contract` or the `tools` barrel into this directory;
+* `contract.ts` grows an import, which would stop it compiling alone in a worktree that has none of
+  the rest of this branch.
+
+It skips a page directory that has not merged rather than failing on it. A coupling looks exactly
+like every other import line in review, which is why this is a test and not a convention.
+
+---
+
 ## 4. Open question for reconciliation — not blocking, but it shapes TOOL-008
 
 `grok 1.0.0` shows no workflow engine (§1.4). `grok-workspace.md` §10.2 asserts a rich one exists
