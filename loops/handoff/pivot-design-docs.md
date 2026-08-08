@@ -266,6 +266,64 @@ many iterations it is given. Four items will sit at "held, one clause short" unt
 Recommendation: run the reconciliation pass for R-1…R-9 earlier than the end, or accept that these
 four close in a verification pass after the merge rather than during the loop.
 
+### R-10 · COMPOSITION ROOT · where the design-document store's directory lives
+
+Whoever constructs `DesignDocStore` must place its directory **outside every project repository and
+every agent worktree** — the OPENUI data directory, not the repo.
+
+This is not tidiness. `grok-workspace.md` §3.3.1 (A-0) establishes that an agent is a real `grok`
+process retaining Grok Build's native surface, **including file reading and editing**. DD-009's
+guarantee — agents cannot write a design document — is enforced in `writeSection`, which guards
+*that API*. An agent that can see the store's JSON files on disk edits them with its own file tools
+and never calls the API at all. Every DD-009 test would still pass while the brief was being
+rewritten underneath them.
+
+Write-time path enforcement (`server/services/boundary.ts`, 01-agents) does not exist yet, and
+`assertAgentCanWrite` (`server/services/repository.ts:261`) has zero production callers. **Today the
+store's safety is unreachability and nothing else.** This worktree cannot enforce the choice,
+because it does not own the composition root; it is recorded here so the choice is made
+deliberately rather than by whichever path someone types first.
+
+### F-7 · A-0 audit of this worktree — no violations found
+
+`grok-workspace.md` §3.3.1 (A-0) postdates `loops/03-design-documents.md`, so it is not in the loop
+document. Audited all six owned files against it:
+
+```text
+                                     capability-tier logic   generation imports   worker machinery
+server/services/designDoc.ts                    0                    0                   0
+server/services/designDoc.test.ts               0                    0                   0
+server/services/designDocInvariants.test.ts     0                    0                   0
+server/services/designDocDeclaration.test.ts    0                    0                   0
+server/services/designDocVersioning.test.ts     0                    0                   0
+server/services/designDocAgentSurface.test.ts   0                    0                   0
+```
+
+Findings:
+
+* **Nothing creates, implies or makes room for a non-`grok` worker.** This surface spawns no
+  process, opens no socket, and calls no model. It is a synchronous file-backed store, a pure
+  parser, a pure sweep and a read formatter. The only agent-shaped construct is
+  `Actor {kind: "agent", id}` — an authorship identity reused from `server/types/project.ts` for
+  provenance, not an agent implementation. This surface never decides what an agent *is*.
+* **Nothing treats a capability tier as a reduced agent**, because nothing here reads `capability`
+  at all. Tiers belong to 01-agents; this surface renders presence in an area colour and never
+  branches on capability. When it eventually displays capability, it must display it as a grant on
+  top of a whole agent — `base` is the full Grok Build surface with no media APIs, `+images` is that
+  same surface plus image endpoints.
+* **The MCP tools this surface adds are consistent with A-0's model**: `read_design_document` and
+  `list_design_documents` are tools offered to a real `grok` process through the project MCP server,
+  exactly as A-0 describes media endpoints being offered. `DESIGN_DOC_MCP_TOOLS`' read-only
+  name-shape rule is scoped to design-document tools by name and places no constraint on 04's media
+  tools.
+* **The presence design (stages 6-9) assumes `grok`/ACP throughout** and needs no revision:
+  derived presence comes from MCP tool calls, reported presence from `report_document_focus`, and
+  the cadence reaches the agent through `rules` at `session/new` via `acpSessionManager` — all
+  native Grok Build mechanisms. DD-014's positive control ("an agent briefed without the cadence")
+  therefore requires real `grok` agents; it must not be satisfied with a simulated one.
+
+One consequence of A-0 required action rather than a clean bill: see **R-10** above.
+
 ### F-4 · DD-005 is blocked on `01-agents`' area model, which does not exist yet
 
 Iteration 3 built the declaration parser (DD-004 PASS). The apply half — DD-005 — cannot be

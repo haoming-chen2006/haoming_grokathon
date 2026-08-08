@@ -495,6 +495,22 @@ function hydrate(stored: StoredDoc): DesignDoc {
  * The guarantee is per-process, exactly as in `server/services/projectStore.ts:148-162`.
  */
 export class DesignDocStore {
+  /**
+   * **`dir` must be somewhere no agent can reach as a file path.** Not inside a project repository,
+   * not inside any agent worktree. The natural home is the OPENUI data directory.
+   *
+   * This is load-bearing, and it is the only thing making DD-009 real. `writeSection` refuses a
+   * non-user actor, but that refusal guards *this API* — and an agent is a real `grok` process
+   * retaining Grok Build's native surface, including file reading and editing (`grok-workspace.md`
+   * §3.3.1, A-0). An agent that can see `asset.json`-style files on disk edits them with its own
+   * tools and never calls this class at all. The refusal would still pass its tests while the brief
+   * was being rewritten underneath it.
+   *
+   * Write-time path enforcement is `server/services/boundary.ts` (01-agents) and does not exist
+   * yet; `assertAgentCanWrite` (`server/services/repository.ts:261`) has zero production callers.
+   * So today this store's safety is unreachability, nothing more. Whoever wires the composition
+   * root chooses this path — see R-10 in `loops/handoff/pivot-design-docs.md`.
+   */
   constructor(private readonly dir: string) {
     mkdirSync(dir, { recursive: true });
   }
