@@ -8,6 +8,7 @@ import { sessions, restoreSessions, autoResumeSessions } from "./services/sessio
 import { saveState, migrateStateToHome } from "./services/persistence";
 import { setAuthBroadcast } from "./services/sessionStartQueue";
 import { getControlRoomBus } from "./services/controlRoomEvents";
+import { wireGeneration } from "./services/generationWiring";
 import type { WebSocketData } from "./types";
 
 const app = new Hono();
@@ -82,6 +83,10 @@ app.get("/*", async (c) => {
   c.header("Cache-Control", "no-cache");
   return c.html(await index.text());
 });
+
+// Generation is fail-closed until the store is wired: xai/assets.ts refuses rather than
+// downloading bytes with nowhere to land. This is the one call that opens it.
+wireGeneration();
 
 // Restore sessions BEFORE starting server so API requests find populated sessions Map
 const migrationResult = migrateStateToHome();
