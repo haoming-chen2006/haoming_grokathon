@@ -151,15 +151,106 @@ export const TOOLS_PANEL: ToolsPanelComponent | undefined = ToolsPanel;
 onClose }` — and renders **only the body**: no scrim, no Esc handler, no header, no close button.
 `WorkspaceShell.tsx:305-345` owns all four, and the panel does not duplicate them.
 
-_(Further requests will be appended as later iterations need them.)_
+**Nothing else is requested.** `/api/library` is already mounted at `server/routes/api.ts:34`, so no
+mount request is needed — checked rather than assumed.
 
 ---
 
-## 3. Status
+## 3. The event contract — what the shell forwards, and what `01-agents` dispatches
 
-**Iteration 1 — complete.** The A-00 finding above, established by probe before any component was
-written (brief §5 ordering). No code yet; §7's TOOL-1…TOOL-9 begin in iteration 2 with the server
-foundation, which TOOL-4's edit/delete is blocked on.
+Declared in `client/src/control-room/tools/contract.ts`. **That module is the only thing another
+worktree imports from this loop** (re-exported from `tools/index.ts`). No component import crosses
+in either direction: `agents/**` is `01-agents`' and an import both ways is a cycle.
+
+### 3.1 Inbound — opening the panel from an agent card (§4.6)
+
+```ts
+export const OPEN_TOOLS_EVENT = "workspace:open-tools";
+export interface OpenToolsDetail { agentId?: string; tab?: "prompts" | "skills" | "workflows" }
+```
+
+`01-agents` dispatches it (`dispatchOpenTools({ agentId })`). **The shell listens** and turns it
+into a route change — `workspaceUrl(page, selection, tab ?? "prompts")` — because the shell owns the
+route and the overlay must stay deep-linkable. The panel also listens, but only to pick up
+`agentId`, so "send this to the agent I was just looking at" needs no second selection.
+
+### 3.2 Outbound — injecting into a running agent (§4.5, TOOL-011) ← **the one this loop needs**
+
+```ts
+export const INJECT_RESOURCE_EVENT = "workspace:inject-resource";
+export interface InjectResourceDetail {
+  kind: "prompt" | "skill" | "workflow";
+  resourceId: string; resourceName: string; resourceVersion: string;
+  agentId: string; projectId: string;
+  text: string | null;                                        // deliver into the live session
+  mounts: Array<{ relativePath: string; contents: string }>;  // 01-agents writes these
+  effective: "this_turn" | "next_session";
+  effectNote: string;                                         // already shown to the user
+  estimatedInputTokens: number;
+}
+```
+
+The panel has **already resolved** against `POST /api/library/injections/resolve` before dispatching,
+so every field is the server's own answer. The listener's whole job is:
+
+1. if `text` is non-null, deliver it through the existing session message path;
+2. if `mounts` is non-empty, write them **through `01-agents`' boundary** — this loop writes no file
+   into a work area, and a test asserts the filesystem is untouched by resolution;
+3. record one ledger row, `{ operation: "injection", resourceId, agentId, projectId }`
+   (`InjectionLedgerHint`), so "what did adding that skill cost?" is answerable.
+
+**The payload is carried rather than re-resolved from an id, deliberately.** If the event carried
+`{kind, resourceId}` the delivering side would resolve a second time and could disagree with what
+the user was already shown — and `effectNote` is a sentence they have read by then.
+
+**`effective` is not decoration.** A skill mounted without a one-shot paste reaches nothing until the
+agent restarts, and the panel says exactly that. A listener that reports success for a
+`next_session` injection re-creates the failure TOOL-011 exists to prevent.
+
+---
+
+## 4. Status
+
+**Iteration 1** — the A-00 finding above, established by probe before any component was written
+(brief §5 ordering).
+
+**Iteration 2** — server foundation. Skills became grok skill directories on disk (`GrokSkillStore`),
+turn-down became `[skills] ignore` in `config.toml`, PATCH/DELETE landed for all three types, a
+corrupt `library.json` stopped looking like an empty one, and `resolveInjection` landed pure.
+
+**Iteration 3** — the panel. Three sections against the real `/api/library`, create/edit/delete for
+each, server-side render, turn up/down, and injection by typed event.
+
+| Item | State | Where |
+|---|---|---|
+| TOOL-1 opens over every page, Esc, URL-driven | **done** — shell's frame, panel renders body only | `ToolsPanel.tsx` |
+| TOOL-2 three sections list from `/api/library` | **done** | `api.ts`, `toolsPanel.test.tsx` |
+| TOOL-3 create all three in-panel | **done** | the three `*Section.tsx` |
+| TOOL-4 edit + delete all three | **done**, new endpoints included | `library.ts`, `promptLibrary.ts` |
+| TOOL-5 prompt renders via server `renderPrompt` | **done** | `PromptsSection.tsx` |
+| TOOL-6 skill turns up/down, survives reload | **done**, via `config.toml` | `GrokSkillStore.setState` |
+| TOOL-7 injection + event contract recorded | **done** | §3.2 above |
+| TOOL-8 A-00 finding written with evidence | **done** | §1 above |
+| TOOL-9 tests + `bun run typecheck` clean | **done** — 109 tests | see below |
+
+`bun run typecheck` is clean. 109 tests pass across `promptLibrary.test.ts`, `library.test.ts` and
+`toolsPanel.test.tsx`. The full gate is deliberately not run: siblings have half-finished edits on
+disk (brief §7).
+
+### What is NOT done, and is honestly outstanding
+
+* **TOOL-007, "a skill never arrives twice."** `rulesForAgent` still concatenates every assigned
+  legacy skill into `rules` at `session/new`. Now that skills are also discovered from disk, an
+  agent assigned a legacy skill *and* holding a mounted directory of the same content would receive
+  it twice. Not fixed here because changing `rulesForAgent`'s semantics affects
+  `acpSessionManager.ts` and `planner.ts`, both outside this brief's boundary. **Reconciliation
+  should treat this as a real defect, not a nicety.**
+* **The `session/load` question (§4.5).** Whether reopening a session re-runs skill discovery is
+  still unverified, so the panel says `next_session` and means the next *new* session. The probe to
+  run is in the loop document.
+* **Legacy vs disk skills.** `/api/library/skills` still serves the `library.json` model (agents
+  reference those ids); `/api/library/grok-skills` serves the real directories and is what the panel
+  uses. Collapsing the two is a migration, and it needs `01-agents` at the table.
 
 ---
 
