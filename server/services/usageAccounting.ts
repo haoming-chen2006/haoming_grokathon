@@ -29,6 +29,12 @@ export interface ModelRate {
  * and will drift.
  */
 export const DEFAULT_RATES: Record<string, ModelRate> = {
+  // Source: https://docs.x.ai/docs/models, read 2026-08-08. This is the tier for prompts under
+  // 200k tokens; xAI doubles all three figures at or above 200k, and grok-4.5's context window is
+  // 500k, so a very long session under-prices by 2x until the rate type can express a tier
+  // (COST-002 owns that). These numbers reproduce a real turn's own billed `costUsdTicks` to the
+  // sixth decimal — see the COST-001 case in usageAccounting.test.ts.
+  "grok-4.5": { inputPerMillion: 2, outputPerMillion: 6, cachedInputPerMillion: 0.3 },
   "gpt-4o": { inputPerMillion: 2.5, outputPerMillion: 10, cachedInputPerMillion: 1.25 },
   "gpt-4o-mini": { inputPerMillion: 0.15, outputPerMillion: 0.6, cachedInputPerMillion: 0.075 },
   "gpt-4.1": { inputPerMillion: 2, outputPerMillion: 8, cachedInputPerMillion: 0.5 },

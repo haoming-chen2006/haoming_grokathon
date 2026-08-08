@@ -195,18 +195,26 @@ One extra check belongs to this document and to no other:
   || echo "NO XAI CREDENTIAL — no price in the rate table can be checked against a live response"
 ```
 
-The research confirms this machine is not on xAI at all: `~/.grok/config.toml` points at
-`api.openai.com` and `router.huggingface.co`, and `grok models` reports "You are not authenticated."
-Every media price in §2.5 is read from published documentation, not observed. That is a stop
-condition for parts of the cost work, not for all of it — see §8.
+**That research is now out of date and the correction matters.** Re-checked 2026-08-08:
+`grok models` reports **"You are logged in with grok.com"** and lists `grok-4.5`, `gpt-4o`
+(default, via `OPENAI_API_KEY`) and `hf-qwen-coder`. `OPENAI_API_KEY` is *not* in the environment,
+so the configured default model is the one that cannot run; `-m grok-4.5` serves through the
+grok.com login and completes real turns. Two live turns were taken on 2026-08-08 (§2.4).
+
+So `XAI_API_KEY` is still absent and every media price in §2.5 is still unobserved — that remains a
+stop condition for a billed *media* row. It is not a stop condition for the turn path, which is
+live, priced and now proven. See §8.
 
 **Know who owns which process.** The `grok` binary is a separate Rust program (`.refs/grok-build`, a
 read-only upstream mirror this repository does not build). We speak ACP — JSON-RPC over NDJSON on
 stdio — to `grok agent --always-approve stdio` (`server/services/acpClient.ts:28`). We cannot
 instrument the model call. **The only thing we ever see of a turn's cost is the `_meta` that binary
-chooses to report.** That is why the turn path can only ever be an estimate, and why the direct
-HTTP path 04 builds is the only place a billed figure can come from. §4.2 turns that split into the
-ledger's pricing tiers.
+chooses to report.**
+
+What it chooses to report turns out to be more than this document assumed: for grok-4.5 it includes
+`usage.costUsdTicks`, a billed figure, observed 2026-08-08 (§2.4). For gpt-4o in the same spike it
+did not. So the split is not "turns are estimated, HTTP is billed" — it is per response, and §4.2's
+tiers are decided from the row, not from the path.
 
 ---
 
@@ -214,8 +222,14 @@ ledger's pricing tiers.
 
 ```text
 TOOL: 0 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED   (TOOL-001…TOOL-012)
-COST: 0 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED   (COST-001…COST-015)
-Gate: fill this line from the output of `bun run verify` on your first iteration.
+COST: 1 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED   (COST-001 PASS; COST-002…015 NOT TESTED)
+Gate: RED, and not from this loop's work. 943 tests across 50 files (3 added this iteration).
+      Three runs: 935/940 on the parent commit before any change, then 939/943 and 938/943.
+      Every failure is a 5000-6700ms timeout in server/routes/projectReads.test.ts or
+      server/services/messaging.test.ts, both other worktrees' files, both green when run
+      alone (76 pass, 0 fail). Eight worktrees are launching real grok processes on one
+      machine against a 5s timeout. typecheck, build and all four audits: exit 0.
+      Reported to 01-agents in the handoff; §0 forbids fixing it here.
 ```
 
 Do not copy a test count from another document. `loopdesign.md:68-72` says 715 tests across 42
@@ -327,15 +341,36 @@ eagerly in the system prompt and once on invocation. After this work, `rules` ca
 the shared project brief and the work-area boundary, and nothing else. TOOL-007 exists to catch the
 double.
 
-**Unverified, and it must be checked before TOOL-004 is designed:** whether an ACP stdio session
-(`--no-auto-update agent --always-approve stdio`, `server/services/acpClient.ts:28`) runs the same
-skill discovery as the terminal UI. The evidence points to yes — the session setup path calls the
-skills bridge and emits an `AvailableCommandsUpdate` carrying skills and workflows — but this
-repository has never observed it, and `AcpSessionUpdateKind` (`server/services/acpClient.ts:29-35`)
-lists only six update kinds, none of them that one. If the notification is arriving, it is being
-received and discarded, and reading it would populate the panel with live, agent-visible skills for
-almost nothing. **Spike it: open one session, log every `session/update` kind that arrives, and
-record the list verbatim.**
+**Spiked on 2026-08-08. The notification is arriving and is being discarded.** Raw ACP NDJSON was
+spoken to the binary with the product's own args (`server/services/acpClient.ts:28`) and every
+frame logged. Verbatim, from two turns:
+
+```text
+session/update kinds:  available_commands_update, user_message_chunk,
+                       agent_thought_chunk, agent_message_chunk
+notification methods:  _x.ai/mcp/servers_updated, _x.ai/models/update, _x.ai/settings/update,
+                       _x.ai/announcements/update, _x.ai/mcp_initialized, session/update,
+                       _x.ai/sessions/changed, _x.ai/queue/changed,
+                       _x.ai/session_notification, _x.ai/session/prompt_complete
+```
+
+`available_commands_update` is the first kind to arrive and it is **not** in `AcpSessionUpdateKind`
+(`server/services/acpClient.ts:29-35`), so `AcpConnection`'s collector drops it. Its payload is
+`{ availableCommands: [{ name, description, input }] }` — on this machine, built-in commands
+(`compact`, `context`, `hooks-*`, `session-info`, …) because no skill is installed; that is the
+channel a discovered skill's name and description would arrive on. Reading it is a type addition
+plus a handler, and it gives the panel a live, agent-visible listing.
+
+Two things this does **not** yet prove, and TOOL-004 needs both: that a skill written to
+`.grok/skills/` appears in that payload, and that the listing is what the model is shown. Mount one
+and re-run the spike before designing the mount path. `acpClient.ts` is not in this loop's row —
+the type addition goes to the handoff.
+
+Two further facts from the same capture, recorded because they change other sections:
+`_x.ai/models/update` carries the model roster with context windows and reasoning-effort options
+but **no prices**, so it is not a rate source; and `_x.ai/session_notification` carries a
+`turn_completed` update whose `usage` is the same object the `session/prompt` response returns,
+including the billed figure in §2.4.
 
 ### 2.4 Cost — what exists today, verified, and why it is broken
 
@@ -359,6 +394,37 @@ DEFAULT_RATES (server/services/usageAccounting.ts:31-35) has exactly three keys:
   gpt-4o, gpt-4o-mini, gpt-4.1.
 There is no Grok model in it. The product drives grok.
 ```
+
+**Reproduced live and fixed on iteration 1 (COST-001).** One real `session/prompt` turn against
+`grok --no-auto-update agent -m grok-4.5 --always-approve stdio` reported
+`modelId: "grok-4.5"`; `resolveRate` returned `null` and `estimateCost` returned
+`{ costUsd: 0, rateKey: null }` — the $0.00 the whole section describes, observed rather than
+argued. `grok-4.5` is now in the table at $2.00 / $0.30 cached / $6.00 per million, read from
+`https://docs.x.ai/docs/models` on 2026-08-08. The rest of §2.4 below still stands.
+
+**The same capture overturns one of this document's own assumptions, and it is good news.** The
+turn's `_meta.usage` carries `costUsdTicks: 223384000` — a **billed** figure, on the ACP path, at
+10^10 ticks to the dollar, with no xAI HTTP client and no `XAI_API_KEY`. §1 said the turn path can
+only ever be an estimate. That is wrong: for grok-4.5 through the grok.com login it is billed.
+Consequences, in order of size:
+
+* the `billed` tier of §4.2 is reachable **today**, for turns, before `04-generation` exists;
+* `extractUsage` (`:47-61`) drops the field, so nothing downstream can see it. It stays dropped
+  until COST-004 gives it a reader — a field with no reader is not a feature (§7) — and COST-004
+  must add it to the row as `costUsd` with `pricing: "billed"`, not as a fourth token count;
+* it is free, permanent instrumentation for the rate table. The published rate reproduces this
+  turn's billed figure **exactly**: `(12306-1408)×$2 + 1408×$0.30 + 20×$6`, per million,
+  `= $0.0223384 = 223384000 ticks`. That is `meteredDeltaUsd` (COST-014) already at zero on its
+  first sample, and it is the check that catches the table drifting;
+* the gpt-4o turn taken in the same spike carried **no** `costUsdTicks`. The field is per-provider,
+  not per-protocol, so `pricing` must be decided per row from whether the field is present — never
+  from which code path wrote the row.
+
+One limit of the new entry, stated so COST-002 inherits it rather than discovering it: xAI doubles
+all three grok-4.5 figures at or above 200k prompt tokens, `ModelRate` cannot express a tier, and
+grok-4.5's context window is 500k. A session that long under-prices by 2x. The billed
+`costUsdTicks` is the backstop — it is right regardless of tier — which is a second reason COST-004
+should record it.
 
 `resolveRate` (`:64-71`) returns `null` for an unknown model. `estimateCost` (`:77-79`) then returns
 `{ costUsd: 0, estimated: true, rateKey: null }` — described in its own comment as "an honest zero
@@ -615,10 +681,14 @@ a footnote in the UI.
 
 | Tier | Where the number comes from | When |
 |---|---|---|
-| `billed` | `usage.cost_in_usd_ticks` on the response, 10¹⁰ ticks to the dollar | chat completions, Responses API, image generation, video generation, Batch |
+| `billed` | `usage.cost_in_usd_ticks` on the response, 10¹⁰ ticks to the dollar | chat completions, Responses API, image generation, video generation, Batch — **and the ACP turn itself, as `_meta.usage.costUsdTicks`, observed 2026-08-08 for grok-4.5** |
 | `metered` | our own arithmetic: units × a published per-unit rate | images per image, video per second, TTS per character, STT per hour, realtime per minute |
-| `estimated` | token counts × a per-million-token rate | every ACP turn, and anything else priced from tokens |
+| `estimated` | token counts × a per-million-token rate | an ACP turn whose `_meta` carries no ticks — gpt-4o's did not — and anything else priced from tokens |
 | `unknown` | nothing. `costUsd` is `null` | no rate for this model or medium; renders as "price unknown" |
+
+**A turn is not automatically `estimated`.** The tier is decided per row by whether that response
+carried ticks, never by which code path wrote the row: the same binary returned ticks for grok-4.5
+and none for gpt-4o in one spike (§2.4).
 
 **Why a media charge is exact and a model charge is not.** For media, we choose the unit count — we
 asked for *n* images, *d* seconds, *len(text)* characters — and the published price is per unit. The

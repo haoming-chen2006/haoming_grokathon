@@ -84,3 +84,52 @@ describe("V-045: cost is estimated and labelled as such", () => {
     expect(estimateCost({ inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedReadTokens: 0, reasoningTokens: 0, modelId: "gpt-4o" }).costUsd).toBe(0);
   });
 });
+
+describe("COST-001: the model a live turn reports has a rate", () => {
+  /**
+   * Verbatim `_meta` from one real `session/prompt`, captured 2026-08-08 against
+   * `grok --no-auto-update agent -m grok-4.5 --always-approve stdio` — the same binary and the
+   * same args the product spawns (server/services/acpClient.ts:28).
+   *
+   * Before the grok-4.5 rate existed this turn priced at $0.00 with a null rate key, which is the
+   * failure §2.4 of loops/06-tools-and-cost.md describes: the product drives grok and the rate
+   * table held only OpenAI keys.
+   */
+  const LIVE_GROK_TURN_META = {
+    sessionId: "019fe2e0-7393-74a0-b39a-aac6ed26312b",
+    requestId: "a3301947-ea54-471d-8f47-5377321da0ba",
+    totalTokens: 12326,
+    modelId: "grok-4.5",
+    inputTokens: 12306,
+    outputTokens: 20,
+    cachedReadTokens: 1408,
+    reasoningTokens: 19,
+    usage: {
+      inputTokens: 12306, outputTokens: 20, totalTokens: 12326,
+      cachedReadTokens: 1408, cacheCreationTokens: 0, reasoningTokens: 19,
+      modelCalls: 1, apiDurationMs: 1631, costUsdTicks: 223_384_000, numTurns: 1,
+    },
+  };
+
+  /** The same turn's own billed figure, from `usage.costUsdTicks` at 10^10 ticks to the dollar. */
+  const BILLED_USD = 223_384_000 / 1e10;
+
+  test("the id that actually arrives resolves to a rate", () => {
+    const usage = extractUsage(LIVE_GROK_TURN_META);
+    expect(usage.modelId).toBe("grok-4.5");
+    expect(resolveRate(usage.modelId)?.[0]).toBe("grok-4.5");
+  });
+
+  test("our estimate for that turn equals what the provider billed for it", () => {
+    // The published rate is only worth having if it reproduces a real bill. The sole difference
+    // is estimateCost's rounding to six decimal places.
+    const est = estimateCost(extractUsage(LIVE_GROK_TURN_META));
+    expect(est.rateKey).toBe("grok-4.5");
+    expect(est.costUsd).toBe(Number(BILLED_USD.toFixed(6)));
+    expect(est.costUsd).toBeGreaterThan(0);
+  });
+
+  test("a dated grok-4.5 id still resolves, as gpt-4o's does", () => {
+    expect(resolveRate("grok-4.5-0709")?.[0]).toBe("grok-4.5");
+  });
+});
