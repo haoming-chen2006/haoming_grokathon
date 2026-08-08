@@ -71,6 +71,11 @@ app.use("/*", serveStatic({
  */
 app.get("/*", async (c) => {
   const path = new URL(c.req.url).pathname;
+  // An unmounted API route must 404, not answer with the shell. Serving HTML from /api makes a
+  // missing endpoint look like a working one that returned something odd, and the caller debugs
+  // its JSON parser instead of reading the route table. Found exactly that way: /api/design-docs
+  // answered 200 with the index page while its router did not exist.
+  if (/^\/(api|mcp|ws)(\/|$)/.test(path)) return c.notFound();
   if (path.split("/").pop()?.includes(".")) return c.notFound();
   const index = Bun.file("./client/dist/index.html");
   if (!(await index.exists())) return c.notFound();
