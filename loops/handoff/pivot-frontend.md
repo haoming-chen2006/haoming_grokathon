@@ -275,6 +275,18 @@ component state beside one on the URL would give one fact two sources of truth.
 
 ---
 
+## One mock left, and it is not this worktree's to delete
+
+```text
+FILE   client/src/control-room/software/mockSoftware.ts
+WHY    `software/` is outside this worktree's row — the boundary is
+       client/src/control-room/{agents,assets,designdoc,users,shell}/**. Named here so the sweep
+       reads as deliberate rather than incomplete: three of the four mock datasets under this
+       directory are deleted, and this is the fourth, belonging to whoever owns SoftwarePage.
+```
+
+---
+
 ## What is NOT invented on any of these pages
 
 Stated because a page can only be checked against it. There is no sample area, no sample agent, no
