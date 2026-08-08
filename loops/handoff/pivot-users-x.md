@@ -59,7 +59,33 @@ to know they need it. Either render slots as elements (`<Component {...props} />
 
 ---
 
-## R-3 · Still owed, and unchanged from §8 of the loop document
+## R-3 · `client/src/control-room/shell/workspaceShell.test.tsx` — APPLIED, needs 07-shell's eye
+
+Mounting the page turned two of 07-shell's tests red. Neither is about the shell; both assert that
+**nothing has merged**, which was true when they were written and is a fact about the calendar.
+Fixed rather than left red — a branch handed to reconciliation red is worse — but they are 07's
+tests and 07 should agree with the fix.
+
+1. **"every slot says which branch builds it"** iterated all five `PAGES` expecting
+   `not-merged-yet` on each. Narrowed to `PAGES.filter(p => !p.main)`, since the rule is that an
+   *unmerged* page is stated rather than faked. Added the counterpart it needs to keep meaning
+   anything — **a merged page renders itself and the notice is gone rather than behind it** —
+   because otherwise deleting `NotMergedYet` outright would leave the suite green.
+2. **the inspector test** asserted `PAGES.every(p => p.inspector === undefined)`. Its own comment,
+   two lines above, predicts this break and asks for the assertion to be scoped to the page under
+   test; it now checks only `DEFAULT_PAGE`'s row, leaving the two DOM assertions beneath it intact.
+
+A third test, "the shell imports no sibling page module", still passes — its regex looks for
+`from "../users/…` with a trailing slash and the mount imports `from "../users"`. That is luck, not
+design: SHELL-017's intent is that the shell builds with nothing merged, and the registry is
+precisely where that import is meant to land. Worth 07-shell restating the rule as "no shell file
+except `pages.ts`".
+
+Full suite after the fix: **1391 pass, 0 fail** across 72 files.
+
+---
+
+## R-4 · Still owed, and unchanged from §8 of the loop document
 
 None of these were needed to render the page, and all of them are needed before anything on it is
 true. Listed so they are not lost:
