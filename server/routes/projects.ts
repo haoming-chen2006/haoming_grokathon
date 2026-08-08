@@ -608,6 +608,7 @@ projectRoutes.post("/:id/submissions/:submissionId/approve", async (c) => {
         c.req.param("submissionId"),
         actorFrom(c),
         body?.note,
+        { acknowledgeFailingTests: body?.acknowledgeFailingTests },
       ),
     );
   } catch (err) {

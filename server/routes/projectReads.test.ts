@@ -581,3 +581,70 @@ describe("a second task must not reuse the merged branch of the first", () => {
     expect(getAgentRegistry().get(agent.id).worktree).toBe(firstTree);
   });
 });
+
+describe("approving a task whose suite fails for another task's work (V-035)", () => {
+  function partial() {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const agent = getAgentRegistry().create({ projectId, name: "B", role: "Backend Engineer" });
+    store.addRequirement(projectId, { id: "P-1", description: "d" }, USER);
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "p1", objective: "o", assignedAgentId: agent.id }, USER);
+    store.approvePlan(projectId, USER);
+    // 1 of 2 passing: this task's test passes, the next task's does not exist yet.
+    const sub = store.submitCode(projectId, {
+      taskId: "p1", agentId: agent.id, requirementIds: ["P-1"], branch: "agent/p1",
+      changedFiles: ["a.ts"], summary: "s", testResults: { passed: 1, failed: 1, total: 2 }, costUsd: 0.1,
+    });
+    return { store, sub };
+  }
+
+  test("it is refused by default, and the message says what to do", async () => {
+    // The guard must still stop work being waved through by accident.
+    const { sub } = partial();
+    const { status, json } = await req("POST", `/api/projects/${projectId}/submissions/${sub.id}/approve`, {});
+    expect(status).toBeGreaterThanOrEqual(400);
+    expect(json.error).toContain("failing");
+    expect(json.error, "the refusal does not say how to proceed").toMatch(/acknowledgement/i);
+  });
+
+  test("an acknowledged override approves and records the reason", async () => {
+    // Without this, a plan deadlocks: tasks share a test file, so every early task's suite
+    // legitimately fails on work not yet done, and none could ever be approved.
+    const { store, sub } = partial();
+    const { status, json } = await req("POST", `/api/projects/${projectId}/submissions/${sub.id}/approve`, {
+      note: "add is done", acknowledgeFailingTests: "the failing test covers double, which is task p2",
+    });
+    expect(status).toBe(200);
+    expect(json.state).toBe("approved");
+
+    const persisted = new ProjectStore(join(dataDir, "projects")).getSubmission(projectId, sub.id);
+    expect(persisted.failingTestsAcknowledged, "the override was not recorded").toContain("task p2");
+  });
+
+  test("a blank acknowledgement is not an acknowledgement", async () => {
+    const { sub } = partial();
+    const { status } = await req("POST", `/api/projects/${projectId}/submissions/${sub.id}/approve`, {
+      acknowledgeFailingTests: "   ",
+    });
+    expect(status).toBeGreaterThanOrEqual(400);
+  });
+
+  test("a fully passing submission needs no acknowledgement and records none", async () => {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const agent = getAgentRegistry().create({ projectId, name: "C", role: "Backend Engineer" });
+    store.addRequirement(projectId, { id: "P-2", description: "d" }, USER);
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "p2", objective: "o", assignedAgentId: agent.id }, USER);
+    store.approvePlan(projectId, USER);
+    const sub = store.submitCode(projectId, {
+      taskId: "p2", agentId: agent.id, requirementIds: ["P-2"], branch: "agent/p2",
+      changedFiles: ["a.ts"], summary: "s", testResults: { passed: 2, failed: 0, total: 2 }, costUsd: 0.1,
+    });
+
+    const { status } = await req("POST", `/api/projects/${projectId}/submissions/${sub.id}/approve`, {});
+    expect(status).toBe(200);
+    expect(
+      new ProjectStore(join(dataDir, "projects")).getSubmission(projectId, sub.id).failingTestsAcknowledged,
+    ).toBeUndefined();
+  });
+});

@@ -326,6 +326,11 @@ export interface CodeSubmission {
   costUsd: number;
   state: SubmissionState;
   reviewFeedback?: string;
+  /**
+   * Why the user approved despite failing tests. Present only on a deliberate override, so a
+   * reviewer later can see the decision and its reason rather than wonder how it passed.
+   */
+  failingTestsAcknowledged?: string;
   reviewedBy?: string;
   reviewedAt?: string;
   mergeCommit?: string;

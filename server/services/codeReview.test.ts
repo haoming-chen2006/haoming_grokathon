@@ -166,15 +166,31 @@ describe("V-039: approved code can be merged", () => {
   });
 
   test("a submission with failing tests cannot be approved", () => {
-    // V-035: failed tests block completion.
+    // V-035: failed tests block completion. The message says "tests" rather than "required tests"
+    // because the count is the whole suite — calling it "required" was part of what made a
+    // cross-task failure so confusing to diagnose.
     const submission = store.submitCode(
       projectId,
       baseSubmission({ testResults: { passed: 18, failed: 2, total: 20 } }),
     );
     expect(() => store.approveSubmission(projectId, submission.id, USER)).toThrow(
-      /2 of 20 required tests are failing/,
+      /2 of 20 tests are failing/,
     );
     expect(store.getSubmission(projectId, submission.id).state).toBe("pending");
+  });
+
+  test("an acknowledged override approves and is recorded", () => {
+    // The guard stops accidental approval, not an informed decision. A plan's early tasks share a
+    // test file, so their suites legitimately fail on work not yet done.
+    const submission = store.submitCode(
+      projectId,
+      baseSubmission({ testResults: { passed: 18, failed: 2, total: 20 } }),
+    );
+    const approved = store.approveSubmission(projectId, submission.id, USER, "ok", {
+      acknowledgeFailingTests: "the two failures belong to a later task",
+    });
+    expect(approved.state).toBe("approved");
+    expect(approved.failingTestsAcknowledged).toContain("later task");
   });
 
   test("testsPass rejects zero-total runs", () => {

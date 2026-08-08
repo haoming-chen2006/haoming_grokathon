@@ -856,8 +856,28 @@ export class ProjectStore {
     return { submission: this.getSubmission(projectId, submissionId), message };
   }
 
-  /** Approve a submission. Refused while its required tests are failing (V-035). */
-  approveSubmission(projectId: string, submissionId: string, actor: Actor, note?: string): CodeSubmission {
+  /**
+   * Approve a submission. Refused while its tests are failing (V-035), unless the user explicitly
+   * acknowledges the failures and says why.
+   *
+   * The refusal judges the submission's whole-suite numbers, which is right for a single task and
+   * deadlocks a plan: tasks in a plan share a test file, so an early task's suite legitimately
+   * contains failures belonging to work not yet done. Observed directly — an agent implemented
+   * `add`, reported an honest 1 passed / 1 failed because `double` was a later task, and the
+   * submission could never be approved. **No multi-task plan could get past its first review.**
+   *
+   * The gate exists to stop work being waved through by accident, not to overrule an informed
+   * human — the design puts merging under human control. So the refusal stands by default and a
+   * deliberate override is recorded on the submission with its reason, which is stronger evidence
+   * than silently relaxing the rule.
+   */
+  approveSubmission(
+    projectId: string,
+    submissionId: string,
+    actor: Actor,
+    note?: string,
+    opts: { acknowledgeFailingTests?: string } = {},
+  ): CodeSubmission {
     const project = this.getProject(projectId);
     const submission = project.submissions.find((s) => s.id === submissionId);
     if (!submission) throw new NotFoundError(`Submission not found: ${submissionId}`);
@@ -868,10 +888,14 @@ export class ProjectStore {
       throw new Error(`Submission ${submissionId} is ${submission.state}, not pending review`);
     }
     if (!testsPass(submission.testResults)) {
-      throw new Error(
-        `Cannot approve ${submissionId}: ${submission.testResults.failed} of ` +
-          `${submission.testResults.total} required tests are failing`,
-      );
+      if (!opts.acknowledgeFailingTests?.trim()) {
+        throw new Error(
+          `Cannot approve ${submissionId}: ${submission.testResults.failed} of ` +
+            `${submission.testResults.total} tests are failing. If the failures belong to work ` +
+            `outside this task, approve with an acknowledgement explaining why.`,
+        );
+      }
+      submission.failingTestsAcknowledged = opts.acknowledgeFailingTests.trim();
     }
 
     submission.state = "approved";

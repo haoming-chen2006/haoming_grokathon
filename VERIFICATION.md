@@ -4797,6 +4797,71 @@ bun run verify → exit 0, 754 pass / 0 fail, four audits clean
 
 ---
 
+## No multi-task plan could get past its first review (iteration 79)
+
+Finishing the two-task walk found the deepest blocker yet, and it only appears with more than one
+task.
+
+`approveSubmission` refuses while the submission's tests are failing (V-035), judging the
+**whole-suite** numbers. Tasks in a plan share a test file, so an early task's suite legitimately
+fails on work not yet done. Observed end to end: the agent implemented `add`, reported an honest
+`1 passed / 1 failed` because `double` belongs to the next task, and the submission could never be
+approved.
+
+```text
+Cannot approve sub_…: 1 of 2 required tests are failing
+```
+
+**So a plan deadlocked at its first review.** Every earlier walk had one task, which is why nothing
+saw it.
+
+The guard exists to stop work being waved through by accident, not to overrule an informed human —
+the design puts merging under human control. The refusal therefore stands by default, and an
+override requires an explicit written reason which is **recorded on the submission**
+(`failingTestsAcknowledged`), so a later reader sees the decision rather than wondering how it
+passed. A blank acknowledgement is not one.
+
+Walked to completion afterwards:
+
+```text
+approve  (acknowledged: "the failing test covers double, which is task t2")  → approved
+merge    128e27d549 → unblocked ['t2'],  main now contains add
+launch t2 → worktree agent-t2 on branch agent/t2      ← iteration 77's fix, in reality
+```
+
+That last line is the first real confirmation of the per-task worktree fix; iteration 77 proved it
+in a test and never ran a second task.
+
+### Corrections to iteration 78
+
+Two claims made there were wrong, and both were mine.
+
+**"The dev server was two hours stale despite `--watch`."** It was not. Measured: a change to a
+route file is served ~20 seconds later. What actually happened is worse — after a watcher reload
+the in-memory session is gone, so my nudge returned:
+
+```text
+{"error":"Agent … has no open session. Open one before sending messages or controls.",
+ "code":"NO_LIVE_SESSION"}
+```
+
+I had piped that to `/dev/null`, saw no state change, and blamed the watcher. **The same
+discarded-evidence mistake recorded in iterations 61 and 72, made a third time despite the rule
+being written down.** The advice given to the user on the back of it — distrust the watcher,
+restart instead — was unfounded.
+
+**"The stalled-agent signal did not fire."** It fires. It was checked once against a server running
+older code and never re-checked after restarting.
+
+Losing live sessions on restart is not a bug: §17 says no expensive coding session restarts without
+user approval, and opening the drawer starts a new one.
+
+```text
+bun run verify → exit 0, 758 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4893,7 +4958,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 106 ahead of main
+commits 108 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller
