@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
@@ -365,5 +365,121 @@ describe("per-task spending caps are enforced (§16)", () => {
     } finally {
       unsubscribe();
     }
+  });
+});
+
+// ------------------------------------------------------------------ work areas (AGENTS-001)
+
+describe("work areas over HTTP", () => {
+  const USER = { kind: "user" as const, id: "user" };
+  let root: string;
+
+  function makeArea(extra: Record<string, unknown> = {}) {
+    return req("POST", "/api/coding-agents/areas", {
+      projectId, name: "Slides", briefSectionAnchor: "§3 Deck", milestoneId: "m3", rootPath: root, ...extra,
+    });
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "openui-route-area-"));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("POST /areas creates an area with a canonical root, an accent and a glyph", async () => {
+    const { status, json } = await makeArea();
+    expect(status).toBe(201);
+    expect(json.id).toMatch(/^area_/);
+    expect(json.rootPath).toBe(realpathSync(root));
+    expect(json.colorToken).toBe("blue");
+    expect(json.glyph).toBe("●");
+  });
+
+  test("POST /areas names the missing field rather than failing anonymously", async () => {
+    const { status, json } = await makeArea({ milestoneId: "" });
+    expect(status).toBe(400);
+    expect(json.error).toMatch(/milestoneId is required/);
+  });
+
+  test("GET /areas resolves as the area list, not as an agent id", async () => {
+    // Registration order is the whole mechanism: /areas is declared before /:agentId, so this
+    // request must not be read as a lookup of an agent called "areas".
+    await makeArea();
+    const { status, json } = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(json)).toBe(true);
+    expect(json).toHaveLength(1);
+    expect(json[0].name).toBe("Slides");
+
+    // And the agent lookup still works for a real id.
+    const agent = makeAgent();
+    const single = await req("GET", `/api/coding-agents/${agent.id}`);
+    expect(single.json.id).toBe(agent.id);
+  });
+
+  test("GET /areas filters by project", async () => {
+    await makeArea();
+    const other = new ProjectStore(join(dataDir, "projects")).createProject({
+      name: "Other", goal: "g", repositoryPath: "/tmp/r2",
+    }).id;
+    await makeArea({ projectId: other, name: "Elsewhere", milestoneId: "m9" });
+
+    const mine = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    expect(mine.json.map((a: any) => a.name)).toEqual(["Slides"]);
+  });
+
+  test("an area with no owner reads as unstaffed, with the text that says so", async () => {
+    const { json } = await makeArea();
+    expect(json.status).toBe("unstaffed");
+    expect(json.statusPresentation.label).toBe("Nobody assigned");
+  });
+
+  test("the status is derived from the owning agent on every read, never stored", async () => {
+    const agent = makeAgent();
+    const created = await makeArea({ ownerAgentId: agent.id });
+    expect(created.json.status).toBe("idle");
+
+    getAgentRegistry().setStatus(agent.id, "working");
+    const after = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    expect(after.json[0].status).toBe("working");
+    expect(after.json[0].statusPresentation.label).toBe("Working");
+  });
+
+  test("the milestone's tasks are what complete an area, and the counts are reported", async () => {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    store.createPlan(projectId, { milestones: [{ id: "m3", name: "Deck" }] }, USER);
+    store.addTask(projectId, { id: "t1", objective: "outline", milestoneId: "m3" }, USER);
+    store.addTask(projectId, { id: "t2", objective: "draft", milestoneId: "m3" }, USER);
+    store.addTask(projectId, { id: "t3", objective: "unrelated" }, USER);
+    store.approvePlan(projectId, USER);
+
+    const agent = makeAgent();
+    await makeArea({ ownerAgentId: agent.id });
+    getAgentRegistry().setStatus(agent.id, "working");
+
+    const partway = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    // t3 carries no milestone id, so it is not this area's work.
+    expect(partway.json[0].tasksTotal).toBe(2);
+    expect(partway.json[0].tasksComplete).toBe(0);
+    expect(partway.json[0].status).toBe("working");
+
+    store.updateTask(projectId, "t1", { status: "complete" }, USER);
+    store.updateTask(projectId, "t2", { status: "complete" }, USER);
+
+    const done = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    expect(done.json[0].tasksComplete).toBe(2);
+    expect(done.json[0].status).toBe("complete");
+  });
+
+  test("an owner id that resolves to nobody is reported, not silently unstaffed", async () => {
+    const agent = makeAgent();
+    await makeArea({ ownerAgentId: agent.id });
+    getAgentRegistry().remove(agent.id);
+
+    const { json } = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    expect(json[0].status).toBe("unstaffed");
+    expect(json[0].unresolvedOwnerAgentId).toBe(agent.id);
   });
 });

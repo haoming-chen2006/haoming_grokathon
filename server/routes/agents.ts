@@ -8,7 +8,14 @@ import {
 } from "../services/acpSessionManager";
 import { AGENT_RUNTIME_STATUSES, AGENT_STATUS_PRESENTATION } from "../types/agent";
 import { getProjectStore } from "../services/projectStore";
+import {
+  areaStatusPresentation,
+  deriveAreaStatus,
+  getWorkAreaStore,
+  type WorkArea,
+} from "../services/workArea";
 import type { BudgetSnapshot } from "../services/agentRegistry";
+import type { CodingAgent } from "../types/agent";
 
 export const agentRoutes = new Hono();
 
@@ -73,6 +80,66 @@ agentRoutes.post("/templates/:templateId/instantiate", async (c) => {
       getAgentRegistry().createFromTemplate(c.req.param("templateId"), body.projectId, { name: body.name }),
       201,
     );
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+// ------------------------------------------------- work areas (AGENTS-001)
+//
+// Areas are served by the agents router rather than a router of their own: a new router costs a
+// mount edit in server/routes/api.ts, which no worktree owns. The literal `/areas` segment is
+// registered *before* `/:agentId` below — exactly as `/statuses` and `/templates` are — because
+// Hono matches in registration order and `GET /areas` would otherwise resolve as an agent id.
+
+/**
+ * An area plus the status derived from its situation. The status is computed on every read and
+ * stored nowhere, so it cannot drift from the agent and the milestone it describes.
+ */
+function areaView(area: WorkArea) {
+  let ownerStatus: CodingAgent["status"] | undefined;
+  let unresolvedOwnerAgentId: string | undefined;
+  if (area.ownerAgentId) {
+    try {
+      ownerStatus = getAgentRegistry().get(area.ownerAgentId).status;
+    } catch {
+      // The owner no longer exists. Say which id failed to resolve rather than rendering the area
+      // as unstaffed and losing the fact that it points at nobody.
+      unresolvedOwnerAgentId = area.ownerAgentId;
+    }
+  }
+
+  let tasksTotal = 0;
+  let tasksComplete = 0;
+  try {
+    for (const task of getProjectStore().listTasks(area.projectId)) {
+      if (task.milestoneId !== area.milestoneId) continue;
+      tasksTotal += 1;
+      if (task.status === "complete") tasksComplete += 1;
+    }
+  } catch {
+    // No project document yet: the area has no milestone progress to report, which is not an error.
+  }
+
+  const status = deriveAreaStatus({ ownerStatus, tasksTotal, tasksComplete });
+  return {
+    ...area,
+    status,
+    statusPresentation: areaStatusPresentation(status),
+    tasksTotal,
+    tasksComplete,
+    ...(unresolvedOwnerAgentId ? { unresolvedOwnerAgentId } : {}),
+  };
+}
+
+agentRoutes.get("/areas", (c) =>
+  c.json(getWorkAreaStore().list(c.req.query("projectId") ?? undefined).map(areaView)),
+);
+
+agentRoutes.post("/areas", async (c) => {
+  try {
+    const body = await c.req.json();
+    return c.json(areaView(getWorkAreaStore().create(body)), 201);
   } catch (err) {
     return fail(c, err);
   }

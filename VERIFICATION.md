@@ -5408,3 +5408,119 @@ audits  0 orphans; every endpoint has a caller
 
 **The project is complete: YES — subject to Q-2, which is a decision for the owner rather than
 an unfinished piece of work.**
+
+---
+
+# AGENTS page — evidence ledger (branch `pivot/agents`)
+
+Items `AGENTS-001…AGENTS-018` are defined in `loops/01-agents.md` §8. The `V-0NN` rows above belong
+to the retired coding product and are not this loop's to update or delete.
+
+**Tally after iteration 1:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
+
+**PASS (1):** AGENTS-001
+**NOT TESTED (17):** AGENTS-002 … AGENTS-018
+
+## AGENTS-001: A work area is a record — PASS (iteration 1)
+
+```text
+Item:     AGENTS-001
+Command:  bun test server/services/workArea.test.ts server/services/boundary.test.ts \
+                   server/routes/agentRoutes.test.ts
+Observed: 34 pass, 0 fail, 187 expect() calls — five consecutive runs, no fixed sleeps.
+Reached from a launched agent or a rendered component: yes — GET and POST
+          /api/coding-agents/areas on the mounted agents router (server/routes/agents.ts),
+          exercised over HTTP in server/routes/agentRoutes.test.ts. `bun run audit` reports
+          0 orphans and every endpoint covered.
+Clause not evidenced: none.
+```
+
+**Clause 1 — the record.** `WorkArea` (`server/services/workArea.ts`) carries `id`, `projectId`,
+`name`, `colorToken`, `glyph`, `briefSectionAnchor`, `milestoneId`, `rootPath`, optional
+`ownerAgentId` and `budgetUsd`, and timestamps. Accents and glyphs are assigned from the fixed
+ordered palette in area-creation order — red and green land last and non-adjacent, asserted rather
+than described (`expect(Math.abs(tokens.indexOf("red") - tokens.indexOf("green"))).toBeGreaterThan(1)`).
+Two invariants are enforced at creation and each has a test: two areas in one project may not claim
+the same milestone, and an agent may not be hired into a second area. A missing field is refused by
+name, not anonymously.
+
+**Clause 2 — `rootPath` is stored canonicalised, and a symlink inside the root pointing outside it
+is resolved before any comparison.** `canonical()` was copied into `server/services/boundary.ts`
+from `server/routes/repository.ts` rather than re-derived; `isInsideRoot()` is the only comparison
+and canonicalises both halves. Each probe in `server/services/boundary.test.ts` asserts the naive
+string comparison first, so the test records what the guard prevents:
+
+```text
+probe                                     naive comparison   isInsideRoot
+<root>/escape -> <outside>/stolen.txt     inside  (true)     refused
+<link-to-real-root> vs realpath/note.md   outside (false)    allowed
+<root>-other/file.md                      inside  (true)     refused
+/etc/passwd                               —                  refused
+```
+
+Shown to fail before the guard, by mutation — replacing both `canonical()` calls in `isInsideRoot`
+with `resolve()`:
+
+```text
+(fail) a symlink inside the root pointing outside it is refused          Expected: false  Received: true
+(fail) a symlinked area root does not falsely refuse a path reported
+       under its real name                                               Expected: true   Received: false
+ 6 pass, 2 fail
+```
+
+And in the store, by mutation — replacing `rootPath: canonical(rootPath)` with `rootPath`: the
+symlinked-root and does-not-exist-yet tests both fail. Restored, both pass.
+
+**Clause 3 — status is derived, never stored.** `deriveAreaStatus()` is pure and total; every
+branch has a test, including the two that would otherwise fabricate a status: an owner reporting
+`complete` while milestone tasks remain reads as `waiting`, not `complete`, and an empty milestone
+(0 of 0) does not read as done. `unstaffed` carries the label "Nobody assigned" — an area nobody is
+hired into is not `idle`, because `idle` claims a session exists. Nothing writes a status: the area
+file the store persists into the data directory is read back and asserted to have no `status` key,
+and a `status` supplied at creation is discarded. Shown to fail before the change, by mutation — adding `status: "complete"` to
+the created record fails both.
+
+The derivation runs in the product, not only in a probe: `GET /api/coding-agents/areas` computes it
+on every read from the owning agent's live status and the milestone's task counts, and the HTTP test
+moves an agent from `idle` to `working` and sees the area follow, then completes both of the
+milestone's tasks and sees the area read `complete`. An `ownerAgentId` that resolves to nobody is
+reported as `unresolvedOwnerAgentId` rather than being silently rendered as unstaffed.
+
+**Registration order.** `/areas` is registered before `/:agentId`, the same mechanism `/statuses`
+and `/templates` already rely on. Shown to be load-bearing, by mutation — moving the route below
+`/:agentId` turns five of the HTTP tests red with `Expected: 200, Received: 404`.
+
+**Gate at iteration 1:**
+
+```text
+typecheck   tsc --noEmit && client tsc --noEmit          exit 0
+build       bun run build                                exit 0 — built in 2.46s
+audit       reachability / endpoints / quality / docs    exit 0 — 0 orphans, every endpoint
+                                                         covered, 0 dead controls, every citation
+                                                         resolves
+tests       agent suites                                 34 pass / 0 fail, five consecutive runs
+            server/services/agentTeam.test.ts,
+            server/services/agentRegistry.test.ts        72 pass / 0 fail
+```
+
+**One suite outside this branch's row is failing under machine load**, and it is not this branch's.
+Every failure is a 5000 ms timeout in `server/routes/projectReads.test.ts`, in a test that spawns a
+real `grok` process through `POST /api/projects/:projectId/tasks/:taskId/launch`:
+
+```text
+start of iteration   bun run verify                        exit 0 — 940 pass, 0 fail
+with this branch     bun run verify                        972 pass, 2 fail
+                       "a second task must not reuse the merged branch of the first" ×2
+this branch stashed  bun test .../projectReads.test.ts     40 pass, 1 fail
+with this branch     bun run verify (second run)           972 pass, 2 fail
+                       "launching gives the agent an isolated worktree (§9, V-009)" ×1
+                       "a second task must not reuse the merged branch of the first" ×1
+machine              load average 43.28 / 61.50 / 45.86, 18 grok and 13 bun processes
+                     (seven worktrees running at once)
+```
+
+A different pair of tests failed in each run, and the suite fails with this branch's changes
+removed, so this is contention for the machine rather than a regression. Recorded in
+`loops/handoff/pivot-agents.md` for the reconciler rather than worked around, because the file is
+adjacent to `server/routes/projects.ts`, which the partition assigns to nobody. Every suite this
+branch owns is green five runs in a row.
