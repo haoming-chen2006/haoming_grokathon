@@ -5416,7 +5416,7 @@ an unfinished piece of work.**
 Branch `pivot/shell`, worktree 07-shell, **merge slot FIRST**. The rows above (V-001…V-052) belong
 to the retired coding product and are not this loop's to update or delete.
 
-**Tally after iteration 3:** 2 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED.
+**Tally after iteration 3:** 3 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED.
 
 ```text
 SHELL-001  PASS         the contract is published
@@ -5434,7 +5434,7 @@ SHELL-012  NOT TESTED   no OpenUI string is reachable from the browser
 SHELL-013  NOT TESTED   the package identity is grok-workspace  (will end BLOCKED-ON-RECONCILE, R-5)
 SHELL-014  NOT TESTED   the first-run greeting shows once and is honest
 SHELL-015  NOT TESTED   the guide is re-openable and covers every section
-SHELL-016  NOT TESTED   the gate is green         (green this iteration; re-run every iteration)
+SHELL-016  PASS         the gate is green         (exit 0, 1065 pass / 0 fail; re-run every iteration)
 SHELL-017  NOT TESTED   the shell is complete with zero siblings merged
 ```
 
@@ -5545,7 +5545,13 @@ Tests: client/src/control-room/shell/contract.test.tsx — 15 tests, 37 assertio
   ?tools= query parameter).
 ```
 
-### The gate, iteration 1 — NOT green, and not because of this change
+### The gate, iteration 1 — NOT green
+
+> **RETRACTED at iteration 3.** The diagnosis below — "environmental, seven agents on one
+> machine" — is wrong. The cause was a missing `OPENAI_API_KEY`: `loops/07-shell.md` §1 says
+> to source `.env`, `.env` is gitignored and therefore absent from every worktree, and I never
+> sourced it. See "The gate, iteration 3" for the evidence and the correction. The measurements
+> below are left as recorded; only the conclusion drawn from them was wrong.
 
 `bun run verify` exited 0 at the start of the iteration and exits 1 at the end. The failures are
 5000ms test timeouts in tests that create real git worktrees and spawn real `grok` ACP child
@@ -5823,8 +5829,8 @@ bun run build                    exit 0 — built in 3.91s
 bun run audit (4 audits)         0 orphans · every endpoint has a caller · 0 unclassified
                                  indicators · every cited file resolves
 bun test (shell files)           77 pass / 0 fail across 2 files (597 assertions)
-bun test (whole suite)           still carries the contention timeouts recorded under iteration 1;
-                                 unchanged by this work, which touches no server file
+bun test (whole suite)           red, and mis-diagnosed at the time — see the iteration-3
+                                 correction: the cause was a missing OPENAI_API_KEY, not load
 ```
 
 ### What did not move
@@ -6012,8 +6018,7 @@ bun run build                    exit 0 — built in 1.98s
 bun run audit (4 audits)         0 orphans · every endpoint has a caller · 0 unclassified
                                  indicators · every cited file resolves
 bun test (shell files)           124 pass / 0 fail across 4 files, 786 assertions
-bun test (whole suite)           the contention timeouts recorded under iteration 1 persist;
-                                 unchanged by this work, which touches no server file
+bun test (whole suite)           green once the environment was loaded — see below
 ```
 
 ### What did not move
@@ -6028,3 +6033,70 @@ bun test (whole suite)           the contention timeouts recorded under iteratio
 * **No screenshot of either theme yet.** The shell is now something that can be looked at, which
   is what SHELL-009 and SHELL-011 have been waiting for; neither is claimed from arithmetic and
   assertions alone.
+
+## Correction — the red gate was mine, not the machine's
+
+Iterations 1 and 2 recorded the suite's failures as machine contention: 5000ms timeouts in tests
+that spawn real `grok` processes, correlated with a load average of 26–125 from seven worktrees,
+and reproduced with the working tree stashed to HEAD. The reproduction was sound and the conclusion
+"not caused by this change" was correct. **The explanation was wrong, and the fix was mine to make.**
+
+`loops/07-shell.md` §1 opens with:
+
+```bash
+cd /Users/haoming/openui
+set -a; . ./.env; set +a
+```
+
+This worktree has no `.env` — it is gitignored, so `git worktree add` never brought it across, and
+the instruction names the main checkout's path. Every run this loop made was therefore unauthenticated.
+Later runs showed it plainly once the load dropped enough for the tests to fail fast instead of
+hanging:
+
+```text
+message: "Auth recovery succeeded but 4 authenticated inference requests were still rejected (401);
+          giving up after 3 retries. Turn ran 7s wall-clock.",
+http_status: 401
+```
+
+22 of those in one run. With the environment sourced from the main checkout:
+
+```text
+$ set -a; . /Users/haoming/openui/.env; set +a
+$ bun test server/services/agentExecution.test.ts      4 pass, 0 fail
+$ bun run verify                                       exit 0
+                                                       1065 pass · 0 fail · 0 timeouts · 0 401s
+                                                       0 orphans · every endpoint has a caller ·
+                                                       0 unclassified · every citation resolves
+```
+
+The honest reading of the earlier evidence: an ACP test with no credentials hangs on a retrying
+auth handshake until the 5s limit, so **"timed out after 5000ms" was the symptom of a missing key,
+not of CPU contention.** Load made it noisier — which failing set appeared varied run to run — and
+that variability is what made contention look like a sufficient explanation. It was not. A red gate
+attributed to the environment and left alone for two iterations was a red gate nobody was fixing.
+
+What this changes about the earlier entries: the iteration-1 and iteration-2 conclusions that the
+failures were not caused by those changes still stand, and the stashed-tree reproduction still
+proves it. The observation filed in `loops/handoff/pivot-shell.md` telling other worktrees the
+suite times out under parallel load is **superseded** — the note there now points here.
+
+### SHELL-016 — The gate is green — **PASS**
+
+```text
+verify output file:  scratchpad/verify-final2.txt
+  $ set -a; . /Users/haoming/openui/.env; set +a && bun run verify
+  exit 0
+  typecheck  tsc --noEmit (server + client)   exit 0
+  tests      1065 pass · 0 fail
+  build      exit 0
+  audit      0 orphans · every endpoint has at least one caller ·
+             0 unclassified indicators, 0 dead controls · every cited file and script resolves
+
+Test count, before / after:  727 at the start of this loop → 1065.
+No test was skipped, deleted or weakened to achieve it; the increase is this loop's own
+188 shell assertions plus the previously-failing ACP tests now passing with credentials.
+```
+
+Held to the item's own terms: it says the gate is green *every* iteration, so this is PASS as of
+this run and is re-run rather than assumed next iteration.

@@ -23,6 +23,20 @@ export const NAVIGATOR = { key: "navigator", initial: 288, min: 220, max: 480 } 
 export const INSPECTOR = { key: "inspector", initial: 320, min: 260, max: 520 } as const;
 export const MAIN_MIN = 480;
 
+/**
+ * A collapsed region keeps a rail; it does not vanish.
+ *
+ * §3.1 says every region is collapsible and stops there. The two wireframes say what collapsed
+ * should look like, and they agree: design-document.html draws the inspector collapsed to a 46px
+ * rail carrying a `‹` control, a vertical CONVERSATION label, three presence dots and a count,
+ * captioned "the document gets the full width; the rail keeps presence visible". Its second state
+ * expands the same region back to a panel.
+ *
+ * Collapsing to nothing would have cost the user the one thing the caption says the rail is for —
+ * knowing three agents are in there — and left a 1px handle as the only way back.
+ */
+export const RAIL = 46;
+
 export type RegionKey = typeof NAVIGATOR.key | typeof INSPECTOR.key;
 
 export interface RegionState {
@@ -113,13 +127,21 @@ export function layout(
   navigator: RegionState,
   inspector: RegionState,
 ): { navigator: number; main: number; inspector: number } {
-  let nav = navigator.collapsed ? 0 : navigator.width;
-  let insp = inspector.collapsed ? 0 : inspector.width;
+  let nav = navigator.collapsed ? RAIL : navigator.width;
+  let insp = inspector.collapsed ? RAIL : inspector.width;
 
+  // A rail is already the smallest a region gets, so only expanded regions yield to MAIN's
+  // minimum — squeezing a 46px rail to 20px would make its expand control unhittable and would
+  // save less than it cost. The inspector yields before the navigator.
   const shortfall = () => nav + insp + MAIN_MIN - available;
+  const floor = (collapsed: boolean) => (collapsed ? RAIL : 0);
 
-  if (shortfall() > 0 && insp > 0) insp = Math.max(0, insp - shortfall());
-  if (shortfall() > 0 && nav > 0) nav = Math.max(0, nav - shortfall());
+  if (shortfall() > 0 && !inspector.collapsed) {
+    insp = Math.max(floor(inspector.collapsed), insp - shortfall());
+  }
+  if (shortfall() > 0 && !navigator.collapsed) {
+    nav = Math.max(floor(navigator.collapsed), nav - shortfall());
+  }
 
   return { navigator: nav, main: Math.max(0, available - nav - insp), inspector: insp };
 }

@@ -19,7 +19,7 @@ import { useEffect, useState } from "react";
 import type { PageDescriptor, WorkspacePageProps } from "./contract";
 import { NotMergedYet } from "./NotMergedYet";
 import { PAGES } from "./pages";
-import { INSPECTOR, NAVIGATOR, layout, useRegion } from "./regions";
+import { INSPECTOR, NAVIGATOR, RAIL, layout, useRegion } from "./regions";
 import { useWorkspaceRoute } from "./router";
 import { useTheme } from "./theme";
 import { UNPRICED, useShellData, type ShellNotification, type ShellSpend } from "./useShellData";
@@ -222,6 +222,51 @@ function PageSelector({
   );
 }
 
+/**
+ * A collapsed region, reduced to a rail rather than to nothing.
+ *
+ * Both wireframes take this shape for the third region: a 46px strip with a chevron back to the
+ * expanded state and a vertical label naming what is folded away. design-document.html captions
+ * it "the document gets the full width; the rail keeps presence visible" — the point of the rail
+ * is that you can still see something is in there.
+ */
+function CollapsedRail({
+  side,
+  label,
+  onExpand,
+}: {
+  side: "navigator" | "inspector";
+  label: string;
+  onExpand: () => void;
+}) {
+  return (
+    <aside
+      data-testid={`${side}-rail`}
+      aria-label={`${label} (collapsed)`}
+      style={{ width: RAIL }}
+      className={`flex shrink-0 flex-col items-center gap-3.5 py-3 ${
+        side === "navigator" ? "border-r" : "border-l"
+      } border-border`}
+    >
+      <button
+        type="button"
+        data-testid={`${side}-expand`}
+        onClick={onExpand}
+        aria-label={`Expand the ${label.toLowerCase()}`}
+        className="grid h-7 w-7 place-items-center rounded-md border border-border text-[13px] text-ink-faint hover:bg-surface-hover"
+      >
+        {side === "navigator" ? "›" : "‹"}
+      </button>
+      <span
+        className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-ghost"
+        style={{ writingMode: "vertical-rl" }}
+      >
+        {label}
+      </span>
+    </aside>
+  );
+}
+
 /** Render a page's slot, or state that the branch which builds it has not merged. */
 function Slot({
   component,
@@ -294,7 +339,9 @@ export function WorkspaceShell() {
       <Notifications items={data.notifications} />
 
       <div className="flex min-h-0 flex-1">
-        {widths.navigator > 0 ? (
+        {navigator.collapsed ? (
+          <CollapsedRail side="navigator" label="Navigator" onExpand={navigator.toggle} />
+        ) : (
           <aside
             data-testid="navigator"
             aria-label="Navigator"
@@ -312,7 +359,7 @@ export function WorkspaceShell() {
               </p>
             )}
           </aside>
-        ) : null}
+        )}
 
         <ResizeHandle
           side="left"
@@ -341,7 +388,9 @@ export function WorkspaceShell() {
           onToggle={inspector.toggle}
         />
 
-        {widths.inspector > 0 ? (
+        {inspector.collapsed ? (
+          <CollapsedRail side="inspector" label="Inspector" onExpand={inspector.toggle} />
+        ) : (
           <aside
             data-testid="inspector"
             aria-label="Inspector"
@@ -360,7 +409,7 @@ export function WorkspaceShell() {
               </>
             )}
           </aside>
-        ) : null}
+        )}
       </div>
     </div>
   );

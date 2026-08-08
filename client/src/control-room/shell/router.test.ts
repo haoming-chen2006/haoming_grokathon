@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { workspaceUrl } from "./contract";
 import { PAGES } from "./pages";
 import { DEFAULT_PAGE, isWorkspacePath, parseWorkspaceUrl } from "./router";
-import { INSPECTOR, MAIN_MIN, NAVIGATOR, layout, readRegion } from "./regions";
+import { INSPECTOR, MAIN_MIN, NAVIGATOR, RAIL, layout, readRegion } from "./regions";
 
 describe("parseWorkspaceUrl", () => {
   test("reads every page from its own url", () => {
@@ -97,9 +97,20 @@ describe("region geometry", () => {
     expect(tiny.navigator).toBe(120);
   });
 
-  test("a collapsed region takes no width and gives it all to main", () => {
+  test("a collapsed region keeps a rail rather than vanishing", () => {
+    // Both wireframes collapse the third region to a 46px strip with a chevron and a vertical
+    // label, not to nothing. Collapsing to zero would leave a 1px drag handle as the only way
+    // back, and would lose the presence the rail exists to keep visible.
     const l = layout(1600, { width: 288, collapsed: true }, { width: 320, collapsed: true });
-    expect(l).toEqual({ navigator: 0, main: 1600, inspector: 0 });
+    expect(l).toEqual({ navigator: RAIL, main: 1600 - RAIL * 2, inspector: RAIL });
+  });
+
+  test("a rail is never squeezed below itself to satisfy main's minimum", () => {
+    // An expanded region yields; a 46px rail does not, because shrinking it saves less than it
+    // costs and makes its expand control unhittable.
+    const l = layout(600, { width: 288, collapsed: false }, { width: 320, collapsed: true });
+    expect(l.inspector).toBe(RAIL);
+    expect(l.navigator).toBeGreaterThanOrEqual(0);
   });
 
   test("a stored width outside the bounds is clamped, not honoured", () => {

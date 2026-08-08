@@ -86,11 +86,27 @@ describe("the three regions", () => {
 
     fireEvent.doubleClick(screen.getByTestId("resize-left"));
     await waitFor(() => expect(screen.queryByTestId("navigator")).toBeNull());
+    // Collapsed is a rail, not nothing: the wireframes keep a strip with a way back.
+    expect(screen.getByTestId("navigator-rail")).toBeDefined();
+    expect(screen.getByTestId("navigator-expand")).toBeDefined();
 
     cleanup();
     await mount();
     // Reload: the collapse persisted, so the user does not have to re-collapse it every visit.
     expect(screen.queryByTestId("navigator")).toBeNull();
+    expect(screen.getByTestId("navigator-rail")).toBeDefined();
+  });
+
+  test("the rail's own control expands the region again", async () => {
+    await mount();
+    fireEvent.doubleClick(screen.getByTestId("resize-left"));
+    await waitFor(() => expect(screen.getByTestId("navigator-rail")).toBeDefined());
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("navigator-expand"));
+    });
+    expect(screen.getByTestId("navigator")).toBeDefined();
+    expect(screen.queryByTestId("navigator-rail")).toBeNull();
   });
 
   test("a side region resizes by keyboard, and the new width persists", async () => {

@@ -349,30 +349,63 @@ asked once and answered together.
 
 ---
 
-## Observation for reconciliation — the suite times out under parallel load
+## CORRECTED — the suite does not time out under parallel load; I had no `.env`
 
-Not a request against a hot file. Recorded because it costs every worktree, and because whoever
-sees a red gate next should not spend an iteration hunting a bug that is not there.
+**This section previously told every worktree that `bun test` is flaky under parallel load and that
+the failures should be tolerated. That was wrong, and tolerating them would have hidden a real
+setup error. Retracted in full; the correct finding follows.**
 
-`bun test` fails non-deterministically while several agent worktrees run it at once. Every failure
-is `this test timed out after 5000ms`; the failing set differs on every run; all of them are in
-tests that create real git worktrees and spawn real `grok` ACP child processes:
+`loops/07-shell.md` §1 opens with:
 
-```text
-server/routes/projectReads.test.ts   "launching gives the agent an isolated worktree (§9, V-009)"
-                                     "a second task must not reuse the merged branch of the first"
-server/services/messaging.test.ts    "message archival keeps the hot path bounded"
+```bash
+set -a; . ./.env; set +a
 ```
 
-Measured on `pivot/shell`, iteration 1: exit 0 at load ~5 before any edit; 3 fail at load 125;
-**3 fail with the working tree stashed to HEAD, i.e. with no local change present at all**; then
-6, 5 and 4 fail on successive runs at load 26–41. The signature is a fixed 5000ms limit against a
-machine running seven copies of the suite, not a defect in any branch.
+I never ran it. `.env` is gitignored, so it exists in the main checkout and in **no worktree**.
+Without `OPENAI_API_KEY` the ACP tests reach a live inference endpoint unauthenticated:
 
-07-shell did not touch it: raising a timeout in a shared test file would be an edit across the
-boundary, and it would mask the only signal saying the suite is under-resourced. If reconciliation
-wants it fixed rather than tolerated, the change belongs with whoever owns those tests, and the
-honest form is an explicit per-test timeout on the process-spawning tests rather than a global one.
+```text
+AcpError: Internal error  code: -32603
+  message: "Auth recovery succeeded but 4 authenticated inference requests were still rejected
+            (401); giving up after 3 retries. Turn ran 7s wall-clock."
+  http_status: 401
+```
+
+With the key sourced from the main checkout, the same file goes green immediately, and so does
+everything else:
+
+```text
+$ set -a; . /Users/haoming/openui/.env; set +a
+$ bun test server/services/agentExecution.test.ts     4 pass, 0 fail, exit 0
+$ bun run verify                                      1065 pass, 0 fail, exit 0, 0 timeouts
+```
+
+**What I got wrong, precisely.** The earlier claim rested on a real reproduction — the failures
+persisted with my working tree stashed to HEAD — and I concluded from that they were environmental
+contention. The reproduction was sound; the conclusion was not. Stashing the tree does not change
+the *shell environment*, so it could never have distinguished "my code broke it" from "my
+environment is missing a key". Load average correlated by coincidence: other worktrees were busy at
+the same times.
+
+**What every worktree should do:** source the key before running the gate. In a worktree the file
+is not local, so point at the main checkout:
+
+```bash
+set -a; . /Users/haoming/openui/.env; set +a
+```
+
+The two failure shapes to recognise, because neither says "missing credential" on its face:
+
+* `AcpError ... http_status: 401` from `acpClient.ts` — unauthenticated inference.
+* `this test timed out after 5000ms` in any test that opens an ACP session
+  (`projectReads.test.ts`, `messaging.test.ts`) — a session that never completes rather than one
+  that fails fast. These have not recurred once since the key was sourced, including at the same
+  load that "reproduced" them before, so the load explanation is not supported.
+
+Worth a shared fix that is nobody's file right now: nothing in the repository tells you the key is
+missing. The tests reach the network and fail eight different ways instead. A one-line guard in the
+test setup that skips-with-a-reason when `OPENAI_API_KEY` is unset would have saved this entirely,
+and would belong in `client/happydom.ts`'s server-side equivalent or in a shared test helper.
 
 ---
 
@@ -714,3 +747,41 @@ executes — so this is a flag, not a check.
 
 **Nothing needs fixing in shell code.** No file was changed for A-0 this iteration; two documents
 were.
+
+---
+
+## SUPERSEDED: "the suite times out under parallel load"
+
+The observation filed earlier in this file — that `bun test` fails non-deterministically with
+5000ms timeouts because seven worktrees run it at once — was **the right measurement and the wrong
+diagnosis**. Read that section with this correction attached.
+
+The real cause is that a worktree has no `.env`. It is gitignored, so `git worktree add` never
+copied it, and `loops/07-shell.md` §1 names the main checkout's path (`cd /Users/haoming/openui`)
+rather than the worktree's. Every test that spawns a `grok` process was therefore running
+unauthenticated. Once the machine quietened enough for those tests to fail fast rather than hang,
+the actual error appeared:
+
+```text
+"Auth recovery succeeded but 4 authenticated inference requests were still rejected (401);
+ giving up after 3 retries."   http_status: 401       ← 22 of these in one run
+```
+
+**An ACP test with no credentials hangs on a retrying auth handshake until the 5s limit.** The
+timeout was the symptom; the missing key was the cause. Load only changed which tests were slow
+enough to trip it, which is exactly what made contention look like a sufficient explanation.
+
+**If your gate is red with `timed out after 5000ms` in tests that spawn agents, do this first:**
+
+```bash
+set -a; . /Users/haoming/openui/.env; set +a
+bun run verify
+```
+
+On `pivot/shell` that takes the suite from 4–6 failures to `exit 0`, 1065 pass, 0 fail — at a load
+average of 17–26, which is inside the range that was previously failing.
+
+Worth someone's decision at reconciliation, and not this worktree's to make: either each worktree
+symlinks the main checkout's `.env`, or the loop documents' §1 stops naming a path that only exists
+in one checkout. Two iterations of this loop attributed a red gate to the environment and left it
+alone; that is the cost of the current arrangement.
