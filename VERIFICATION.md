@@ -5418,40 +5418,34 @@ an unfinished piece of work.**
 > share this file and none owns it; see the partition gap recorded in
 > `loops/handoff/pivot-design-docs.md`.
 
-**Iteration:** 2 · **Tally:** 3 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED
+**Iteration:** 3 · **Tally:** 4 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED
 
-**Gate (`bun run verify`), iteration 2: RED — exit 1, and not from this worktree.**
+**Gate (`bun run verify`), iteration 3: GREEN — exit 0.**
 
 ```text
 1. server typecheck   tsc --noEmit                       exit 0
 2. client typecheck   cd client && tsc --noEmit          exit 0
-3. tests              bun test server/ client/src …      exit 1 — 961 pass, 5 fail, 52 files
-4. build              bun run build                      exit 0 — built in 19.96s
+3. tests              bun test server/ client/src …      exit 0 — 984 pass, 0 fail, 53 files
+4. build              bun run build                      exit 0
 5. audits             reachability, endpoints, quality, docs   exit 0
+   overall: bun run verify exit 0
 ```
 
-All five failures are in `server/routes/projectReads.test.ts`, they are the F-1 flake recorded in
-`loops/handoff/pivot-design-docs.md`, and this worktree cannot fix them: the file belongs to no row
-it owns. Every one fails at ~5.14s against a 5000ms default timeout, and the file passes whole when
-given room:
+**The F-1 flake did not fire this iteration, and that is itself the evidence for what it is.**
+Iteration 2 recorded 5 failures in `server/routes/projectReads.test.ts` at load 117 and again at
+load 50. This run, at **load 24** with the sibling worktrees quiet, all 984 tests passed. Same
+commit lineage, same tests, no change to that file by anyone. The variable is machine load, which
+confirms the diagnosis in `loops/handoff/pivot-design-docs.md` F-1: those tests spawn a git worktree
+and an ACP session inside a 5000ms budget and lose that race when nine worktrees compete for 8
+cores.
 
-```text
-bun test --timeout 60000 server/routes/projectReads.test.ts   → 41 pass, 0 fail, exit 0
-```
-
-Nothing imports `server/services/designDoc.ts` except its own two test files, so this worktree's
-code is not reachable from the failing tests and cannot be their cause. Iteration 1 saw the same
-flake hit 3 tests and then pass on a re-run; iteration 2 saw it hit 5 twice, at load 117 and at
-load 50. It is getting worse as the sibling worktrees get busier.
-
-**This is disclosed rather than worked around.** §4 step 7 asks for a green gate before recording,
-and the gate is not green. The items below are recorded anyway because every clause of each is
-backed by a command someone else can re-run, and because holding this worktree's work hostage to
-another worktree's flake would report nothing and fix nothing. Read "PASS" below as "these clauses
-are evidenced", not as "the suite was green".
+Consequence, stated so nobody reads a green gate as a fixed one: **the gate's greenness here is a
+property of the machine being idle, not of the flake being fixed.** F-1 still needs the timeout
+raised at reconciliation.
 
 Stage 1 of §3.11 is done: the store, the synchronous invariant, and sections with minted anchors.
-Stage 2 is done for DD-002; DD-003 is held one clause short. DD-001, DD-002 and DD-006 PASS.
+Stage 2 is done for DD-002; DD-003 is held one clause short. Stage 3 is done for DD-004, the strict
+declaration parser; DD-005 is held on 01-agents. DD-001, DD-002, DD-004 and DD-006 PASS.
 
 ## DD-001: A design document exists independently of any project — PASS
 
@@ -5629,10 +5623,105 @@ unpad the id counter, keep tiebreak  → 20 pass, 1 fail   (isolates the digit-b
 having accidentally avoided the tie it exists to test.
 ```
 
+## DD-004: The declaration block is parsed strictly or refused with a line number — PASS
+
+Reproduce: `bun test server/services/designDocDeclaration.test.ts` (18 pass, 0 fail, 3262
+assertions).
+
+```text
+Valid block → declaration:
+  {
+    "name": "Q3 Enterprise Deck",
+    "category": "slides",
+    "budget": 25,
+    "areas": [
+      { "name": "Research", "description": "prospect and competitor material", "line": 6 },
+      { "name": "X",        "description": "the @acme timeline",               "line": 7 }
+    ],
+    "blockStart": 1,
+    "blockEnd": 8
+  }
+  All five categories accepted: documents, slides, tables, workflows, software.
+
+Unknown key → error:
+  [{ "line": 4,
+     "message": "Unknown key `bugdet`. Expected one of: name, category, budget, areas." }]
+  The §3.4 case exactly: a user who writes `bugdet: 25` and sees no error believes they set a
+  budget. Errors accumulate rather than stopping at the first.
+
+Duplicate block → error:
+  [{ "line": 8,
+     "message": "A design document may contain only one `project` block; found one at line 1
+                 and another at line 8." }]
+  Both line numbers, so the user can find the block they forgot they wrote.
+
+Bad category → error:
+  [{ "line": 3,
+     "message": "`category` must be one of: documents, slides, tables, workflows, software.
+                 Got `powerpoint`." }]
+
+Never inferred from prose:
+  "name: …\ncategory: slides\nareas:\n  - Research: everything" OUTSIDE a fence
+    → ok: true, declaration: undefined.
+  A ```project block nested inside a ````text block is documentation, not a declaration.
+  A document with no block declares nothing and that is NOT an error: {"ok":true,"errors":[]}.
+
+Line numbers are the RENDERED document's line numbers, not the section's — proven through the
+store: an error in a declaration in the second section reports line 8, the line the user sees.
+
+Fuzz/edge inputs run, exceptions thrown:
+  25 adversarial inputs — empty, bare fences, unterminated fences, ":", "::::", orphan list
+  items, "budget: NaN/Infinity/1e10", a 10,000-char name, NUL bytes, a lone surrogate
+  (\ud800), 500 emoji, 500 area lines, and 200 stacked project blocks.
+  Exceptions thrown: 0.
+  The harness also asserts the RESULT is well-formed for every input — ok is boolean, errors is
+  an array, ok===true implies zero errors, and every error carries an integer line > 0.
+```
+
+Positive controls — every check made to fail on demand (§5a):
+
+```text
+silently ignore unknown keys      → 16 pass, 2 fail
+drop the duplicate-block check    → 17 pass, 1 fail
+accept any category               → 15 pass, 3 fail
+make the parser throw on NUL      → 17 pass, 1 fail — the fuzz harness caught it and printed
+                                    both offending inputs with their error text
+```
+
+**A note on the fourth control, because it nearly passed silently.** The first attempt to inject
+the throw used a `perl -0pi` multiline substitution that did not match, so nothing was mutated and
+the suite reported 18 pass — which reads exactly like "the fuzz test tolerates a throwing parser".
+It was caught only by checking `grep -c` for the injected text, which returned 0. The control was
+redone with a Python edit that verifiably applied. This is §5a's "one round of audit probes silently
+passed everything because the harness escaped its own backticks", reproduced in miniature: **check
+the probe applied before believing the probe's result.**
+
+## DD-005: Creating the project from a declaration is a human action — NOT TESTED (held)
+
+One clause is evidenced; the rest cannot be reached from this worktree yet, so the item is held
+rather than partially claimed.
+
+```text
+Documents parsed, projects created without a click:
+  store.declarationFor(docId) parses on read and creates nothing — no project, no team, no
+  spend. Asserted: after parsing a valid declaration, followedByProjectId is still undefined.
+  Parsing is automatic and continuous; applying is a separate human action.
+
+Apply action actor id:            NOT BUILT — the apply path is not written.
+Re-apply diff shown:              NOT BUILT.
+Occupied-area removal refusal:    BLOCKED — "refused while an agent is bound to the area, and
+                                  the refusal names the agent" needs the agent↔area binding in
+                                  server/services/workArea.ts, owned by 01-agents. That file
+                                  does not exist in this worktree yet:
+                                    ls server/services/workArea.ts → No such file or directory
+                                  Building a second area model here to satisfy the clause is
+                                  exactly the duplication §0 exists to prevent.
+```
+
 ## Not claimed this iteration
 
 ```text
-DD-004, DD-005                               NOT TESTED — stage 3, the declaration parser.
+DD-005                                       held — see above.
 DD-007…DD-016                                NOT TESTED — stages 4-11 of §3.11.
 DD-017  export to a document asset           NOT TESTED — depends on 02-assets (X-3). Per §3.10
                                              neither the route nor the button exists, deliberately.

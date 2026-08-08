@@ -99,6 +99,226 @@ export interface DesignDoc {
   updatedAt: string;
 }
 
+/** The five asset types. A category names the kind of thing the project makes. */
+export const DECLARATION_CATEGORIES = ["documents", "slides", "tables", "workflows", "software"] as const;
+export type DeclarationCategory = (typeof DECLARATION_CATEGORIES)[number];
+
+export interface DeclaredArea {
+  name: string;
+  description?: string;
+  /** Line in the rendered document the area was declared on, for error reporting and highlighting. */
+  line: number;
+}
+
+export interface ProjectDeclaration {
+  name: string;
+  category: DeclarationCategory;
+  budget?: number;
+  /** Empty is legal: zero areas means one implicit area covering the whole document. */
+  areas: DeclaredArea[];
+  /** 1-based lines of the opening and closing fence in the rendered document. */
+  blockStart: number;
+  blockEnd: number;
+}
+
+/**
+ * Every error carries a line. An error without one, in a 200-line document, is a scavenger hunt.
+ */
+export interface DeclarationError {
+  line: number;
+  message: string;
+}
+
+export interface DeclarationResult {
+  ok: boolean;
+  declaration?: ProjectDeclaration;
+  errors: DeclarationError[];
+}
+
+const DECLARATION_KEYS = ["name", "category", "budget", "areas"] as const;
+
+/**
+ * Parse the one fenced `project` block a design document may contain.
+ *
+ * **Strictly delimited, never inferred from prose.** `shared/designDocument.ts:14-21` records why:
+ * a loose pattern turns ordinary bullets into requirements, and a project full of phantom
+ * requirements is worse than a project with none. The failure here is worse still — phantom areas
+ * assemble a team, and a team spends money.
+ *
+ * **Pure and total.** It returns errors and never throws, on any input, because it runs on every
+ * keystroke's worth of document the user has typed so far: half-written fences, unclosed quotes and
+ * mid-word keys are the normal case, not the edge case. `ok` is false only when there are errors —
+ * a document with no `project` block declares nothing, which is not an error.
+ *
+ * There is **one parser, on the server**. The client reaches it through
+ * `GET /api/design-docs/:docId/declaration` and does not reimplement it: `shared/designDocument.ts`
+ * exists precisely because the CLI and the browser had two parsers and drifted about what a
+ * project's requirements were.
+ */
+export function parseDeclaration(text: string): DeclarationResult {
+  const errors: DeclarationError[] = [];
+  const lines = text.split("\n");
+
+  // Scan every fence, not just the project ones: a ```project opened inside another fenced block is
+  // an example in prose, not a declaration, and treating it as one would declare a project from
+  // documentation about declaring projects.
+  type Fence = { info: string; start: number; end: number | null; body: Array<{ text: string; line: number }> };
+  const fences: Fence[] = [];
+  let open: Fence | null = null;
+
+  lines.forEach((raw, i) => {
+    const fence = /^\s*```(.*)$/.exec(raw);
+    if (fence) {
+      if (open === null) open = { info: fence[1].trim(), start: i + 1, end: null, body: [] };
+      else {
+        open.end = i + 1;
+        fences.push(open);
+        open = null;
+      }
+      return;
+    }
+    if (open) open.body.push({ text: raw, line: i + 1 });
+  });
+  if (open) fences.push(open); // unterminated
+
+  const blocks = fences.filter((f) => f.info === "project");
+  if (blocks.length === 0) return { ok: true, errors: [] };
+
+  if (blocks.length > 1) {
+    // Naming both lines is the point: "duplicate block" alone leaves the user hunting for the one
+    // they forgot they wrote.
+    const [first, second] = blocks;
+    errors.push({
+      line: second.start,
+      message: `A design document may contain only one \`project\` block; found one at line ${first.start} and another at line ${second.start}.`,
+    });
+    return { ok: false, errors };
+  }
+
+  const block = blocks[0];
+  if (block.end === null) {
+    errors.push({
+      line: block.start,
+      message: "The `project` block opened here is never closed — add a closing ``` fence.",
+    });
+    return { ok: false, errors };
+  }
+
+  const seen = new Map<string, number>();
+  let name: string | undefined;
+  let category: string | undefined;
+  let categoryLine = block.start;
+  let budget: number | undefined;
+  const areas: DeclaredArea[] = [];
+  let inAreas = false;
+
+  for (const { text: raw, line } of block.body) {
+    if (raw.trim() === "") continue;
+
+    const areaEntry = /^\s+-\s*(.*)$/.exec(raw);
+    if (areaEntry) {
+      if (!inAreas) {
+        errors.push({ line, message: "A `- ` list item here belongs under `areas:`." });
+        continue;
+      }
+      const entry = areaEntry[1].trim();
+      if (entry === "") {
+        errors.push({ line, message: "An area needs a name." });
+        continue;
+      }
+      const split = entry.indexOf(":");
+      const areaName = (split === -1 ? entry : entry.slice(0, split)).trim();
+      const description = split === -1 ? undefined : entry.slice(split + 1).trim() || undefined;
+      if (areaName === "") {
+        errors.push({ line, message: "An area needs a name before its description." });
+        continue;
+      }
+      if (areas.some((a) => a.name.toLowerCase() === areaName.toLowerCase())) {
+        errors.push({ line, message: `Duplicate area \`${areaName}\`.` });
+        continue;
+      }
+      areas.push({ name: areaName, ...(description ? { description } : {}), line });
+      continue;
+    }
+
+    const kv = /^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$/.exec(raw);
+    if (!kv) {
+      errors.push({ line, message: `Expected \`key: value\`, got ${JSON.stringify(raw.trim())}.` });
+      inAreas = false;
+      continue;
+    }
+
+    const key = kv[1];
+    const value = kv[2].trim();
+
+    // An unknown key is an error, not an ignored line. A user who writes `bugdet: 25` and sees no
+    // error believes they set a budget.
+    if (!(DECLARATION_KEYS as readonly string[]).includes(key)) {
+      errors.push({
+        line,
+        message: `Unknown key \`${key}\`. Expected one of: ${DECLARATION_KEYS.join(", ")}.`,
+      });
+      inAreas = false;
+      continue;
+    }
+    if (seen.has(key)) {
+      errors.push({ line, message: `Duplicate key \`${key}\`; already set on line ${seen.get(key)}.` });
+      inAreas = false;
+      continue;
+    }
+    seen.set(key, line);
+    inAreas = key === "areas";
+
+    if (key === "name") {
+      if (value === "") errors.push({ line, message: "`name` cannot be empty." });
+      else name = value;
+    } else if (key === "category") {
+      categoryLine = line;
+      if (value === "") errors.push({ line, message: "`category` cannot be empty." });
+      else category = value;
+    } else if (key === "budget") {
+      // Strict: "25 dollars" must not silently become 25.
+      if (!/^-?\d+(\.\d+)?$/.test(value)) {
+        errors.push({ line, message: `\`budget\` must be a number, got ${JSON.stringify(value)}.` });
+      } else if (Number(value) < 0) {
+        errors.push({ line, message: "`budget` cannot be negative." });
+      } else {
+        budget = Number(value);
+      }
+    } else if (key === "areas" && value !== "") {
+      errors.push({ line, message: "`areas` takes a list of `- Name: description` lines beneath it." });
+    }
+  }
+
+  if (name === undefined && !seen.has("name")) {
+    errors.push({ line: block.start, message: "`name` is required." });
+  }
+  if (category === undefined && !seen.has("category")) {
+    errors.push({ line: block.start, message: "`category` is required." });
+  }
+  if (category !== undefined && !(DECLARATION_CATEGORIES as readonly string[]).includes(category)) {
+    errors.push({
+      line: categoryLine,
+      message: `\`category\` must be one of: ${DECLARATION_CATEGORIES.join(", ")}. Got \`${category}\`.`,
+    });
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+
+  return {
+    ok: true,
+    declaration: {
+      name: name!,
+      category: category as DeclarationCategory,
+      ...(budget !== undefined ? { budget } : {}),
+      areas,
+      blockStart: block.start,
+      blockEnd: block.end,
+    },
+    errors: [],
+  };
+}
+
 /** What is written to disk: `firstLine` is derived on read and must never be persisted. */
 type StoredSection = Omit<DocSection, "firstLine">;
 type StoredDoc = Omit<DesignDoc, "sections"> & { sections: StoredSection[] };
@@ -267,6 +487,18 @@ export class DesignDocStore {
     const doc = this.load(docId);
     doc.title = title;
     return this.persist(doc);
+  }
+
+  /**
+   * The declaration this document currently makes, parsed from its rendered text.
+   *
+   * **Parsing is automatic and continuous; applying is a human click.** This method creates
+   * nothing, assembles no team and spends no money — it only answers what the document says. The
+   * apply path is separate and carries the acting user's id, which preserves the one human approval
+   * gate the retired product proved was the right amount of ceremony.
+   */
+  declarationFor(docId: string): DeclarationResult {
+    return parseDeclaration(renderDocument(this.getDocument(docId)));
   }
 
   // ---- cardinality -----------------------------------------------------------------------

@@ -216,6 +216,65 @@ oversight.
 Proposal: either give each worktree `VERIFICATION-<surface>.md`, or add `VERIFICATION.md` to the
 hot list with an append-only exemption. The owner's call.
 
+### F-4 · DD-005 is blocked on `01-agents`' area model, which does not exist yet
+
+Iteration 3 built the declaration parser (DD-004 PASS). The apply half — DD-005 — cannot be
+finished here, and this is a dependency, not an omission.
+
+`DD-005` requires: "removing an area that has an agent bound to it is refused, and the refusal names
+the agent." That needs the agent↔area binding, which §0 assigns to `server/services/workArea.ts`
+(01-agents). In this worktree:
+
+```text
+ls server/services/workArea.ts → No such file or directory
+```
+
+Building a second area model here to satisfy the clause is exactly the duplication the partition
+exists to prevent, so DD-005 is held with the blocking clause named in `VERIFICATION.md`.
+
+**What 01-agents should know.** The declaration block is the input to team assembly, and this is the
+shape the apply path will hand over — an ordered list, names as the user typed them:
+
+```ts
+ProjectDeclaration {
+  name: string
+  category: "documents" | "slides" | "tables" | "workflows" | "software"
+  budget?: number
+  areas: Array<{ name: string; description?: string; line: number }>   // may be EMPTY
+  blockStart: number; blockEnd: number                                  // rendered-doc lines
+}
+```
+
+Two things this worktree needs back, whenever 01-agents is ready — neither is urgent:
+
+1. a way to ask **which agents are bound to an area**, so the apply path can refuse to remove an
+   occupied one and name the agent in the refusal;
+2. confirmation that an area's identity is a stable stored `id` with a `colour`, not a name. Area
+   **names** come from the user's prose in the declaration block, and a name is not a lookup key —
+   the retired product stored four unowned tasks by matching a model's phrasing of a role with
+   `===` (iteration 81). If areas are keyed by name, renaming a heading in the block silently
+   re-homes agents.
+
+**`areas: []` is legal** and means one implicit area covering the whole document (§3.4). Assembly
+must handle the empty list rather than treating it as "not declared".
+
+### F-5 · A probe that never ran reported success
+
+Recorded because it is the exact failure mode `loopdesign.md` warns about, caught here in miniature.
+
+While proving the declaration fuzz test could fail, the first mutation — injecting a `throw` into
+`parseDeclaration` — was applied with a `perl -0pi` multiline substitution that **did not match**.
+Nothing was mutated, the suite reported `18 pass`, and that reads exactly like "the fuzz harness
+tolerates a throwing parser". It was caught only because the script also ran `grep -c` for the
+injected text, which returned `0`.
+
+Redone with an edit that verifiably applied, the fuzz harness did catch the throw and printed both
+offending inputs with their error text.
+
+Lesson for every worktree, worth repeating at reconciliation: **assert that the probe applied before
+believing the probe's result.** A mutation-based control that silently no-ops is indistinguishable
+from a passing test.
+
 ### F-3 · Test files beside an owned service are not named in §0
 
 §0 grants `server/services/designDoc.ts` but does not mention test files. §4 steps 6-7 require
