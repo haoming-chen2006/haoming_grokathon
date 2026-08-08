@@ -24,6 +24,7 @@ import { join } from "path";
 import { getProjectStore } from "./projectStore";
 import { seedDefaultTeam } from "./agentTeam";
 import { parseDeclaration } from "./designDoc";
+import { getWorkAreaStore } from "./workArea";
 import type { CodingAgent } from "../types/agent";
 
 function workspacesDir(): string {
@@ -66,6 +67,7 @@ export interface StartWorkResult {
   workspace: string;
   agents: CodingAgent[];
   requirementIds: string[];
+  areaIds: string[];
   areaNames: string[];
   /** Present when the document's `project` block did not parse; the project is still created. */
   declarationErrors?: { line: number; message: string }[];
@@ -122,6 +124,36 @@ export function startWork(params: {
     }
   }
 
+  /**
+   * One colour box per declared area, created empty.
+   *
+   * The board is areas, and an area is what an agent is confined to — so a project with none is a
+   * board with nothing to click and no boundary to enforce. They are created here, at the moment the
+   * document declares them, rather than when a plan is generated: the areas are the user's own
+   * headings and exist whether or not anyone has planned anything yet.
+   *
+   * Each one is EMPTY: a name, a colour, a milestone, and no agent. Clicking it is how an agent gets
+   * put inside.
+   */
+  const areaIds: string[] = [];
+  const areaStore = getWorkAreaStore();
+  for (const [i, area] of (declared?.areas ?? []).entries()) {
+    try {
+      const created = areaStore.create({
+        projectId: project.id,
+        name: area.name,
+        // The line the area was declared on is its anchor in the document — that is what makes an
+        // area a region of the brief rather than a label beside it.
+        briefSectionAnchor: `L${area.line}`,
+        milestoneId: `m${i + 1}`,
+        rootPath: workspace,
+      });
+      areaIds.push(created.id);
+    } catch {
+      // A rejected area must not lose the project; the board shows what landed.
+    }
+  }
+
   const agents = seedDefaultTeam(project.id, { budgetUsd: project.budgetUsd });
 
   return {
@@ -129,6 +161,7 @@ export function startWork(params: {
     workspace,
     agents,
     requirementIds,
+    areaIds,
     areaNames: (declared?.areas ?? []).map((a) => a.name),
     declarationErrors: parsed.ok ? undefined : parsed.errors,
   };
