@@ -102,7 +102,53 @@ with a URL. Both paths are implemented and both verify the body before storing, 
 the same either way — but which one ran was not captured, and a one-line log in `images.ts` would
 settle it on the next call.
 
-## Two defects found in files this worktree may not edit
+---
+
+## Iteration 2 — merged forward; R-2 and R-3 landed; one urgent fix going the other way
+
+`grok-control-room` picked up **R-2** (capability wiring) and **R-3** (the `persistFile` sidecar
+collision) in commit `2b2eca4`. Both are merged into this branch and the workaround R-3 forced —
+`ext: "timings.json"` — is gone; the timings file is plain `.json` again. **R-1 is still open.**
+
+### The wiring now works end to end, and there is a test that says so
+
+`registerMediaTools` gated correctly from the first commit. Nothing stored a capability and nothing
+passed one, so every agent silently got the base default and no agent in production could generate
+anything. Every part was right and the feature did not exist. That is not something a unit test on
+the gate can catch, so `media.test.ts` now asks over the route an agent actually calls:
+
+```
+base agent        38 tools   neither generator
+images-only       39 tools   generate_image, no narrate
+voice+images      40 tools   both — and every base tool as well
+unknown agent id  38 tools   the safe default, not a crash
+```
+
+The gated tools are additions, never replacements: the test asserts `bothTools.length ===
+baseTools.length + 2` and that every base tool survives, so a capability can never quietly *remove*
+something an agent needs.
+
+### Going the other way: `narrate` is broken on `grok-control-room`
+
+That branch has `media.ts` from `3690617` but not `654a8fe`, so it sends no `language` field and
+**every narration call there returns HTTP 422**. This branch carries the fix. Merging `pivot/media`
+into `grok-control-room` resolves it; until that happens, voice on the integration branch is dead
+on arrival and the failure looks like a bad request rather than a missing merge.
+
+### R-4 · `client/src/**` — nothing lets a user grant a capability
+
+`GET /api/coding-agents/capabilities` serves the four presets, with the media tools and the spend
+note each one carries, and **nothing in the client consumes it**. There is no create-agent form at
+all: `App.tsx` only ever GETs `/api/agents`. So a capability can be granted by an API call and by
+no other means, which means that in the product as shipped, no user can give an agent media.
+
+`startWork.ts` is explicit that this is deliberate — a seeded team "pre-answered the question the
+board exists to ask", and capability is "the user's decision, taken on the box it will work in".
+The decision was designed for and the box was never built. The endpoint is ready, the registry
+accepts `capabilities`, and the server honours it; what is missing is the picker, and it belongs to
+whoever owns the agents board.
+
+## Requests still open
 
 ### R-1 · `server/services/assetStore.ts` — `AssetStore` needs `recordCharge()`
 
@@ -134,6 +180,12 @@ Delete `recordCharge` from `media.ts` when it lands; the call sites take it unch
 
 ### R-2 · `server/routes/mcp.ts` — pass the agent's media capability
 
+> **LANDED** in `grok-control-room` `2b2eca4`, as written below plus the `CodingAgent.capabilities`
+> field and `AgentRegistry.create` accepting one. Merged into this branch; the regression test is
+> "the capability stored on an agent decides the tools it is offered" in `media.test.ts`. The
+> paragraph below about being blocked on 01-agents is no longer true and is kept because this file
+> is appended to, not rewritten.
+
 **Reason.** `generate_image` and `narrate` are registered per capability, which is `boundary.ts`'s
 rule: the enforcement is registration, not refusal, because an advertised tool that always fails
 invites a retry and a retry against a priced endpoint is a spend loop. `createProjectMcpServer` now
@@ -155,6 +207,11 @@ that exists, R-2 cannot be written honestly — reading a field that is always `
 same gate with more code.
 
 ### R-3 · `server/services/assetStore.ts` — `persistFile` overwrites any file whose extension is `json`
+
+> **LANDED** in `grok-control-room` `2b2eca4`, as `<fileId>.meta.json`. Merged here, and the
+> `ext: "timings.json"` workaround named in the last paragraph below has been removed — the timings
+> file is plain `.json` again. The test still reads the file back and re-hashes it rather than
+> trusting the descriptor, which is the only way this class of bug is visible.
 
 **Reason.** `persistFile` writes the bytes to `<fileId>.<ext>` and its provenance sidecar to
 `<fileId>.json`. When `ext` is exactly `"json"` those are the same path, and the sidecar overwrites

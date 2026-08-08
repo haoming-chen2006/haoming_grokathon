@@ -471,13 +471,11 @@ export function registerMediaTools(server: McpServer, ctx: MediaToolContext): vo
               assetId,
               role: "timings",
               mime: "application/json",
-              // NOT `ext: "json"`. `persistFile` writes the bytes to `<fileId>.<ext>` and its
-              // provenance sidecar to `<fileId>.json`, so an extension of exactly "json" makes the
-              // sidecar overwrite the file it describes — the timings would be silently replaced by
-              // their own metadata, and the mime lookup maps application/json straight onto it. The
-              // fix belongs in assetStore.ts, which this worktree may not edit; it is R-3 in
-              // loops/handoff/pivot-media.md, and this extension steps around it in the meantime.
-              ext: "timings.json",
+              // Plain `json` again. This asked for `timings.json` while `persistFile` wrote its
+              // provenance sidecar to `<fileId>.json` — the same path a stored JSON file gets, so
+              // the sidecar overwrote the file it described. The sidecar is now `<fileId>.meta.json`
+              // (handoff R-3, landed), and the workaround would only make the extension a lie.
+              ext: "json",
               bytes: new TextEncoder().encode(JSON.stringify(spoken.timings, null, 2)),
               producedByAgentId: ctx.agentId,
               model: spoken.modelId,

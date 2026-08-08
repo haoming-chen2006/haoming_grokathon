@@ -22,6 +22,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AssetStore, type AssetCharge } from "../assetStore";
 import { assetRoutes } from "../../routes/assets";
+import { mcpRoutes } from "../../routes/mcp";
+import { getAgentRegistry } from "../agentRegistry";
 import { resetXaiClient, setXaiTransport, type XaiHttpRequest } from "../xai/client";
 import { setMediaDownloader } from "../xai/assets";
 import { TTS_USD_PER_CHARACTER } from "../xai/speech";
@@ -406,10 +408,11 @@ describe("MEDIA-4: narrate stores audio and keeps its per-character timings", ()
   });
 
   test("the timings file is the timings, not persistFile's sidecar wearing its name", async () => {
-    // `persistFile` writes bytes to `<id>.<ext>` and its provenance sidecar to `<id>.json`, so an
-    // ext of exactly "json" makes the sidecar overwrite the file it describes — leaving a file with
-    // a correct sha256 in the envelope and its own metadata as its contents. media.ts asks for
-    // "timings.json" to step around that; handoff R-3 is the real fix.
+    // This is a regression test for a bug that has since been fixed at its source. `persistFile`
+    // wrote its provenance sidecar to `<id>.json`, which IS the path a stored JSON file gets, so
+    // saving JSON wrote the bytes and then overwrote them with their own metadata — leaving an
+    // envelope whose sha256 described content no longer on disk. The sidecar is `<id>.meta.json`
+    // now (handoff R-3), so this asserts the fix rather than a workaround.
     respondWith(TTS_OK);
     const client = await connect();
     const { data: created } = await call(client, "create_deliverable", { type: "workflow", title: "W" });
@@ -641,6 +644,93 @@ describe("a priced endpoint an agent may not reach is not registered at all", ()
     const client = await connect({ capabilities: { images: true, voice: false } });
     const { data } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
     expect(store.getAsset(data.assetId).capability).toBe("images");
+  });
+});
+
+// ─────────────────────────────────────────────────────────── the gate, over the real route
+
+/**
+ * The capability has to survive the whole trip: agent record → `routes/mcp.ts` → the tool list an
+ * agent receives when its session opens.
+ *
+ * This is the regression guard for the failure that made the gate pointless for a whole iteration.
+ * `registerMediaTools` gated correctly the entire time; nothing stored a capability and nothing
+ * passed one, so every agent silently got the base default and no agent in production could
+ * generate anything. Every part was right and the feature did not exist. Unit-testing the gate
+ * cannot catch that — only asking over the route an agent actually calls can.
+ *
+ * `agentRoutes.test.ts` covers `GET /capabilities`, which is the *menu*. This is the wiring.
+ */
+describe("the capability stored on an agent decides the tools it is offered", () => {
+  const agentDir = () => join(dataDir, "registry");
+
+  async function toolsFor(agentId: string): Promise<string[]> {
+    const app = new Hono();
+    app.route("/mcp", mcpRoutes);
+    const response = await app.request(`/mcp/proj_wiring/${agentId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+    const body: any = await response.json();
+    return (body?.result?.tools ?? []).map((t: any) => t.name);
+  }
+
+  test("base gets neither generator, images gets one, voice+images gets both", async () => {
+    process.env.OPENUI_DATA_DIR = agentDir();
+    try {
+      const registry = getAgentRegistry();
+      const base = registry.create({ projectId: "proj_wiring", name: "Base", role: "Writer" });
+      const images = registry.create({
+        projectId: "proj_wiring",
+        name: "Images",
+        role: "Illustrator",
+        capabilities: { images: true, voice: false },
+      });
+      const both = registry.create({
+        projectId: "proj_wiring",
+        name: "Media",
+        role: "Producer",
+        capabilities: { images: true, voice: true },
+      });
+
+      const [baseTools, imageTools, bothTools] = await Promise.all([
+        toolsFor(base.id),
+        toolsFor(images.id),
+        toolsFor(both.id),
+      ]);
+
+      // The three that cost nothing reach everyone, whatever their capability.
+      for (const tool of ["create_deliverable", "write_text", "list_deliverables"]) {
+        expect(baseTools).toContain(tool);
+        expect(bothTools).toContain(tool);
+      }
+
+      expect(baseTools).not.toContain("generate_image");
+      expect(baseTools).not.toContain("narrate");
+      expect(imageTools).toContain("generate_image");
+      expect(imageTools).not.toContain("narrate");
+      expect(bothTools).toContain("generate_image");
+      expect(bothTools).toContain("narrate");
+
+      // The gated tools are additions, never replacements: a media agent is a whole agent plus.
+      for (const tool of baseTools) expect(bothTools).toContain(tool);
+      expect(bothTools.length).toBe(baseTools.length + 2);
+    } finally {
+      delete process.env.OPENUI_DATA_DIR;
+    }
+  });
+
+  test("an agent id the registry does not know gets the safe default", async () => {
+    process.env.OPENUI_DATA_DIR = agentDir();
+    try {
+      const tools = await toolsFor("agent_never_created");
+      expect(tools).toContain("create_deliverable");
+      expect(tools).not.toContain("generate_image");
+      expect(tools).not.toContain("narrate");
+    } finally {
+      delete process.env.OPENUI_DATA_DIR;
+    }
   });
 });
 
