@@ -51,7 +51,7 @@ end. Everything below exists so that pass is possible.
 ```text
 loop:    08-users-x
 branch:  pivot/users-x
-handoff: loops/handoff/pivot/users-x.md
+handoff: loops/handoff/pivot-users-x.md
 ```
 
 **The files you own.** Create, edit and delete these freely. Nothing else.
@@ -63,7 +63,7 @@ server/services/x/**                  OAuth, the token store, the X client, the 
                                       and the X HTTP router
 client/src/control-room/users/**      the USERS page, and the X page under users/x/**
 loops/08-users-and-x.md               this file
-loops/handoff/pivot/users-x.md        your handoff file; only you write it
+loops/handoff/pivot-users-x.md        your handoff file; only you write it
 ```
 
 Tests beside the two server files (`server/services/auth.test.ts`, `server/routes/users.test.ts`)
@@ -119,7 +119,7 @@ package.json
 ```
 
 When your work needs a change in one of them, **you do not make it.** You append a precise request to
-`loops/handoff/pivot/users-x.md` — a file only you own — stating the file, the exact change, the
+`loops/handoff/pivot-users-x.md` — a file only you own — stating the file, the exact change, the
 reason, and the signature or event shape other worktrees will depend on. One reconciliation pass
 applies every request at the end.
 
@@ -856,7 +856,7 @@ the authority of nobody.
 6. Write tests that would fail without the change.
 7. Run `bun run verify` again. It must be green before you record anything.
 8. Record evidence in `VERIFICATION.md` against the USR-0NN or XAP-0NN item.
-9. Append any hot-file need to `loops/handoff/pivot/users-x.md` with the exact diff.
+9. Append any hot-file need to `loops/handoff/pivot-users-x.md` with the exact diff.
 10. Report honestly, including what did not move and what you were tempted to edit outside §0.
 
 ---
@@ -1490,14 +1490,14 @@ restating a known blocker.
 
 ```text
 branch    pivot/users-x
-handoff   loops/handoff/pivot/users-x.md
+handoff   loops/handoff/pivot-users-x.md
 merge     07-shell, then 01/02/03, then 04/05/06, then 08 — this worktree merges LAST,
           because the three pages are built and tested first
 ```
 
-Sibling loops have written their handoff as `loops/handoff/pivot-<name>.md` and as
+Sibling loops have written their handoff as `loops/handoff/pivot-users-x.md` and as
 `loops/handoff/pivot/<name>.md`. Both readings of `loops/handoff/<your-branch>.md` are in use. This
-worktree writes `loops/handoff/pivot/users-x.md` and says so here so reconciliation does not have to
+worktree writes `loops/handoff/pivot-users-x.md` and says so here so reconciliation does not have to
 guess.
 
 **The public contract this worktree adds.** Every item below is what another worktree may depend on;

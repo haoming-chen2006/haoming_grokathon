@@ -42,7 +42,7 @@ else's file, resolved at reconciliation by someone who does not know why you mad
 ```text
 worktree   07-shell
 branch     pivot/shell
-handoff    loops/handoff/pivot/shell.md
+handoff    loops/handoff/pivot-shell.md
 merge slot FIRST. 07-shell → 01/02/03 → 04/05/06 → 08.
 ```
 
@@ -58,7 +58,7 @@ client/src/control-room/shell/**       new — the whole shell: regions, routing
 bin/grok                               new — the POSIX sh shim (§3.5)
 bin/grok-workspace.ts                  new — the launcher (§3.5)
 loops/07-shell.md                      this file
-loops/handoff/pivot/shell.md           your requests to reconciliation — yours alone
+loops/handoff/pivot-shell.md           your requests to reconciliation — yours alone
 ```
 
 `bin/grok` and `bin/grok-workspace.ts` are **new files that the partition does not assign and no
@@ -120,7 +120,7 @@ package.json
 ```
 
 When your work needs a change in one of them, you do **not** make it. You append a precise request
-to `loops/handoff/pivot/shell.md` — a file only you own — stating the file, the exact change, the
+to `loops/handoff/pivot-shell.md` — a file only you own — stating the file, the exact change, the
 reason, and the signature or event shape other worktrees will depend on. A single reconciliation
 pass applies every request at the end.
 
@@ -151,11 +151,11 @@ edit is trivially reviewable:
 
 ### 0.2 Requests filed on iteration 1
 
-Seed `loops/handoff/pivot/shell.md` with these before writing a line of code. They are known now,
+Seed `loops/handoff/pivot-shell.md` with these before writing a line of code. They are known now,
 and three of them block other people.
 
 ```text
-R-1  PUBLISH  loops/handoff/pivot/shell.md
+R-1  PUBLISH  loops/handoff/pivot-shell.md
      The full text of §3.3 — the page slot interface, the theme token names, the URL scheme —
      copied verbatim into the handoff file on iteration 1, before any shell code exists.
      Seven worktrees consume it. It is the only request that is urgent rather than deferred.
@@ -485,7 +485,7 @@ to 06, not to you.
 ### 3.3 The contract this worktree publishes — write this first
 
 **This is the deliverable that makes the parallel build possible.** It goes into
-`loops/handoff/pivot/shell.md` and `client/src/control-room/shell/contract.ts` on iteration 1, before
+`loops/handoff/pivot-shell.md` and `client/src/control-room/shell/contract.ts` on iteration 1, before
 the regions, before the theme, before the launcher. Seven worktrees are writing components against
 it right now. After iteration 1 it changes **additively only** — a new optional field is free, a
 renamed field is eight broken branches.
@@ -1059,7 +1059,7 @@ is the honest rendering of the truth now, and it becomes a real number in wave 2
 6. Write a test that would fail without the change.
 7. Run `bun run verify` again. It must be green before you record anything.
 8. Record evidence in `VERIFICATION.md`.
-9. Append any cross-boundary need to `loops/handoff/pivot/shell.md`. Never edit across the line.
+9. Append any cross-boundary need to `loops/handoff/pivot-shell.md`. Never edit across the line.
 10. Commit with a message stating what was verified. Report honestly, including what did *not* move.
 
 ---
@@ -1136,7 +1136,7 @@ Required result:
   `workspaceUrl`, and the client typecheck passes with no other shell file present;
 * `client/src/control-room/shell/pages.ts` lists all five pages with `main` undefined;
 * the same interface text, the token names and the URL scheme are in
-  `loops/handoff/pivot/shell.md` as R-1, on the first iteration;
+  `loops/handoff/pivot-shell.md` as R-1, on the first iteration;
 * a component with the exact signature each sibling promises — `(props: { projectId: string })` —
   compiles when assigned to `WorkspacePageComponent`, proved by a compile-time fixture.
 
@@ -1479,7 +1479,7 @@ passing.
 
 ```text
 branch    pivot/shell
-handoff   loops/handoff/pivot/shell.md
+handoff   loops/handoff/pivot-shell.md
 merges    FIRST. 07-shell → 01-agents / 02-assets / 03-design-docs → 04 / 05 / 06 → 08-users-x.
           Everything renders inside this shell, so a contract change after merge is eight
           rebuilds; a contract published on iteration 1 is eight builds that already fit.
@@ -1515,7 +1515,7 @@ routes     /agents · /assets · /designdocs · /users · /x, each with an optio
 binaries   bin/grok               the sh shim (new file, unclaimed by any other row)
            bin/grok-workspace.ts  the launcher (new file, unclaimed by any other row)
 
-requests   R-1 … R-9 in loops/handoff/pivot/shell.md. R-1 is urgent (day one); R-3 and R-4 must be
+requests   R-1 … R-9 in loops/handoff/pivot-shell.md. R-1 is urgent (day one); R-3 and R-4 must be
            applied in the same commit; R-6 carries a patch and a failing test.
 ```
 

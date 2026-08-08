@@ -109,7 +109,7 @@ When your work needs a change in one of them, you do not make it. You append a p
 a file only you own:
 
 ```text
-loops/handoff/pivot/software.md
+loops/handoff/pivot-software.md
 ```
 
 Each request states the file, the exact change, the reason, and the signature or event shape other
@@ -1105,7 +1105,7 @@ Do not work around any of these. Report the blocker with evidence and stop. A bl
 across iterations is wasted work — state it once, with evidence, and stop.
 
 - **a change would fall outside the boundary in §0.** Say what you need, from which file, and why,
-  in `loops/handoff/pivot/software.md`. Do not edit another worktree's file to unblock yourself,
+  in `loops/handoff/pivot-software.md`. Do not edit another worktree's file to unblock yourself,
   and do not quietly work around it either;
 - **a runtime dependency is needed in the workspace's `package.json`.** That is a hot file and a
   product decision;
@@ -1129,7 +1129,7 @@ across iterations is wasted work — state it once, with evidence, and stop.
 
 ```text
 branch          pivot/software
-handoff file    loops/handoff/pivot/software.md
+handoff file    loops/handoff/pivot-software.md
 ```
 
 **The public contract this worktree adds.** Every item is an export from inside

@@ -42,7 +42,7 @@ else's file, resolved by someone who does not know why you made it.
 ```text
 worktree   03-design-docs
 branch     pivot/design-docs
-handoff    loops/handoff/pivot/design-docs.md
+handoff    loops/handoff/pivot-design-docs.md
 ```
 
 **Files and directories you own — create, edit and delete freely:**
@@ -55,7 +55,7 @@ server/routes/designDocs.ts         new — HTTP surface, mounted at /api/design
 client/src/control-room/designdoc/**  new — the page, the document view, the presence layer,
                                           the in-document conversation, its own data hook
 loops/03-design-documents.md        this file
-loops/handoff/pivot/design-docs.md  your requests to the reconciliation pass — yours alone
+loops/handoff/pivot-design-docs.md  your requests to the reconciliation pass — yours alone
 ```
 
 **Files you must not touch, and why.** Every one of these belongs to another worktree that is
@@ -110,7 +110,7 @@ package.json
 ```
 
 When your work needs a change in one of them, you do not make it. You append a precise request to
-`loops/handoff/pivot/design-docs.md` — a file only you own — stating the file, the exact change, the
+`loops/handoff/pivot-design-docs.md` — a file only you own — stating the file, the exact change, the
 reason, and the signature or event shape other worktrees will depend on. A single reconciliation
 pass applies every request at the end.
 
@@ -1264,7 +1264,7 @@ Stated plainly, because designing quietly around them produces a product that ca
 Do not work around any of these. Report the blocker with evidence and stop; do not spend iterations
 restating a known blocker.
 
-* **a change would fall outside §0.** Append it to `loops/handoff/pivot/design-docs.md` and
+* **a change would fall outside §0.** Append it to `loops/handoff/pivot-design-docs.md` and
   continue with your own work. Do not edit another worktree's files, even when you are certain, and
   do not run git commands beyond committing your own branch;
 * **an action needs credentials that were not provided.** Nothing here should, and if something
@@ -1305,7 +1305,7 @@ passing.
 
 ```text
 branch    pivot/design-docs
-handoff   loops/handoff/pivot/design-docs.md
+handoff   loops/handoff/pivot-design-docs.md
 merges    07-shell first, then 01 / 02 / 03 together, then 04 / 05 / 06, then 08.
           The three pages merge as one wave because they are tested first.
 ```
