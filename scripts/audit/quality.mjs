@@ -80,8 +80,12 @@ const CLASSIFIED = [
   {
     pattern: "not implemented",
     test: (line, f) =>
-      f.startsWith("scripts/acceptance/") || /JSONRPC_METHOD_NOT_FOUND|Method not implemented/.test(line),
-    why: "the acceptance fixture's deliberately unimplemented function, or a JSON-RPC method-not-found reply",
+      f.startsWith("scripts/acceptance/") ||
+      // The demo fixture is unimplemented for the same reason the acceptance one is: it must start
+      // red, or a green run at the end of a demo would prove nothing about what the agents did.
+      f.startsWith("scripts/demo/") ||
+      /JSONRPC_METHOD_NOT_FOUND|Method not implemented/.test(line),
+    why: "the acceptance or demo fixture's deliberately unimplemented function, or a JSON-RPC method-not-found reply",
   },
   // Descriptive English words appearing in a comment or a test name are prose about a concept,
   // not unfinished work. TODO, FIXME and HACK are deliberately excluded: those are markers by

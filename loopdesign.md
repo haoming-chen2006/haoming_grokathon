@@ -247,6 +247,24 @@ least once:
 - **A passing test proves a unit works, not that anything calls it.** Before marking an item PASS,
   confirm the code is reachable from the running application — mounted route, imported component,
   wired endpoint. Three items were once marked PASS on evidence that was real but unreachable.
+- **A string a model wrote is not a lookup key.** Roles, ids and statuses that come back from an
+  agent vary in wording between runs. Matching one with `===` or `Map.get` works until the run that
+  phrases it differently, and then it fails silently — plan generation stored four unowned tasks
+  this way (iteration 81). Match tolerantly, and when the match is a guess, say so in the response.
+- **When resolution fails, record what failed to resolve.** The unmatched role was consumed and
+  never persisted, so the stored plan showed only absence and the bug read as random for two
+  iterations.
+- **Do not mock a module to keep a live boundary out of a test — export a seam.** `mock.module`
+  patches the registry for the whole process, and only reaches importers that are evaluated *after*
+  it. In the full suite the route module is always evaluated by some earlier file, so the mock is
+  silently inert and the test opens real sessions: six live `grok` children and a run that never
+  finished. It passed alone and in every pair. A seam (`setAcpSessionManager`,
+  `setPlannerImplementation`) cannot fail that way, and is typed, which caught a fixture the mock
+  had been accepting.
+- **A hang is not a slow test.** When the suite stops producing output, run it with `--timeout`: if
+  no per-test timeout fires, the block is outside a test body. Then look at the process tree — live
+  `grok` children are the tell that a double is not in effect. Four plausible diagnoses were wrong
+  before that pair of checks settled it.
 
 ---
 

@@ -39,7 +39,13 @@ export type ControlRoomEvent =
       agentId: string;
       entry: { seq: number; at: string; kind: string; text: string; status?: string };
     }
-  | { type: "session_state"; agentId: string; state: string; error?: string };
+  | { type: "session_state"; agentId: string; state: string; error?: string }
+  /**
+   * Grok is installed but has no credentials, so no session can open (V-004). Its own event type
+   * because the remedy is a sign-in, not a retry: routed through the generic failure path the
+   * control room showed a protocol error nobody could act on.
+   */
+  | { type: "auth_required"; agentId: string; authMethods: string[]; message: string };
 
 export interface PublishedEvent {
   projectId: string;

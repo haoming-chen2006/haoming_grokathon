@@ -128,6 +128,10 @@ const created = await api("POST", "/api/projects", {
   goal: "Complete the unfinished greeting feature",
   repositoryPath: REPO,
   budgetUsd: 10,
+  // Creating a project now seeds the five-role team, because a browser-created project that has
+  // no agents cannot launch anything. This run creates and asserts on its own agents, so it opts
+  // out — otherwise the inventory it checks would include five it never asked for.
+  seedTeam: false,
   documentContent:
     "# Greeting Service Design\n\n" +
     "The greet(name) function must return a personalised greeting.\n" +

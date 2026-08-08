@@ -14,6 +14,7 @@ import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { execSync } from "child_process";
 import { parseRequirements, firstHeading } from "../shared/designDocument.ts";
+import { DEFAULT_TEAM } from "../server/services/agentTeam.ts";
 
 const BASE = process.env.OPENUI_URL || "http://localhost:6968";
 
@@ -117,6 +118,8 @@ const log = (msg) => console.log(`  ${String(++step).padStart(2)}. ${msg}`);
 const created = await api("POST", "/api/projects", {
   name: NAME, goal: GOAL, repositoryPath: REPO, budgetUsd: BUDGET,
   documentTitle: `${NAME} Design`, documentContent: design,
+  // Creating the project is what creates the team now, so --no-agents has to be honoured here.
+  seedTeam: !has("no-agents"),
 });
 if (created.status !== 201) die(`Could not create the project: ${created.text.slice(0, 200)}`);
 const P = created.json.id;
@@ -128,23 +131,24 @@ for (const r of requirements) {
 }
 if (requirements.length) log(`Requirements imported — ${requirements.map((r) => r.id).join(", ")}`);
 
-/** The roles §14 names, each with the persona and skills that reach its session at launch. */
-const TEAM = [
-  { name: "Planner", role: "Planner", persona: "Break work into small, independently reviewable tasks. State dependencies explicitly." },
-  { name: "Backend Engineer", role: "Backend Engineer", persona: "Prefer small, reviewable changes. Follow existing repository patterns. Run relevant tests after every change. Do not modify unrelated files." },
-  { name: "Frontend Engineer", role: "Frontend Engineer", persona: "Match the existing component conventions. Check accessibility. Keep components testable." },
-  { name: "Test Engineer", role: "Test Engineer", persona: "Write the failing test first. Cover the acceptance criteria, not the implementation." },
-  { name: "Reviewer", role: "Reviewer", persona: "Be skeptical. Check the change against the approved design and say what is missing." },
-];
-
-const agents = [];
+// The team arrives with the project — the browser needs it too, so the roles moved to
+// server/services/agentTeam.ts and creating them here as well would leave ten agents and two
+// candidates for every role the Planner assigns.
+const agents = created.json.agents ?? [];
 if (!has("no-agents")) {
-  for (const member of TEAM) {
-    const res = await api("POST", "/api/coding-agents", {
-      projectId: P, ...member, budgetUsd: Number((BUDGET / TEAM.length).toFixed(2)),
-    });
-    if (res.status === 201) agents.push(res.json);
-    else console.log(`      warning: could not create ${member.name} — ${res.text.slice(0, 120)}`);
+  if (created.json.teamError) {
+    console.log(`      warning: the server could not create the team — ${created.json.teamError}`);
+  }
+  // A server older than this change ignores `seedTeam` and returns no agents. Without the
+  // fallback, `bun run new` against one would quietly produce a plan nothing can be launched from.
+  if (agents.length === 0) {
+    for (const member of DEFAULT_TEAM) {
+      const res = await api("POST", "/api/coding-agents", {
+        projectId: P, ...member, budgetUsd: Number((BUDGET / DEFAULT_TEAM.length).toFixed(2)),
+      });
+      if (res.status === 201) agents.push(res.json);
+      else console.log(`      warning: could not create ${member.name} — ${res.text.slice(0, 120)}`);
+    }
   }
   log(`Agent team created — ${agents.map((a) => a.name).join(", ")}`);
 }

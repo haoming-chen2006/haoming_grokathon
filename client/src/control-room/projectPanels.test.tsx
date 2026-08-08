@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DesignDocumentPanel } from "./DesignDocumentPanel";
+import { ProjectHeader } from "./ProjectHeader";
 import { RequirementDetail, RequirementList } from "./RequirementPanel";
+import { SetupBanner, type GrokStatusView } from "./SetupBanner";
 import { requirementStatusLabel, type DesignDocumentView, type Requirement } from "./projectTypes";
 import type { CodingAgent } from "./types";
 
@@ -223,5 +225,139 @@ describe("V-013: requirements are trackable", () => {
   test("no selection prompts the user rather than rendering blank", () => {
     render(<RequirementDetail requirement={null} />);
     expect(screen.getByTestId("requirement-detail-empty").textContent).toContain("Select a requirement");
+  });
+});
+
+describe("reaching another project, and starting one", () => {
+  const two = [
+    { id: "p1", name: "Authentication" },
+    { id: "p2", name: "Billing" },
+  ];
+
+  test("every project is offered, not just the one that happens to be open", () => {
+    render(<ProjectHeader name="Authentication" projects={two} projectId="p1" onSelectProject={() => {}} />);
+
+    const switcher = screen.getByTestId("project-switcher") as HTMLSelectElement;
+    expect([...switcher.options].map((o) => o.textContent)).toEqual(["Authentication", "Billing"]);
+    expect(switcher.value).toBe("p1");
+  });
+
+  test("choosing a different project reports the id that was chosen", () => {
+    const picked: string[] = [];
+    render(<ProjectHeader name="Authentication" projects={two} projectId="p1" onSelectProject={(id) => picked.push(id)} />);
+
+    fireEvent.change(screen.getByTestId("project-switcher"), { target: { value: "p2" } });
+
+    expect(picked).toEqual(["p2"]);
+  });
+
+  test("a single project renders no switcher — it could only reselect what is already open", () => {
+    render(<ProjectHeader name="Authentication" projects={[two[0]!]} projectId="p1" />);
+    expect(screen.queryByTestId("project-switcher")).toBeNull();
+    // The name still says which project this is, so nothing is lost by dropping the control.
+    expect(screen.getByTestId("project-name").textContent).toBe("Authentication");
+  });
+
+  test("an unknown selection shows a prompt rather than silently displaying the wrong project", () => {
+    render(<ProjectHeader name="—" projects={two} projectId={null} />);
+    const switcher = screen.getByTestId("project-switcher") as HTMLSelectElement;
+    expect(switcher.value).toBe("");
+    expect(switcher.options[0]!.textContent).toContain("Select a project");
+  });
+
+  test("a new project can be started even though one is already open", () => {
+    // The old shell only offered this when zero projects existed, so a second one was unreachable.
+    let started = 0;
+    render(<ProjectHeader name="Authentication" projects={two} projectId="p1" onNewProject={() => (started += 1)} />);
+
+    fireEvent.click(screen.getByTestId("new-project-button"));
+
+    expect(started).toBe(1);
+  });
+
+  test("the new-project control is present with a single project too", () => {
+    render(<ProjectHeader name="Authentication" projects={[two[0]!]} projectId="p1" onNewProject={() => {}} />);
+    expect(screen.getByTestId("new-project-button")).toBeTruthy();
+  });
+});
+
+describe("V-045: a cost that is not exact says so", () => {
+  test("the figure is visibly marked as an estimate", () => {
+    render(<ProjectHeader name="P" costUsd={4.12} budgetUsd={10} />);
+
+    expect(screen.getByTestId("project-cost-estimated").textContent).toBe("est.");
+    // The number itself is unchanged — the label is what was missing.
+    expect(screen.getByTestId("project-cost-summary").textContent).toBe("$4.12 / $10.00");
+  });
+
+  test("the caveat names why it is an estimate, in text and in a title", () => {
+    render(<ProjectHeader name="P" costUsd={4.12} />);
+
+    const caveat = screen.getByTestId("project-cost-caveat").textContent!;
+    expect(caveat).toContain("Estimated");
+    expect(caveat).toContain("list prices");
+    expect(caveat).toContain("not from billed amounts");
+    expect(screen.getByTestId("project-cost-estimate").getAttribute("title")).toBe(caveat);
+  });
+
+  test("the caveat is not the only signal, and it is not lost when over budget", () => {
+    render(<ProjectHeader name="P" costUsd={12.5} budgetUsd={10} />);
+    expect(screen.getByTestId("project-cost-summary").textContent).toContain("over budget");
+    expect(screen.getByTestId("project-cost-estimated")).toBeTruthy();
+  });
+
+  test("no cost means no estimate marker rather than a labelled zero", () => {
+    render(<ProjectHeader name="P" />);
+    expect(screen.queryByTestId("project-cost-estimate")).toBeNull();
+    expect(screen.queryByTestId("project-cost-estimated")).toBeNull();
+  });
+});
+
+describe("V-004: a broken Grok install is visible before it is needed", () => {
+  const SETUP = [
+    "Grok Build was not found.",
+    "",
+    "Install it as a project dependency:",
+    "    bun add @xai-official/grok",
+  ].join("\n");
+
+  function status(overrides: Partial<GrokStatusView> = {}): GrokStatusView {
+    return { installed: false, error: "`grok` executable not found", setupMessage: SETUP, ...overrides };
+  }
+
+  test("a missing install names the consequence and repeats the server's guidance", () => {
+    render(<SetupBanner status={status()} />);
+
+    const banner = screen.getByTestId("setup-banner");
+    expect(banner.getAttribute("role")).toBe("alert");
+    expect(screen.getByTestId("setup-banner-headline").textContent).toContain("Grok Build is not available");
+    expect(screen.getByTestId("setup-banner-error").textContent).toContain("executable not found");
+    expect(screen.getByTestId("setup-banner-guidance").textContent).toBe(SETUP);
+  });
+
+  test("an unknown status renders nothing — a warning before the answer arrives would be a lie", () => {
+    const { container } = render(<SetupBanner status={null} />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  test("a working install renders nothing", () => {
+    const { container } = render(<SetupBanner status={{ installed: true, version: "0.2.118", binaryPath: "/usr/bin/grok" }} />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  test("a status with no guidance still explains the problem rather than rendering an empty alert", () => {
+    render(<SetupBanner status={{ installed: false }} />);
+    expect(screen.getByTestId("setup-banner-headline").textContent).toContain("no agent can be launched");
+    expect(screen.queryByTestId("setup-banner-guidance")).toBeNull();
+    expect(screen.queryByTestId("setup-banner-error")).toBeNull();
+  });
+
+  test("the banner reappears when a previously working install goes away", () => {
+    // The status is polled; a refresh that reports a broken install must not be swallowed.
+    const { rerender } = render(<SetupBanner status={{ installed: true, version: "0.2.118" }} />);
+    expect(screen.queryByTestId("setup-banner")).toBeNull();
+
+    rerender(<SetupBanner status={status()} />);
+    expect(screen.getByTestId("setup-banner")).toBeTruthy();
   });
 });

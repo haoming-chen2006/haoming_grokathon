@@ -89,6 +89,103 @@ describe("the approval gate is operable from the Control Room (V-018)", () => {
   });
 });
 
+describe("a task cannot launch without an owner, and can be given one here", () => {
+  const roster = [
+    { id: "a1", name: "Backend Engineer", role: "backend" },
+    { id: "a2", name: "Test Engineer", role: "testing" },
+  ];
+  const unowned: TaskView[] = [
+    { id: "t1", objective: "Implement greet", status: "pending", requirementId: "GREET-01", dependsOn: [] },
+  ];
+
+  test("launch refuses an unassigned task and says why", () => {
+    // Mirrors the server, which answers NO_AGENT (400). The button used to render enabled and fail.
+    render(<PlanPanel plan={approved} tasks={unowned} agents={roster} onLaunch={() => {}} />);
+    const launch = screen.getByTestId("plan-launch-t1") as HTMLButtonElement;
+    expect(launch.disabled).toBe(true);
+    expect(launch.title).toContain("No agent assigned");
+  });
+
+  test("the refusal cannot be clicked past", () => {
+    const launched: string[] = [];
+    render(<PlanPanel plan={approved} tasks={unowned} agents={roster} onLaunch={(id) => launched.push(id)} />);
+    fireEvent.click(screen.getByTestId("plan-launch-t1"));
+    expect(launched).toEqual([]);
+  });
+
+  test("an unassigned task offers the project's agents with their roles", () => {
+    render(<PlanPanel plan={approved} tasks={unowned} agents={roster} onAssign={() => {}} />);
+    const select = screen.getByTestId("plan-task-assign-t1") as HTMLSelectElement;
+    // The role travels with the name so the task's role can be matched to a person.
+    expect(select.textContent).toContain("Backend Engineer · backend");
+    expect(select.textContent).toContain("Test Engineer · testing");
+    expect(select.textContent).toContain("unassigned");
+  });
+
+  test("choosing an agent assigns that agent to that task", () => {
+    const assigned: Array<[string, string]> = [];
+    render(
+      <PlanPanel
+        plan={approved}
+        tasks={unowned}
+        agents={roster}
+        onAssign={(taskId, agentId) => assigned.push([taskId, agentId])}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("plan-task-assign-t1"), { target: { value: "a2" } });
+    expect(assigned).toEqual([["t1", "a2"]]);
+  });
+
+  test("re-picking the placeholder assigns nobody", () => {
+    const assigned: Array<[string, string]> = [];
+    render(
+      <PlanPanel
+        plan={approved}
+        tasks={unowned}
+        agents={roster}
+        onAssign={(taskId, agentId) => assigned.push([taskId, agentId])}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("plan-task-assign-t1"), { target: { value: "" } });
+    expect(assigned).toEqual([]);
+  });
+
+  test("launch becomes available once the task has an owner", () => {
+    const { rerender } = render(
+      <PlanPanel plan={approved} tasks={unowned} agents={roster} onAssign={() => {}} onLaunch={() => {}} />,
+    );
+    expect((screen.getByTestId("plan-launch-t1") as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(
+      <PlanPanel
+        plan={approved}
+        tasks={[{ ...unowned[0], assignedAgentId: "a2" }]}
+        agents={roster}
+        agentName={agentName}
+        onAssign={() => {}}
+        onLaunch={() => {}}
+      />,
+    );
+    expect((screen.getByTestId("plan-launch-t1") as HTMLButtonElement).disabled).toBe(false);
+    // An owned task shows its owner rather than a picker.
+    expect(screen.queryByTestId("plan-task-assign-t1")).toBeNull();
+    expect(screen.getByTestId("plan-task-owner-t1").textContent).toBe("Test Engineer");
+  });
+
+  test("with no agents on the project the task still states that it is unowned", () => {
+    render(<PlanPanel plan={approved} tasks={unowned} agents={[]} onAssign={() => {}} onLaunch={() => {}} />);
+    expect(screen.queryByTestId("plan-task-assign-t1")).toBeNull();
+    expect(screen.getByTestId("plan-task-owner-t1").textContent).toContain("unassigned");
+    expect((screen.getByTestId("plan-launch-t1") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("approval is still the first reason a launch is refused", () => {
+    // Precedence matters: a draft plan blocks every task, owned or not.
+    render(<PlanPanel plan={draft} tasks={unowned} agents={roster} onLaunch={() => {}} />);
+    expect((screen.getByTestId("plan-launch-t1") as HTMLButtonElement).title).toContain("approved");
+  });
+});
+
 describe("generating a plan from the Control Room (§10 step 4)", () => {
   test("with no plan, the panel offers to generate one instead of naming a CLI command", () => {
     render(<PlanPanel plan={null} tasks={[]} onGenerate={() => {}} />);
@@ -116,5 +213,31 @@ describe("generating a plan from the Control Room (§10 step 4)", () => {
   test("a caller that cannot generate shows no control", () => {
     render(<PlanPanel plan={null} tasks={[]} />);
     expect(screen.queryByTestId("plan-generate")).toBeNull();
+  });
+});
+
+describe("saying when the plan's owners were guessed", () => {
+  // A run of the Planner that names a role no agent holds used to leave the tasks unowned and
+  // silent. They now get an implementer so the plan can still run, which is only defensible if the
+  // user is told it happened and can reassign.
+  const notice = "The Planner asked for Database Administrator, which no agent on this project holds.";
+
+  test("the notice is shown with the owners it is about", () => {
+    render(<PlanPanel plan={draft} tasks={tasks} agentName={agentName} notice={notice} />);
+    expect(screen.getByTestId("plan-assignment-notice").textContent).toContain("Database Administrator");
+  });
+
+  test("nothing is shown when every role matched", () => {
+    render(<PlanPanel plan={draft} tasks={tasks} agentName={agentName} />);
+    expect(screen.queryByTestId("plan-assignment-notice")).toBeNull();
+    render(<PlanPanel plan={draft} tasks={tasks} agentName={agentName} notice={null} />);
+    expect(screen.queryByTestId("plan-assignment-notice")).toBeNull();
+  });
+
+  test("it is announced, not left as decoration", () => {
+    // Without a role a colour-coded box is invisible to a screen reader, and this is the only
+    // signal that an owner shown in the list was not the Planner's choice.
+    render(<PlanPanel plan={draft} tasks={tasks} notice={notice} />);
+    expect(screen.getByTestId("plan-assignment-notice").getAttribute("role")).toBe("status");
   });
 });

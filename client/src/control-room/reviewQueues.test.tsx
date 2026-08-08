@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ProjectHeader } from "./ProjectHeader";
 import { ReviewQueue, SuggestionQueue, type DesignSuggestionView, type SubmissionView } from "./ReviewQueues";
 import { ConversationView, messageKindLabel, type MessageView } from "./ConversationView";
+import type { DiffFileView } from "./DiffView";
+import { testsPass } from "../../../server/services/codeReview";
 
 afterEach(cleanup);
 
@@ -117,6 +119,53 @@ describe("§22.17: pending design suggestions", () => {
     render(<SuggestionQueue suggestions={[]} />);
     expect(screen.getByTestId("suggestions-empty").textContent).toContain("No pending design suggestions");
   });
+
+  test("request revision sends what the user typed, not a canned string", () => {
+    // The note is the only instruction the agent gets; discarding it makes the action meaningless.
+    const calls: Array<[string, string]> = [];
+    render(
+      <SuggestionQueue suggestions={[suggestion()]} onRequestRevision={(id, note) => calls.push([id, note])} />,
+    );
+
+    fireEvent.change(screen.getByTestId("suggestion-revision-note-s1"), {
+      target: { value: "Keep the modal for password sign-in and redirect only for OAuth." },
+    });
+    fireEvent.click(screen.getByTestId("suggestion-revise-s1"));
+
+    expect(calls).toEqual([["s1", "Keep the modal for password sign-in and redirect only for OAuth."]]);
+    expect(calls[0]![1]).not.toBe("Please revise");
+  });
+
+  test("each suggestion keeps its own revision note", () => {
+    // One shared draft would send the wrong instruction to the wrong agent.
+    const calls: Array<[string, string]> = [];
+    render(
+      <SuggestionQueue
+        suggestions={[suggestion(), suggestion({ id: "s2", requirementId: "AUTH-02" })]}
+        onRequestRevision={(id, note) => calls.push([id, note])}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("suggestion-revision-note-s1"), { target: { value: "Narrow the scope" } });
+    fireEvent.change(screen.getByTestId("suggestion-revision-note-s2"), { target: { value: "Cite the provider docs" } });
+    fireEvent.click(screen.getByTestId("suggestion-revise-s2"));
+    fireEvent.click(screen.getByTestId("suggestion-revise-s1"));
+
+    expect(calls).toEqual([
+      ["s2", "Cite the provider docs"],
+      ["s1", "Narrow the scope"],
+    ]);
+  });
+
+  test("surrounding whitespace is trimmed off the note", () => {
+    const calls: Array<[string, string]> = [];
+    render(
+      <SuggestionQueue suggestions={[suggestion()]} onRequestRevision={(id, note) => calls.push([id, note])} />,
+    );
+    fireEvent.change(screen.getByTestId("suggestion-revision-note-s1"), { target: { value: "  tighten the wording  " } });
+    fireEvent.click(screen.getByTestId("suggestion-revise-s1"));
+    expect(calls).toEqual([["s1", "tighten the wording"]]);
+  });
 });
 
 describe("§22.17: pending code reviews, request revision, approve merge", () => {
@@ -204,6 +253,246 @@ describe("§22.17: pending code reviews, request revision, approve merge", () =>
   });
 });
 
+describe("V-035: the approve button obeys the same rule as the server", () => {
+  function submission(testResults: SubmissionView["testResults"]): SubmissionView {
+    return {
+      id: "sub1",
+      taskId: "task-api",
+      agentId: "backend-agent",
+      requirementIds: ["AUTH-03"],
+      branch: "agent/auth-backend",
+      changedFiles: ["session.ts"],
+      summary: "Refresh token rotation",
+      testResults,
+      costUsd: 0.84,
+      state: "pending",
+    };
+  }
+
+  test("a submission where not every test passed cannot be approved", () => {
+    // passed=1, failed=0, total=2 passes the old client check but the server's testsPass refuses it,
+    // so the button used to be enabled and the approval bounced.
+    const results = { passed: 1, failed: 0, total: 2 };
+    expect(testsPass(results)).toBe(false);
+
+    const approved: string[] = [];
+    render(<ReviewQueue submissions={[submission(results)]} onApprove={(id) => approved.push(id)} />);
+
+    const approve = screen.getByTestId("submission-approve-sub1") as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    expect(approve.getAttribute("title")).toContain("Only 1 of 2 tests passed");
+    fireEvent.click(approve);
+    expect(approved).toEqual([]);
+  });
+
+  test("a submission that ran no tests at all cannot be approved", () => {
+    render(<ReviewQueue submissions={[submission({ passed: 0, failed: 0, total: 0 })]} />);
+    const approve = screen.getByTestId("submission-approve-sub1") as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    expect(approve.getAttribute("title")).toContain("No tests were run");
+  });
+
+  test("the reason is readable, not just a greyed-out button", () => {
+    // Disabled-plus-opacity conveys nothing to a screen reader or to anyone wondering why.
+    render(<ReviewQueue submissions={[submission({ passed: 3, failed: 1, total: 5 })]} />);
+    expect(screen.getByTestId("submission-approve-blocked-sub1").textContent).toContain("1 required test is failing");
+  });
+
+  test("no reason is shown when approval is allowed", () => {
+    render(<ReviewQueue submissions={[submission({ passed: 5, failed: 0, total: 5 })]} />);
+    const approve = screen.getByTestId("submission-approve-sub1") as HTMLButtonElement;
+    expect(approve.disabled).toBe(false);
+    expect(approve.getAttribute("title")).toBeNull();
+    expect(screen.queryByTestId("submission-approve-blocked-sub1")).toBeNull();
+  });
+
+  test("client and server agree on every combination", () => {
+    // The point of the defect: any disagreement here is a button the server will reject.
+    const cases = [
+      { passed: 22, failed: 0, total: 22 },
+      { passed: 1, failed: 0, total: 2 },
+      { passed: 0, failed: 0, total: 0 },
+      { passed: 18, failed: 2, total: 20 },
+      { passed: 2, failed: 1, total: 2 },
+      { passed: 0, failed: 0, total: 3 },
+      { passed: 1, failed: 0, total: 1 },
+    ];
+
+    for (const results of cases) {
+      const { unmount } = render(<ReviewQueue submissions={[submission(results)]} />);
+      const approve = screen.getByTestId("submission-approve-sub1") as HTMLButtonElement;
+      expect({ ...results, enabled: !approve.disabled }).toEqual({ ...results, enabled: testsPass(results) });
+      unmount();
+    }
+  });
+});
+
+describe("V-010: the changed files and diff behind a submission", () => {
+  function submission(overrides: Partial<SubmissionView> = {}): SubmissionView {
+    return {
+      id: "sub1",
+      taskId: "task-api",
+      agentId: "backend-agent",
+      requirementIds: ["AUTH-03"],
+      branch: "agent/auth-backend",
+      changedFiles: ["session.ts"],
+      summary: "Refresh token rotation",
+      testResults: { passed: 22, failed: 0, total: 22 },
+      costUsd: 0.84,
+      state: "pending",
+      ...overrides,
+    };
+  }
+
+  const loaded = {
+    files: [{ path: "session.ts", status: "M", additions: 12, deletions: 3 }] as DiffFileView[],
+    diff: "diff --git a/session.ts b/session.ts\n@@ -1,3 +1,4 @@\n-const ttl = 60;\n+const ttl = 900;\n",
+  };
+
+  test("no toggle is offered when the caller cannot load a diff", () => {
+    // The panel must not promise changes it has no way to fetch.
+    render(<ReviewQueue submissions={[submission()]} />);
+    expect(screen.queryByTestId("submission-diff-toggle-sub1")).toBeNull();
+  });
+
+  test("opening the toggle loads the diff and renders it", async () => {
+    const asked: string[] = [];
+    render(
+      <ReviewQueue
+        submissions={[submission()]}
+        onLoadDiff={async (id) => {
+          asked.push(id);
+          return loaded;
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId("diff-view")).toBeNull();
+    fireEvent.click(screen.getByTestId("submission-diff-toggle-sub1"));
+
+    await waitFor(() => expect(screen.getByTestId("diff-body")).toBeTruthy());
+    expect(asked).toEqual(["sub1"]);
+    const panel = screen.getByTestId("submission-diff-sub1");
+    expect(panel.textContent).toContain("session.ts");
+    expect(panel.textContent).toContain("const ttl = 900;");
+  });
+
+  test("the toggle closes again and does not refetch what it already has", async () => {
+    let calls = 0;
+    render(
+      <ReviewQueue
+        submissions={[submission()]}
+        onLoadDiff={async () => {
+          calls += 1;
+          return loaded;
+        }}
+      />,
+    );
+
+    const toggle = screen.getByTestId("submission-diff-toggle-sub1");
+    expect(toggle.textContent).toBe("View changes");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByTestId("diff-body")).toBeTruthy());
+    expect(toggle.textContent).toBe("Hide changes");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("submission-diff-sub1")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByTestId("diff-body")).toBeTruthy());
+    expect(calls).toBe(1);
+  });
+
+  test("an in-flight load says so instead of showing an empty diff", async () => {
+    // "No changes" and "not fetched yet" are different claims about a submission.
+    let release: (value: { files: DiffFileView[]; diff: string }) => void = () => {};
+    const pending = new Promise<{ files: DiffFileView[]; diff: string }>((resolve) => {
+      release = resolve;
+    });
+
+    render(<ReviewQueue submissions={[submission()]} onLoadDiff={() => pending} />);
+    fireEvent.click(screen.getByTestId("submission-diff-toggle-sub1"));
+
+    await waitFor(() => expect(screen.getByTestId("diff-loading")).toBeTruthy());
+    expect(screen.queryByTestId("diff-empty")).toBeNull();
+
+    release(loaded);
+    await waitFor(() => expect(screen.getByTestId("diff-body")).toBeTruthy());
+    expect(screen.queryByTestId("diff-loading")).toBeNull();
+  });
+
+  test("a rejected load reports the failure and can be retried", async () => {
+    let attempt = 0;
+    render(
+      <ReviewQueue
+        submissions={[submission()]}
+        onLoadDiff={async () => {
+          attempt += 1;
+          if (attempt === 1) throw new Error("worktree for sub1 no longer exists");
+          return loaded;
+        }}
+      />,
+    );
+
+    const toggle = screen.getByTestId("submission-diff-toggle-sub1");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByTestId("diff-error")).toBeTruthy());
+    expect(screen.getByTestId("diff-error").textContent).toContain("worktree for sub1 no longer exists");
+
+    // A failure must not be cached as though it were the answer.
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByTestId("diff-body")).toBeTruthy());
+    expect(attempt).toBe(2);
+    expect(screen.queryByTestId("diff-error")).toBeNull();
+  });
+
+  test("a rejection that is not an Error still reports something", async () => {
+    render(
+      <ReviewQueue
+        submissions={[submission()]}
+        onLoadDiff={async () => {
+          throw "502 from the diff endpoint";
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("submission-diff-toggle-sub1"));
+    await waitFor(() => expect(screen.getByTestId("diff-error").textContent).toContain("502 from the diff endpoint"));
+  });
+
+  test("each submission opens its own diff", async () => {
+    const asked: string[] = [];
+    render(
+      <ReviewQueue
+        submissions={[submission(), submission({ id: "sub2", branch: "agent/auth-frontend" })]}
+        onLoadDiff={async (id) => {
+          asked.push(id);
+          return { files: [{ path: `${id}.ts` }], diff: `+ from ${id}` };
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("submission-diff-toggle-sub2"));
+    await waitFor(() => expect(screen.getByTestId("submission-diff-sub2").textContent).toContain("from sub2"));
+    expect(asked).toEqual(["sub2"]);
+    expect(screen.queryByTestId("submission-diff-sub1")).toBeNull();
+  });
+
+  test("the diff is reachable for a merged submission too", async () => {
+    // Review is not the only reason to look at what landed.
+    render(
+      <ReviewQueue
+        submissions={[submission({ state: "merged", mergeCommit: "dde7d75c6bb4aaa" })]}
+        onLoadDiff={async () => loaded}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("submission-diff-toggle-sub1"));
+    await waitFor(() => expect(screen.getByTestId("diff-body")).toBeTruthy());
+  });
+});
+
 describe("§22.17: agent conversations", () => {
   function message(overrides: Partial<MessageView> = {}): MessageView {
     return {
@@ -279,9 +568,31 @@ describe("§22.17: agent conversations", () => {
 
   test("links are clickable and report what they point at", () => {
     const opened: Array<{ kind: string; id: string }> = [];
+    render(
+      <ConversationView
+        messages={[message({ links: [{ kind: "requirement", id: "AUTH-03" }] })]}
+        onOpenLink={(l) => opened.push(l)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("message-link-m1-requirement"));
+    expect(opened).toEqual([{ kind: "requirement", id: "AUTH-03" }]);
+  });
+
+  test("a link the shell cannot open is a label, not a dead button", () => {
+    // Only requirement links are navigable; a chip that looks clickable and does nothing is a
+    // worse lie than a chip that never offered. The traceability V-025 wants stays on screen.
+    const opened: Array<{ kind: string; id: string }> = [];
     render(<ConversationView messages={[message()]} onOpenLink={(l) => opened.push(l)} />);
-    fireEvent.click(screen.getByTestId("message-link-m1-artifact"));
-    expect(opened).toEqual([{ kind: "artifact", id: "art_1" }]);
+
+    const artifact = screen.getByTestId("message-link-m1-artifact");
+    const branch = screen.getByTestId("message-link-m1-branch");
+    expect(artifact.tagName).toBe("SPAN");
+    expect(branch.tagName).toBe("SPAN");
+    expect(artifact.textContent).toBe("artifact: art_1");
+    expect(branch.textContent).toBe("branch: agent/auth-backend");
+
+    fireEvent.click(artifact);
+    expect(opened).toEqual([]);
   });
 
   test("unread messages are marked", () => {

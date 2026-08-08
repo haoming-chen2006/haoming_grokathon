@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DiffView, type DiffFileView } from "./DiffView";
 
 export interface DesignSuggestionView {
   id: string;
@@ -40,6 +41,7 @@ interface SuggestionProps {
 export function SuggestionQueue({ suggestions, onAccept, onReject, onRequestRevision, onEdit }: SuggestionProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [revisionNote, setRevisionNote] = useState<Record<string, string>>({});
 
   if (suggestions.length === 0) {
     return (
@@ -93,6 +95,19 @@ export function SuggestionQueue({ suggestions, onAccept, onReject, onRequestRevi
             <div data-testid={`suggestion-risks-${s.id}`} className="mb-2 text-xs text-yellow-300">
               Risks: {s.risks}
             </div>
+          )}
+
+          {editing !== s.id && (
+            /* The note is the whole point of asking for a revision — the agent has to be told what
+               to change, so it travels with the action instead of being thrown away. */
+            <input
+              data-testid={`suggestion-revision-note-${s.id}`}
+              aria-label="Revision note"
+              value={revisionNote[s.id] ?? ""}
+              onChange={(e) => setRevisionNote({ ...revisionNote, [s.id]: e.target.value })}
+              placeholder="What should the agent change? (sent with Request Revision)"
+              className="mb-2 w-full rounded border border-white/10 bg-neutral-950 px-2 py-1 text-xs text-white/90"
+            />
           )}
 
           <div className="flex flex-wrap gap-2">
@@ -151,7 +166,7 @@ export function SuggestionQueue({ suggestions, onAccept, onReject, onRequestRevi
                 <button
                   type="button"
                   data-testid={`suggestion-revise-${s.id}`}
-                  onClick={() => onRequestRevision?.(s.id, "Please revise")}
+                  onClick={() => onRequestRevision?.(s.id, revisionNote[s.id]?.trim() ?? "")}
                   className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
                 >
                   Request Revision
@@ -165,16 +180,62 @@ export function SuggestionQueue({ suggestions, onAccept, onReject, onRequestRevi
   );
 }
 
+/**
+ * Why approval is refused, or null when it is allowed. The server's `testsPass` (codeReview.ts)
+ * demands failed === 0 AND total > 0 AND passed === total; a client that checks only the first two
+ * offers an Approve button the server then rejects, so the rule is mirrored exactly and the button
+ * reports *which* half of it is unmet rather than being inertly greyed out.
+ */
+function approvalBlocker(results: SubmissionView["testResults"]): string | null {
+  if (results.total === 0) return "No tests were run — approval requires a suite that ran and passed";
+  if (results.failed > 0) {
+    return `${results.failed} required test${results.failed === 1 ? " is" : "s are"} failing`;
+  }
+  if (results.passed !== results.total) {
+    return `Only ${results.passed} of ${results.total} tests passed — the rest did not report a result`;
+  }
+  return null;
+}
+
 interface ReviewProps {
   submissions: SubmissionView[];
   onApprove?: (id: string) => void;
   onRequestChanges?: (id: string, feedback: string) => void;
   onMerge?: (id: string) => void;
+  /** Fetch the submission's changed files and unified diff. Absent when the caller cannot supply one. */
+  onLoadDiff?: (submissionId: string) => Promise<{ files: DiffFileView[]; diff: string }>;
 }
 
 /** Pending code reviews (§11C), with the request-revision and approve-merge controls. */
-export function ReviewQueue({ submissions, onApprove, onRequestChanges, onMerge }: ReviewProps) {
+export function ReviewQueue({ submissions, onApprove, onRequestChanges, onMerge, onLoadDiff }: ReviewProps) {
   const [feedback, setFeedback] = useState<Record<string, string>>({});
+  const [diffOpen, setDiffOpen] = useState<Record<string, boolean>>({});
+  const [diffs, setDiffs] = useState<Record<string, { files: DiffFileView[]; diff: string }>>({});
+  const [diffLoading, setDiffLoading] = useState<Record<string, boolean>>({});
+  const [diffError, setDiffError] = useState<Record<string, string | null>>({});
+
+  async function toggleDiff(id: string) {
+    if (!onLoadDiff) return;
+    if (diffOpen[id]) {
+      setDiffOpen((prev) => ({ ...prev, [id]: false }));
+      return;
+    }
+    setDiffOpen((prev) => ({ ...prev, [id]: true }));
+    // Already fetched, or a fetch is still in flight: reopening must not re-hit the server.
+    if (diffs[id] || diffLoading[id]) return;
+
+    setDiffLoading((prev) => ({ ...prev, [id]: true }));
+    setDiffError((prev) => ({ ...prev, [id]: null }));
+    try {
+      const loaded = await onLoadDiff(id);
+      setDiffs((prev) => ({ ...prev, [id]: loaded }));
+    } catch (err) {
+      // A failed fetch must say so; a silently empty diff reads as "this submission changed nothing".
+      setDiffError((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setDiffLoading((prev) => ({ ...prev, [id]: false }));
+    }
+  }
 
   if (submissions.length === 0) {
     return (
@@ -187,7 +248,7 @@ export function ReviewQueue({ submissions, onApprove, onRequestChanges, onMerge 
   return (
     <ul data-testid="review-queue" className="divide-y divide-white/5">
       {submissions.map((s) => {
-        const testsFailing = s.testResults.failed > 0 || s.testResults.total === 0;
+        const blocker = approvalBlocker(s.testResults);
         return (
           <li key={s.id} data-testid={`submission-${s.id}`} className="p-3 text-white">
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
@@ -212,7 +273,7 @@ export function ReviewQueue({ submissions, onApprove, onRequestChanges, onMerge 
               </span>
               <span
                 data-testid={`submission-tests-${s.id}`}
-                className={testsFailing ? "text-red-400" : "text-green-400"}
+                className={blocker ? "text-red-400" : "text-green-400"}
               >
                 {s.testResults.passed}/{s.testResults.total} tests passing
                 {s.testResults.failed > 0 ? ` · ${s.testResults.failed} failing` : ""}
@@ -233,6 +294,32 @@ export function ReviewQueue({ submissions, onApprove, onRequestChanges, onMerge 
               </div>
             )}
 
+            {/* No toggle at all when the caller cannot fetch a diff — the panel must not promise
+                changes it has no way to show. */}
+            {onLoadDiff && (
+              <div className="mb-2">
+                <button
+                  type="button"
+                  data-testid={`submission-diff-toggle-${s.id}`}
+                  aria-expanded={!!diffOpen[s.id]}
+                  onClick={() => void toggleDiff(s.id)}
+                  className="rounded bg-white/5 px-2 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white/90"
+                >
+                  {diffOpen[s.id] ? "Hide changes" : "View changes"}
+                </button>
+                {diffOpen[s.id] && (
+                  <div data-testid={`submission-diff-${s.id}`} className="mt-2">
+                    <DiffView
+                      files={diffs[s.id]?.files ?? []}
+                      diff={diffs[s.id]?.diff ?? ""}
+                      loading={!!diffLoading[s.id]}
+                      error={diffError[s.id] ?? null}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {s.state === "pending" && (
               <>
                 <input
@@ -247,14 +334,20 @@ export function ReviewQueue({ submissions, onApprove, onRequestChanges, onMerge 
                   <button
                     type="button"
                     data-testid={`submission-approve-${s.id}`}
-                    // A submission with failing tests must not be approvable (V-035).
-                    disabled={testsFailing}
-                    title={testsFailing ? "Required tests are failing" : undefined}
+                    // A submission whose tests did not all run and pass must not be approvable (V-035).
+                    disabled={!!blocker}
+                    title={blocker ?? undefined}
                     onClick={() => onApprove?.(s.id)}
                     className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20 disabled:opacity-40"
                   >
                     Approve
                   </button>
+                  {blocker && (
+                    // A greyed-out button explains nothing; the reason has to be readable.
+                    <span data-testid={`submission-approve-blocked-${s.id}`} className="self-center text-xs text-white/50">
+                      Cannot approve: {blocker}
+                    </span>
+                  )}
                   <button
                     type="button"
                     data-testid={`submission-request-changes-${s.id}`}

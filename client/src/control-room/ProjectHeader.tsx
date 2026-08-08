@@ -16,11 +16,23 @@ interface Props {
   reviewsPending?: number;
   suggestionsPending?: number;
   onPauseAll?: () => void;
+  projects?: Array<{ id: string; name: string }>;
+  projectId?: string | null;
+  onSelectProject?: (id: string) => void;
+  onNewProject?: () => void;
 }
 
 /**
- * Top bar of §11A. Every number here is server-derived — progress comes from requirement
- * statuses and cost from recorded usage, so nothing on this bar is an estimate.
+ * What the dollar figure actually is. server/services/usageAccounting.ts derives it from token
+ * counts at published list prices and marks every result `estimated: true`, because the transport
+ * reports tokens, never billed amounts.
+ */
+const COST_IS_ESTIMATED =
+  "Estimated cost: derived from token counts at published list prices, not from billed amounts. The actual charge will differ.";
+
+/**
+ * Top bar of §11A. Progress is exact — it is counted from requirement statuses on the server.
+ * The cost is not, and never can be from this data, so it is always labelled as an estimate (V-045).
  */
 export function ProjectHeader({
   name,
@@ -33,6 +45,10 @@ export function ProjectHeader({
   reviewsPending = 0,
   suggestionsPending = 0,
   onPauseAll,
+  projects = [],
+  projectId = null,
+  onSelectProject,
+  onNewProject,
 }: Props) {
   const overBudget = costUsd !== undefined && budgetUsd !== undefined && costUsd > budgetUsd;
 
@@ -47,6 +63,42 @@ export function ProjectHeader({
             {goal}
           </div>
         )}
+      </div>
+
+      {/*
+        The switcher appears only once there is somewhere to switch to: with a single project it is
+        a control that can only reselect what is already open, and the name beside it already says
+        which that is. "New project" is unconditional — the shell used to offer it only when zero
+        projects existed, which made every project after the first one unreachable.
+      */}
+      <div className="flex items-center gap-2">
+        {projects.length > 1 && (
+          <select
+            data-testid="project-switcher"
+            aria-label="Switch project"
+            value={projectId ?? ""}
+            onChange={(e) => onSelectProject?.(e.target.value)}
+            className="rounded border border-white/10 bg-neutral-900 px-2 py-1 text-xs text-white focus:border-white/30 focus:outline-none"
+          >
+            {/* A project id that is not in the list would otherwise render a blank, lying, box. */}
+            {(projectId === null || !projects.some((p) => p.id === projectId)) && (
+              <option value="">Select a project…</option>
+            )}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          type="button"
+          data-testid="new-project-button"
+          onClick={onNewProject}
+          className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+        >
+          New project
+        </button>
       </div>
 
       {progress && (
@@ -71,12 +123,26 @@ export function ProjectHeader({
 
       {costUsd !== undefined && (
         <span
-          data-testid="project-cost-summary"
-          className={`text-xs ${overBudget ? "text-red-400" : "text-white/70"}`}
+          data-testid="project-cost-estimate"
+          title={COST_IS_ESTIMATED}
+          className={`flex items-baseline gap-1.5 text-xs ${overBudget ? "text-red-400" : "text-white/70"}`}
         >
-          ${costUsd.toFixed(2)}
-          {budgetUsd !== undefined ? ` / $${budgetUsd.toFixed(2)}` : ""}
-          {overBudget ? " — over budget" : ""}
+          {/* Visible marker for sighted users; the full caveat below carries it to a screen reader. */}
+          <span
+            data-testid="project-cost-estimated"
+            aria-hidden="true"
+            className="rounded bg-white/10 px-1 text-[10px] uppercase tracking-wide"
+          >
+            est.
+          </span>
+          <span data-testid="project-cost-summary">
+            ${costUsd.toFixed(2)}
+            {budgetUsd !== undefined ? ` / $${budgetUsd.toFixed(2)}` : ""}
+            {overBudget ? " — over budget" : ""}
+          </span>
+          <span data-testid="project-cost-caveat" className="sr-only">
+            {COST_IS_ESTIMATED}
+          </span>
         </span>
       )}
 

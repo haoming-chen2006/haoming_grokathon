@@ -11,8 +11,18 @@ interface Props {
 }
 
 /**
+ * What the dollar figure actually is. server/services/usageAccounting.ts derives it from token
+ * counts at published list prices and marks every result `estimated: true`, because the transport
+ * reports tokens, never billed amounts. Duplicated from ProjectHeader rather than shared: the two
+ * headers are the only callers, and neither owns a constants module the other could import from.
+ */
+const COST_IS_ESTIMATED =
+  "Estimated cost: derived from token counts at published list prices, not from billed amounts. The actual charge will differ.";
+
+/**
  * Agent Command Center (V-021). Summarises the fleet by status — each count labelled with text,
- * never colour alone — and renders one card per agent.
+ * never colour alone — and renders one card per agent. The project total is always labelled as an
+ * estimate (V-045); it is the same figure ProjectHeader shows and carries the same caveat.
  */
 export function CommandCenter({
   agents,
@@ -44,9 +54,26 @@ export function CommandCenter({
           </span>
         ))}
         {projectCostUsd !== undefined && (
-          <span data-testid="project-cost" className="ml-auto text-xs text-white/70">
-            ${projectCostUsd.toFixed(2)}
-            {projectBudgetUsd !== undefined ? ` / $${projectBudgetUsd.toFixed(2)}` : ""}
+          <span
+            data-testid="command-center-cost"
+            title={COST_IS_ESTIMATED}
+            className="ml-auto flex items-baseline gap-1.5 text-xs text-white/70"
+          >
+            {/* Visible marker for sighted users; the full caveat below carries it to a screen reader. */}
+            <span
+              data-testid="command-center-cost-estimated"
+              aria-hidden="true"
+              className="rounded bg-white/10 px-1 text-[10px] uppercase tracking-wide"
+            >
+              est.
+            </span>
+            <span data-testid="project-cost">
+              ${projectCostUsd.toFixed(2)}
+              {projectBudgetUsd !== undefined ? ` / $${projectBudgetUsd.toFixed(2)}` : ""}
+            </span>
+            <span data-testid="command-center-cost-caveat" className="sr-only">
+              {COST_IS_ESTIMATED}
+            </span>
           </span>
         )}
       </div>

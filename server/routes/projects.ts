@@ -11,6 +11,8 @@ import { getControlRoomBus } from "../services/controlRoomEvents";
 import { CompletionGateError, IncompleteSubmissionError } from "../services/codeReview";
 import { getAcpSessionManager } from "../services/acpSessionManager";
 import { getAgentRegistry } from "../services/agentRegistry";
+import { seedDefaultTeam, resolveAgentForRole } from "../services/agentTeam";
+import type { CodingAgent } from "../types/agent";
 import { detectTestCommand, runTests } from "../services/testRunner";
 import { runPlanner, uncoveredRequirements } from "../services/planner";
 import { reviewSubmission } from "../services/designReview";
@@ -93,18 +95,34 @@ projectRoutes.post("/", async (c) => {
     const body = await c.req.json();
     if (!body?.name) return c.json({ error: "name is required" }, 400);
     if (!body?.repositoryPath) return c.json({ error: "repositoryPath is required" }, 400);
-    return c.json(
-      getProjectStore().createProject({
-        name: body.name,
-        goal: body.goal ?? "",
-        repositoryPath: body.repositoryPath,
-        baseBranch: body.baseBranch,
-        documentTitle: body.documentTitle,
-        documentContent: body.documentContent,
-        budgetUsd: body.budgetUsd,
-      }),
-      201,
-    );
+    const project = getProjectStore().createProject({
+      name: body.name,
+      goal: body.goal ?? "",
+      repositoryPath: body.repositoryPath,
+      baseBranch: body.baseBranch,
+      documentTitle: body.documentTitle,
+      documentContent: body.documentContent,
+      budgetUsd: body.budgetUsd,
+    });
+
+    // A project created from the browser used to arrive with no agents, so the Planner had no role
+    // to assign tasks to and Launch answered NO_AGENT with nothing in the UI able to fix it. The
+    // team comes with the project unless the caller says it is bringing its own (`seedTeam: false`,
+    // which is what `bun run new --no-agents` sends).
+    //
+    // Seeding failure must not turn a created project into a 400: the project exists either way,
+    // and reporting an error would leave the caller holding an id it was never told about.
+    let agents: CodingAgent[] = [];
+    let teamError: string | undefined;
+    if (body.seedTeam !== false) {
+      try {
+        agents = seedDefaultTeam(project.id, { budgetUsd: project.budgetUsd });
+      } catch (err) {
+        teamError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    return c.json({ ...project, agents, teamError }, 201);
   } catch (err) {
     return fail(c, err);
   }
@@ -321,14 +339,21 @@ projectRoutes.post("/:id/plan/generate", async (c) => {
     // The Planner assigns a role to every task; resolve it to an agent on this project so the
     // plan is launchable. Without this a user approves a plan and every task is refused with
     // NO_AGENT, with nothing in the product to assign one — the plan is approved and inert.
-    const byRole = new Map(registry.list(projectId).map((a) => [a.role, a.id]));
+    const team = registry.list(projectId);
+    const unmatchedRoles: string[] = [];
     for (const task of generated.tasks) {
+      const resolved = resolveAgentForRole(task.role, team);
+      // A role the Planner invented is reported rather than swallowed: the task still gets an
+      // owner, but the user is told the assignment was a guess and which wording caused it.
+      if (resolved.match === "fallback" && !unmatchedRoles.includes(task.role)) {
+        unmatchedRoles.push(task.role);
+      }
       try {
         store.addTask(
           projectId,
           {
             id: task.id, objective: task.objective, requirementId: task.requirementId,
-            assignedAgentId: byRole.get(task.role),
+            assignedAgentId: resolved.agentId,
             dependsOn: task.dependsOn, expectedFiles: task.expectedFiles, requiredTests: task.requiredTests,
           },
           { kind: "user", id: "user" },
@@ -342,6 +367,8 @@ projectRoutes.post("/:id/plan/generate", async (c) => {
       plan,
       tasks: generated.tasks,
       uncoveredRequirements: uncoveredRequirements(generated, project.requirements.map((r) => r.id)),
+      unmatchedRoles: unmatchedRoles.length ? unmatchedRoles : undefined,
+      teamMissing: team.length === 0 || undefined,
     }, 201);
   } catch (err) {
     return fail(c, err);

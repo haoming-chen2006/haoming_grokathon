@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   Background,
@@ -68,13 +68,53 @@ export function positionUpdatesFrom(changes: NodeChange[]): Array<{ id: string; 
   return updates;
 }
 
+function samePosition(a?: { x: number; y: number }, b?: { x: number; y: number }): boolean {
+  if (!a || !b) return a === b;
+  return a.x === b.x && a.y === b.y;
+}
+
+/**
+ * Fold a freshly derived node list into the nodes the canvas is already showing.
+ *
+ * Everything a card renders — status, cost, blocker, and which agents exist at all — is the
+ * server's, so the incoming node replaces the existing one wholesale. Position is the exception:
+ * it belongs to the canvas, because the card may be under the user's cursor right now and an
+ * update arriving mid-drag would yank it back to where the drag started. A server position is
+ * taken only when it differs from the one that arrived last time, so a status update landing
+ * before a just-finished drag has been persisted cannot snap the card back either.
+ */
+export function mergeAgentNodes(current: Node[], incoming: Node[]): Node[] {
+  const byId = new Map(current.map((node) => [node.id, node]));
+  return incoming.map((node) => {
+    const existing = byId.get(node.id);
+    if (!existing) return node;
+    const lastSeen = (existing.data as AgentNodeData).agent.position;
+    const fromServer = (node.data as AgentNodeData).agent.position;
+    const serverMoved = fromServer !== undefined && !samePosition(lastSeen, fromServer);
+    // Spreading `existing` first keeps what React Flow wrote onto the node — selection, measured
+    // size, drag flag — which would otherwise be discarded on every WebSocket update.
+    return {
+      ...existing,
+      ...node,
+      position: existing.dragging || !serverMoved ? existing.position : node.position,
+    };
+  });
+}
+
 /** The Agent Command Center canvas (V-021): agents can be moved, and moves are persisted. */
 function AgentCanvasInner({ agents, onMoveAgent, onOpenSession, onPause, onStop }: AgentCanvasProps) {
-  const initialNodes = useMemo(
+  const agentNodes = useMemo(
     () => agentsToNodes(agents, { onOpenSession, onPause, onStop }),
     [agents, onOpenSession, onPause, onStop],
   );
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(agentNodes);
+
+  // `useNodesState` is `useState`, so it reads its argument once. Without this the canvas would
+  // render whatever agents it mounted with for as long as the tab stays open: live status, cost
+  // and blocker updates, and newly launched agents, would never appear.
+  useEffect(() => {
+    setNodes((current) => mergeAgentNodes(current, agentNodes));
+  }, [agentNodes, setNodes]);
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {

@@ -35,8 +35,10 @@ const PROJECT = {
     { id: "s1", authorAgentId: "a1", requirementId: "GREET-01", baseVersion: 1,
       originalText: "old", proposedText: "new", reason: "because", affectedFiles: [], state: "pending" },
   ],
+  baseBranch: "main",
   submissions: [
     { id: "sub1", taskId: "t1", agentId: "a1", requirementIds: ["GREET-01"], branch: "agent/greet",
+      worktree: "/tmp/repo/.agents/a1",
       changedFiles: ["greet.ts"], summary: "Implement greet", testResults: { passed: 1, failed: 0, total: 1 },
       costUsd: 0.05, state: "pending", knownLimitations: "None" },
   ],
@@ -80,6 +82,11 @@ function stubFetch() {
     if (u.includes("/coding-agents?projectId")) return send(AGENTS);
     if (u.includes("/progress")) return send({ percent: 50, completed: 1, total: 2 });
     if (u.includes("/costs/")) return send({ projectCostUsd: 4.12, projectBudgetUsd: 10 });
+    // The repository endpoints answer in two different shapes: a bare array, and a wrapped string.
+    if (u.startsWith("/api/repository/changed-files")) return send([{ path: "greet.ts", status: "M", staged: true }]);
+    if (u.startsWith("/api/repository/diff")) {
+      return send({ diff: "diff --git a/greet.ts b/greet.ts\n@@ -1 +1 @@\n-old\n+new\n" });
+    }
     if (u.includes("/session")) {
       return send({
         agentId: "a1", projectId: "p1", acpSessionId: "sess-1", state: "ready",
@@ -191,6 +198,19 @@ describe("§22.17: every checklist row is reachable in the assembled app", () =>
     expect(q).toContain("Implement greet");    // summary
     expect(q).toContain("1 file");             // changed-file count, per the §22.17 row
     expect(q).toContain("None");               // known limitations
+  });
+
+  test("the changes themselves are reachable, not just a file count", async () => {
+    // §22.17 asks a reviewer to approve a merge on the evidence shown. "1 file" is not evidence,
+    // and until the shell could fetch a diff the panel had no way to show one.
+    await openApp();
+    await openTab("reviews");
+    await waitFor(() => expect(screen.getByTestId("submission-diff-toggle-sub1")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("submission-diff-toggle-sub1"));
+    await waitFor(() => expect(screen.getByTestId("diff-body")).toBeTruthy());
+    expect(screen.getByTestId("diff-file").getAttribute("data-path")).toBe("greet.ts");
+    expect(screen.getByTestId("diff-body").textContent).toContain("+new");
   });
 
   test("request revision and approve merge are both offered", async () => {

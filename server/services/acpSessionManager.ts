@@ -52,6 +52,8 @@ interface Entry {
   connection: AcpConnection;
   session: LiveSession;
   seq: number;
+  /** Set once `auth_required` has explained the block, so the generic catch does not overwrite it. */
+  authRequired?: boolean;
 }
 
 const MAX_TRANSCRIPT = 500;
@@ -205,8 +207,13 @@ export class AcpSessionManager {
       return session;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.setState(entry, "failed", message);
-      registry.setStatus(agentId, "failed", message);
+      // `session/new` emits auth_required and then rethrows, so this catch runs immediately after
+      // the case above and would replace its sign-in instructions with the raw JSON-RPC error —
+      // the one message the user can act on, lost to the one they cannot.
+      if (!entry.authRequired) {
+        this.setState(entry, "failed", message);
+        registry.setStatus(agentId, "failed", message);
+      }
       throw err;
     }
   }
@@ -244,6 +251,34 @@ export class AcpSessionManager {
       case "failed":
         this.setState(entry, "failed", event.error);
         break;
+      case "auth_required": {
+        // Grok is present but signed out. This fell through `default: break`, so the only trace was
+        // the rethrown protocol error — the control room looked healthy until someone pressed
+        // Launch, and then blamed the agent for what is a one-time sign-in (V-004).
+        const message = [
+          "Grok has no credentials, so no session can start. Run `grok` in a terminal and sign in, then try again.",
+          event.authMethods.length ? `Sign-in methods offered: ${event.authMethods.join(", ")}.` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        entry.authRequired = true;
+        this.push(entry, "system", message);
+        this.setState(entry, "failed", message);
+        try {
+          // "waiting" rather than "failed": the agent is blocked on the user, which is what §12's
+          // yellow state means, and it keeps the card out of the failed pile it cannot escape.
+          getAgentRegistry().setStatus(entry.session.agentId, "waiting", message);
+        } catch {
+          // The agent may have been removed mid-flight; the published event still stands.
+        }
+        getControlRoomBus().publish(entry.session.projectId, {
+          type: "auth_required",
+          agentId: entry.session.agentId,
+          authMethods: event.authMethods,
+          message,
+        });
+        break;
+      }
       default:
         break;
     }
@@ -406,4 +441,17 @@ export function getAcpSessionManager(): AcpSessionManager {
     });
   }
   return manager;
+}
+
+/**
+ * Replace the process-wide session manager, or restore the real one with `null`.
+ *
+ * Opening a session spawns `grok`, so a test of any route that launches has to substitute this or
+ * it starts real agents. That was done with `mock.module`, which worked in isolation and silently
+ * stopped working in the full suite — `routes/projects.ts` is evaluated once, and a mock installed
+ * after that evaluation never reaches it. The result was six live `grok` children and a run that
+ * never finished. An explicit seam cannot fail that way, and it is honest about existing.
+ */
+export function setAcpSessionManager(next: AcpSessionManager | null): void {
+  manager = next;
 }

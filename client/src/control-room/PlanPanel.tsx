@@ -4,11 +4,16 @@ interface Props {
   plan: PlanView | null;
   tasks: TaskView[];
   agentName?: (agentId: string) => string | undefined;
+  /** The project's team, so an unowned task can be given an owner here rather than by curl. */
+  agents?: Array<{ id: string; name: string; role: string }>;
+  onAssign?: (taskId: string, agentId: string) => void;
   onApprove?: () => void;
   onLaunch?: (taskId: string) => void;
   /** Ask the Planner to propose tasks from the design document. A real agent turn. */
   onGenerate?: () => void;
   generating?: boolean;
+  /** Why the last plan's assignments may need a second look — an unplaceable role, or no team. */
+  notice?: string | null;
 }
 
 /**
@@ -22,9 +27,14 @@ interface Props {
  * Launch is disabled while the plan is a draft rather than hidden, and says why — the same
  * treatment as approving a stale suggestion or merging with failing tests. A control that is absent
  * teaches nothing; one that explains its refusal teaches the gate.
+ *
+ * It is disabled for an unowned task for the same reason: the launch endpoint refuses one with
+ * NO_AGENT (400). The button used to render enabled, fail on click, and leave an error banner the
+ * product offered no way to answer — so the refusal now carries its remedy, an agent picker on the
+ * task itself.
  */
 export function PlanPanel({
-  plan, tasks, agentName, onApprove, onLaunch, onGenerate, generating,
+  plan, tasks, agentName, agents = [], onAssign, onApprove, onLaunch, onGenerate, generating, notice,
 }: Props) {
   if (!plan) {
     // This used to tell the user to run `bun run new -- --plan`, which ended the browser flow at
@@ -97,6 +107,18 @@ export function PlanPanel({
         </div>
       )}
 
+      {notice && (
+        // Shown next to the owners it is about, not as a transient toast: the point is to be read
+        // while the user is deciding whether the assignments are right.
+        <div
+          data-testid="plan-assignment-notice"
+          role="status"
+          className="mb-3 rounded border border-amber-500/25 bg-amber-500/5 p-2 text-xs text-amber-200/85"
+        >
+          {notice}
+        </div>
+      )}
+
       {tasks.length === 0 ? (
         <div data-testid="plan-no-tasks" className="text-sm text-white/50">
           The plan has no tasks yet.
@@ -105,14 +127,17 @@ export function PlanPanel({
         <ul data-testid="plan-tasks" className="space-y-2">
           {tasks.map((task) => {
             const unmet = unmetDependencies(task);
-            const launchable = approved && unmet.length === 0 && task.status !== "complete";
+            const launchable =
+              approved && unmet.length === 0 && task.status !== "complete" && !!task.assignedAgentId;
             const why = !approved
               ? blockedReason
               : unmet.length
                 ? `Waiting on ${unmet.join(", ")}`
                 : task.status === "complete"
                   ? "Already complete"
-                  : undefined;
+                  : !task.assignedAgentId
+                    ? "No agent assigned — choose one to launch"
+                    : undefined;
 
             return (
               <li
@@ -128,9 +153,30 @@ export function PlanPanel({
 
                 <div className="mt-1 flex items-center gap-3 text-[11px] text-white/40">
                   <span data-testid={`plan-task-owner-${task.id}`}>
-                    {task.assignedAgentId
-                      ? (agentName?.(task.assignedAgentId) ?? task.assignedAgentId)
-                      : "unassigned"}
+                    {task.assignedAgentId ? (
+                      (agentName?.(task.assignedAgentId) ?? task.assignedAgentId)
+                    ) : agents.length > 0 && onAssign ? (
+                      // The role is shown beside the name so the task's role can be matched to a
+                      // person without opening the roster.
+                      <select
+                        data-testid={`plan-task-assign-${task.id}`}
+                        aria-label={`Assign an agent to ${task.id}`}
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) onAssign(task.id, e.target.value);
+                        }}
+                        className="rounded border border-white/10 bg-neutral-900 px-1 py-0.5 text-[11px] text-white/70 focus:border-white/30 focus:outline-none"
+                      >
+                        <option value="">unassigned — choose an agent</option>
+                        {agents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} · {agent.role}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      "unassigned — this project has no agents yet"
+                    )}
                   </span>
                   {task.requirementId && <span>{task.requirementId}</span>}
                   {task.dependsOn.length > 0 && <span>after {task.dependsOn.join(", ")}</span>}

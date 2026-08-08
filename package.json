@@ -40,6 +40,7 @@
     "verify": "bun run typecheck && bun run test && bun run build && bun run audit",
     "acceptance": "bun run scripts/acceptance/v052.mjs",
     "new": "bun run scripts/start-project.mjs",
+    "demo": "bun run scripts/demo/setup.mjs",
     "audit": "bun run scripts/audit/reachability.mjs && bun run audit:endpoints && bun run audit:quality && bun run audit:docs",
     "audit:endpoints": "bun run scripts/audit/endpoints.mjs",
     "audit:quality": "bun run scripts/audit/quality.mjs",

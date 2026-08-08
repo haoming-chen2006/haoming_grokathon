@@ -4862,6 +4862,135 @@ bun run verify → exit 0, 758 pass / 0 fail, four audits clean
 
 ---
 
+## A plan whose every task had no owner (iteration 81)
+
+The user's report was "couldn't plan anything". The plan generated; nothing could be launched from
+it. This is the defect behind that screenshot.
+
+Scanning every project on the running server separated the healthy runs from the broken ones:
+
+```text
+Todo Service          tasks=4  unassigned=4  agents=5  roles=[Backend, Frontend, Planner, Reviewer, Test]
+Todo Service (demo)   tasks=4  unassigned=0  agents=5  roles=[Backend, Frontend, Planner, Reviewer, Test]
+Wire                  tasks=1  unassigned=1  agents=1  roles=[Backend Engineer]
+```
+
+Two projects planned from the same document, with the same five correctly-roled agents, differing
+only in whether any task got an owner. The agents pre-dated the tasks by ten seconds, so it was not
+an ordering race.
+
+The cause is one line, and it is exact string equality:
+
+```ts
+const byRole = new Map(registry.list(projectId).map((a) => [a.role, a.id]));
+…
+assignedAgentId: byRole.get(task.role),
+```
+
+**The Planner is a model.** It is asked for one of five role names and usually complies, but a run
+that answers `"Backend Developer"`, `"UI Engineer"` or `"QA"` resolves to nobody. `normalisePlan`
+looked like a guard and is not — `String(t?.role ?? "Backend Engineer")` defaults only when the
+role is *absent*, so a present-but-different wording falls straight through to `undefined`. The
+task is then stored unowned, and Launch refuses it with `NO_AGENT`.
+
+**Nothing recorded which wording failed.** `role` is consumed during resolution and never persisted
+on the task, so after the fact the stored plan shows only absence. That is why it read as random
+rather than as a wording problem, and why it survived so long.
+
+The fix is `resolveAgentForRole` in `server/services/agentTeam.ts`, which owns the roles: match
+exactly, then ignoring case and punctuation, then by role family (`Test Engineer` is a tester, not
+matched on the word "engineer"), and failing all of that hand the task to an implementer anyway. An
+owner the user can reassign is worth more than a plan that cannot run. The result carries which of
+those four happened, so the route reports `unmatchedRoles` and the Plan panel says so — the wording
+now leaves a trace instead of a silent gap.
+
+Three controls, because a resolver that cannot be made to fail proves nothing:
+
+```text
+backend family ordered first  → 28 pass / 7 fail   (Test Engineer swallowed by "engineer")
+fallback returns undefined    → 32 pass / 3 fail   (the original bug, restored)
+route reverted to byRole.get  → 1 pass / 3 fail    (the call site, not the resolver)
+```
+
+That third one matters most. The resolver's own tests stayed green when the route was reverted to
+the broken lookup — the same shape as the `newSession()` bug in iteration 53, where a well-tested
+function was never called properly. Only the route-level test caught it.
+
+### Two files mocking one module hung the entire suite
+
+The cases above were first written in a separate route-test file, since deleted, which mocked
+`../services/planner`. That was wrong twice over, and the second failure took three experiments to
+pin down.
+
+**First:** written as an outright replacement it broke seven tests in `planner.test.ts` — a
+*different file*, run later.
+
+```text
+(fail) rules reach session/new when supplied
+TypeError: undefined is not an object (evaluating 'calls[0].opts')
+```
+
+A comment I had written in that file asserted the mock was contained because it lived in its own
+file. `mock.module` patches the module registry for the whole process. Making it delegate to the
+real module and divert only while an override is set fixed those seven.
+
+**Second, and worse:** `browserLoop.test.ts` already mocked the same module. With two mocks
+installed, `./projects` is evaluated once and stays bound to whichever was installed first, so
+`browserLoop`'s own `plannerOverride` was never consulted, the **real** Planner ran, and the suite
+sat in a live Grok turn indefinitely. `bun run verify` never finished.
+
+Three wrong diagnoses on the way, each disproved by the next experiment:
+
+```text
+"the two files collide"        → that file + browserLoop           = 10 pass / 0 fail  (1.0s)
+"a duplicate suite contends"   → killed the orphan, re-ran alone    = hung again
+"./projects is already cached" → projectRoutes + browserLoop        = 14 pass / 0 fail  (1.4s)
+"it is the file order"         → security+mcpTools+preads+browser   = 97 pass / 0 fail  (22s)
+```
+
+Only the full suite reproduced it, which is why `--timeout` was the thing that finally helped:
+per-test timeouts never fired, proving the block was not inside a test body, and the process tree
+showed live `grok --no-auto-update agent` children with a real ACP session id in the log.
+
+Consolidating the two files into one owner of the mock was the obvious fix, and it was **not
+enough** — the suite hung again one test later. The proof came from the process itself:
+
+```text
+$ ps -o pid,time,%cpu,state -p <test pid>
+92773  11:14.71  100.0  R          ← spinning, not blocked on I/O
+$ pgrep -P 92773
+94020 94093 94623 95546 96312 97031 → all `grok --no-auto-update agent --always-approve stdio`
+```
+
+Six live agents, children of the test process. `mock.module` was not in effect at all in the full
+suite: `./projects` is evaluated once, by whichever file imports it first, and a mock installed
+after that evaluation never reaches it. Alone or in pairs this file imported `./projects` itself, so
+its mocks applied and everything passed — which is precisely why the failure was invisible until
+all fifty files ran together.
+
+So the mocks are gone. `acpSessionManager.ts` and `planner.ts` each export a seam —
+`setAcpSessionManager(m | null)` and `setPlannerImplementation(fn | null)` — and the test sets and
+restores them per test. A seam cannot depend on module evaluation order, which is the entire point.
+Typing caught a second problem immediately: the `PLAN` fixture was not a valid `GeneratedPlan`
+(missing `raw`, and two token fields), which the untyped mock had been silently accepting.
+
+```text
+browserLoop.test.ts alone                       → 10 pass / 0 fail (1.1s)
+route reverted to the exact-match lookup        →  6 pass / 4 fail
+```
+
+That control covers Launch as well as assignment: a task whose owner was resolved loosely still has
+to get past the gate the original bug died at.
+
+### A false orphan, self-inflicted
+
+The audit reported `agentTeam.ts` unreachable while `projects.ts` plainly imported it. Re-running
+it cleanly gave `0 orphans`: the report came from a probe file left in place during the previous
+iteration's own control experiment. Checked before acting on it, per the rule — a surprising audit
+result is usually the audit.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

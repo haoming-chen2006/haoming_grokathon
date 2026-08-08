@@ -171,11 +171,28 @@ export interface RunPlannerOptions {
   timeoutMs?: number;
 }
 
+let plannerImplementation: ((opts: RunPlannerOptions) => Promise<GeneratedPlan>) | null = null;
+
+/**
+ * Substitute the Planner, or restore the real one with `null`.
+ *
+ * Planning is a live Grok turn, so a test of the plan/generate route has to replace it. Doing that
+ * with `mock.module` held only until some other file imported the route first — see
+ * `setAcpSessionManager` for the failure that taught this. The seam is here so a substitution
+ * cannot depend on module evaluation order.
+ */
+export function setPlannerImplementation(
+  next: ((opts: RunPlannerOptions) => Promise<GeneratedPlan>) | null,
+): void {
+  plannerImplementation = next;
+}
+
 /**
  * Run the Planner against a live Grok session with the Project MCP server attached.
  * Returns the structured plan; the caller decides whether to persist it (always as a draft).
  */
 export async function runPlanner(opts: RunPlannerOptions): Promise<GeneratedPlan> {
+  if (plannerImplementation) return plannerImplementation(opts);
   const agentId = opts.agentId ?? "planner";
   const build = opts.createConnection ?? ((o: ConstructorParameters<typeof AcpConnection>[0]) => new AcpConnection(o));
   const conn = build({ agentId, cwd: opts.cwd, requestTimeoutMs: 120_000 });

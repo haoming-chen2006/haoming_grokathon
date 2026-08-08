@@ -134,8 +134,24 @@ function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
+/**
+ * Blank out the contents of template literals.
+ *
+ * A script that *generates* a file writes that file's source as a template literal, and an
+ * `import … from "./x"` inside it is the generated file's import, not this one's. Read literally it
+ * looks like a broken dependency: `scripts/demo/setup.mjs` writes a fixture containing
+ * `import { greet } from "./greet"`, and the audit failed the gate over a file that was never
+ * meant to exist here.
+ *
+ * Safe for the patterns below, which only recognise quoted specifiers — a genuine dynamic import
+ * written with backticks is not matched either way.
+ */
+function stripTemplateLiterals(text) {
+  return text.replace(/`(?:\\[\s\S]|[^\\`])*`/g, "``");
+}
+
 function importsOf(file) {
-  const text = stripComments(readFileSync(join(ROOT, file), "utf8"));
+  const text = stripTemplateLiterals(stripComments(readFileSync(join(ROOT, file), "utf8")));
   const out = new Set();
   for (const re of IMPORT_PATTERNS) {
     for (const m of text.matchAll(re)) {

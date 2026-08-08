@@ -15,7 +15,7 @@ cd /Users/haoming/openui
 set -a; . ./.env; set +a          # OPENAI_API_KEY — the model backend needs it
 export PATH="$HOME/.bun/bin:$PATH"
 
-bun run verify                    # typechecks, 745 tests, build, four audits
+bun run verify                    # typechecks, 919 tests, build, four audits
 bun run dev                       # UI on :6969, API on :6968
 ```
 
@@ -79,10 +79,12 @@ iteration entries from 73 onward — those are where the product's real failures
 ```text
 server/services/     acpClient, acpSessionManager   Grok over ACP (JSON-RPC on stdio)
                      projectStore                   projects, requirements, tasks, messages, artifacts
-                     projectMcpServer               31 MCP tools the agents use
+                     projectMcpServer               32 MCP tools the agents use
                      repository                     worktrees, diffs, merges, branch protection
                      planner, taskBriefing          what the Planner and each agent are told
                      agentRegistry, usageAccounting agents, cost and budget caps
+                     agentTeam                      the five default roles, and resolving the
+                                                    Planner's role wording to one of them
                      codeReview, designReview       submission evidence and the completion gate
 server/routes/       projects, agents, repository, library, mcp
 client/src/control-room/   the three-panel UI: ProjectHeader, AgentCanvas, PlanPanel,
@@ -98,7 +100,7 @@ scripts/audit/       reachability, endpoints, quality, docs
 
 ```text
 52 of 52 checklist items PASS
-745 tests across 44 files, 0 fail
+919 tests across 50 files, 0 fail
 four audits clean: 0 orphans, every endpoint has a caller,
                    0 unclassified quality indicators, every doc citation resolves
 bun run acceptance: 20 of 20 steps
@@ -177,7 +179,14 @@ measuring phrasing. Where the reply *is* the behaviour — session memory, isola
 the right assertion, and those five are listed in the ledger as irreducibly model-dependent.
 
 **Capture the gate's output.** `bun run verify > file 2>&1` before committing, never `>/dev/null`.
-With an occasional live-agent failure, the re-run is usually green and the evidence is gone.
+With an occasional live-agent failure, the re-run is usually green and the evidence is gone. The
+gate runs real agents and takes well over ten minutes — background it rather than assuming a hang.
+
+**A string a model wrote is not a lookup key.** Plan generation matched the Planner's task role
+against agent roles with `Map.get`, and a run that answered "Backend Developer" instead of "Backend
+Engineer" stored every task unowned — a plan that generated fine and could not be launched. Roles,
+ids and statuses that come back from an agent need tolerant matching, and when the match is a
+guess the response has to say so.
 
 ---
 
