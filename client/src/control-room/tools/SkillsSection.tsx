@@ -18,7 +18,16 @@
  * this component storing anything.
  */
 import { useState } from "react";
-import { createSkill, deleteSkill, updateSkill, type GrokSkill, type SkillState } from "./api";
+import {
+  createSkill,
+  deleteSkill,
+  deleteSkillResource,
+  readSkillResource,
+  updateSkill,
+  writeSkillResource,
+  type GrokSkill,
+  type SkillState,
+} from "./api";
 import {
   Button,
   Disclosure,
@@ -345,6 +354,8 @@ function SkillDetail({
         {skill.body.trim() || "This skill has no instructions yet."}
       </pre>
 
+      {skill.editable ? <SkillPages skill={skill} reload={reload} /> : null}
+
       {/* TOOL-010: the filesystem lives here and nowhere else. */}
       <Disclosure summary="Details" testId="skill-advanced">
         <p className="text-[12px] text-ink-faint">
@@ -354,18 +365,6 @@ function SkillDetail({
           Available to: {SCOPE_LABEL[skill.scope]}
           {skill.state === "inactive" ? " — but currently turned off, so no agent is offered it." : ""}
         </p>
-        {skill.resources.length ? (
-          <div className="flex flex-col gap-1">
-            <p className="text-[12px] text-ink-faint">Other files in this skill:</p>
-            <ul className="flex flex-col gap-0.5">
-              {skill.resources.map((r) => (
-                <li key={r.path} className="text-[12px]">
-                  <Mono className="text-ink-muted">{r.path}</Mono>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
         {Object.keys(skill.extras).length ? (
           <ul className="flex flex-col gap-0.5">
             {Object.entries(skill.extras).map(([key, value]) => (
@@ -376,6 +375,167 @@ function SkillDetail({
           </ul>
         ) : null}
       </Disclosure>
+    </div>
+  );
+}
+
+/**
+ * The rest of the directory (TOOL-004's second clause).
+ *
+ * §10 defines a skill as "a preprocessed **directory** of markdown files fronted by a discovery
+ * prompt", and the shipped `pdf` skill is six files and two subdirectories. A panel that could only
+ * edit SKILL.md would be calling one file a directory.
+ *
+ * The user names a page — "Tone of voice" — and gets `tone-of-voice.md`. They never type a
+ * filename, an extension or a path, which is TOOL-010; the resulting name is shown afterwards
+ * because by then it is a fact about their skill rather than a thing they had to know.
+ */
+function SkillPages({ skill, reload }: { skill: GrokSkill; reload: () => Promise<void> }) {
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [content, setContent] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Subdirectories are listed by the server with a trailing slash. They are shown as context but
+  // not opened: a folder browser is a filesystem, and this panel is deliberately not one.
+  const pages = skill.resources.filter((r) => !r.path.endsWith("/"));
+  const folders = skill.resources.filter((r) => r.path.endsWith("/"));
+
+  async function guard(work: () => Promise<unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function open(path: string) {
+    if (openPath === path) {
+      setOpenPath(null);
+      return;
+    }
+    await guard(async () => {
+      const { content: text } = await readSkillResource(skill.id, path);
+      setContent(text);
+      setOpenPath(path);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded border border-border p-2.5" data-testid="skill-pages">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost">
+          More pages in this skill
+        </span>
+        <Button testId="add-skill-page" onClick={() => setAdding(true)}>
+          Add a page
+        </Button>
+      </div>
+
+      {pages.length === 0 && folders.length === 0 && !adding ? (
+        <p className="text-[12px] text-ink-faint">
+          Just the one page so far. Longer skills often keep reference material on its own page.
+        </p>
+      ) : null}
+
+      {adding ? (
+        <form
+          data-testid="add-page-form"
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const slug = newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+            if (!slug) return;
+            void guard(async () => {
+              await writeSkillResource(skill.id, `${slug}.md`, `# ${newName.trim()}\n\n`);
+              setAdding(false);
+              setNewName("");
+              await reload();
+              await open(`${slug}.md`);
+            });
+          }}
+        >
+          <div className="min-w-[180px] flex-1">
+            <Field label="Page name">
+              <TextInput value={newName} onChange={setNewName} placeholder="Tone of voice" autoFocus testId="new-page-name" />
+            </Field>
+          </div>
+          <Button type="submit" variant="primary" disabled={busy || !newName.trim()} testId="save-page">
+            Add
+          </Button>
+          <Button onClick={() => setAdding(false)}>Cancel</Button>
+        </form>
+      ) : null}
+
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+
+      {pages.length ? (
+        <div className="overflow-hidden rounded border border-border">
+          {pages.map((page) => (
+            <ResourceRow
+              key={page.path}
+              testId="skill-page-row"
+              name={<Mono className="text-[13px]">{page.path}</Mono>}
+              selected={openPath === page.path}
+              onSelect={() => void open(page.path)}
+              actions={
+                <Button
+                  testId="delete-skill-page"
+                  onClick={() =>
+                    void guard(async () => {
+                      await deleteSkillResource(skill.id, page.path);
+                      if (openPath === page.path) setOpenPath(null);
+                      await reload();
+                    })
+                  }
+                >
+                  Delete
+                </Button>
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {folders.length ? (
+        <p className="text-[12px] text-ink-faint">
+          Also here:{" "}
+          {folders.map((f, i) => (
+            <span key={f.path}>
+              {i > 0 ? ", " : ""}
+              <Mono className="text-ink-muted">{f.path}</Mono> ({f.bytes} file{f.bytes === 1 ? "" : "s"})
+            </span>
+          ))}
+        </p>
+      ) : null}
+
+      {openPath ? (
+        <div className="flex flex-col gap-2">
+          <TextArea value={content} onChange={setContent} rows={8} testId="page-content" />
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              disabled={busy}
+              testId="save-page-content"
+              onClick={() =>
+                void guard(async () => {
+                  await writeSkillResource(skill.id, openPath, content);
+                  await reload();
+                })
+              }
+            >
+              {busy ? "Saving…" : "Save page"}
+            </Button>
+            <Button onClick={() => setOpenPath(null)}>Close</Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

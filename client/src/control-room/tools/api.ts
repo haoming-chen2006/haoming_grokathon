@@ -182,6 +182,23 @@ export const updateSkill = (
 
 export const deleteSkill = (id: string) => call<void>("DELETE", `/grok-skills/${encodeURIComponent(id)}`);
 
+/**
+ * The other files in a skill's directory.
+ *
+ * §10's definition is "a preprocessed **directory** of markdown files fronted by a discovery
+ * prompt" — the plural is the point, and `~/.grok/bundled/skills/pdf/` ships as six files plus two
+ * subdirectories. A panel that could only edit SKILL.md would be editing one file and calling it a
+ * directory.
+ */
+export const readSkillResource = (id: string, path: string) =>
+  call<{ content: string }>("GET", `/grok-skills/${encodeURIComponent(id)}/resources/${path}`);
+
+export const writeSkillResource = (id: string, path: string, content: string) =>
+  call<GrokSkill>("PUT", `/grok-skills/${encodeURIComponent(id)}/resources/${path}`, { content });
+
+export const deleteSkillResource = (id: string, path: string) =>
+  call<GrokSkill>("DELETE", `/grok-skills/${encodeURIComponent(id)}/resources/${path}`);
+
 // ───────────────────────────────────────────────────────────────────────────── workflows
 
 export const listWorkflows = () => call<ProjectWorkflow[]>("GET", "/workflows");

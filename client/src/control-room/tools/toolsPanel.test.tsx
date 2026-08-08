@@ -103,6 +103,22 @@ function stubServer() {
       server.skills.push(created);
       return json(created, 201);
     }
+    const resourceMatch = /^\/grok-skills\/([^/]+)\/resources\/(.+)$/.exec(path);
+    if (resourceMatch) {
+      const found = server.skills.find((s) => s.id === decodeURIComponent(resourceMatch[1]));
+      if (!found) return json({ error: "Skill not found", code: "NOT_FOUND" }, 404);
+      const rel = resourceMatch[2];
+      found.files ??= {};
+      if (method === "GET") {
+        if (found.files[rel] === undefined) return json({ error: "not found", code: "NOT_FOUND" }, 404);
+        return json({ content: found.files[rel] });
+      }
+      if (method === "PUT") found.files[rel] = body.content ?? "";
+      if (method === "DELETE") delete found.files[rel];
+      found.resources = Object.entries(found.files).map(([p, c]) => ({ path: p, bytes: String(c).length }));
+      return json(found);
+    }
+
     const skillMatch = /^\/grok-skills\/([^/]+)$/.exec(path);
     if (skillMatch) {
       const found = server.skills.find((s) => s.id === decodeURIComponent(skillMatch[1]));
@@ -511,5 +527,93 @@ describe("a failed read never looks like an empty library", () => {
     const error = await screen.findByTestId("tools-error");
     expect(error.textContent).toContain("Could not read the library");
     expect(error.textContent).toContain("not a lost library");
+  });
+});
+
+// ════════════════════════════════════════════ TOOL-004: a skill is a directory, and stays editable
+
+describe("TOOL-004: the other pages in a skill", () => {
+  const SKILL = {
+    id: "user:deck", name: "deck", description: "Slide rules. Use when building a deck.",
+    body: "x", extras: {}, dir: "/home/u/.grok/skills/deck", scope: "user",
+    state: "active", resources: [], editable: true, files: {} as Record<string, string>,
+  };
+
+  test("a page is added by naming it, never by typing a filename", async () => {
+    server.skills = [{ ...SKILL, files: {} }];
+    mount("skills");
+    await settled();
+
+    fireEvent.click(screen.getByText("deck"));
+    fireEvent.click(await screen.findByTestId("add-skill-page"));
+
+    // One field, and it asks for a name in prose — no extension, no path, no folder picker.
+    const form = screen.getByTestId("add-page-form");
+    expect(within(form).getAllByRole("textbox")).toHaveLength(1);
+
+    fireEvent.change(screen.getByTestId("new-page-name"), { target: { value: "Tone of voice" } });
+    fireEvent.click(screen.getByTestId("save-page"));
+
+    // The slug is derived for them, and only shown afterwards.
+    await waitFor(() => expect(Object.keys(server.skills[0].files)).toEqual(["tone-of-voice.md"]));
+    expect(await screen.findByText("tone-of-voice.md")).toBeTruthy();
+  });
+
+  test("a page opens, edits and saves back to the server", async () => {
+    server.skills = [{ ...SKILL, files: { "reference.md": "# Reference\n" },
+      resources: [{ path: "reference.md", bytes: 12 }] }];
+    mount("skills");
+    await settled();
+
+    fireEvent.click(screen.getByText("deck"));
+    // The row's label, not its wrapper: ResourceRow puts the click handler on the inner button.
+    fireEvent.click(await screen.findByText("reference.md"));
+
+    const editor = await screen.findByTestId("page-content");
+    expect((editor as HTMLTextAreaElement).value).toBe("# Reference\n");
+
+    fireEvent.change(editor, { target: { value: "# Reference\n\nUse the house grid." } });
+    fireEvent.click(screen.getByTestId("save-page-content"));
+
+    await waitFor(() =>
+      expect(server.skills[0].files["reference.md"]).toContain("Use the house grid."),
+    );
+  });
+
+  test("a page can be deleted", async () => {
+    server.skills = [{ ...SKILL, files: { "old.md": "gone soon" },
+      resources: [{ path: "old.md", bytes: 9 }] }];
+    mount("skills");
+    await settled();
+
+    fireEvent.click(screen.getByText("deck"));
+    fireEvent.click(await screen.findByTestId("delete-skill-page"));
+
+    await waitFor(() => expect(Object.keys(server.skills[0].files)).toHaveLength(0));
+  });
+
+  test("subdirectories are named but not browsable — this panel is not a file manager", async () => {
+    server.skills = [{ ...SKILL, files: {},
+      resources: [{ path: "scripts/", bytes: 3 }, { path: "reference.md", bytes: 4 }] }];
+    mount("skills");
+    await settled();
+
+    fireEvent.click(screen.getByText("deck"));
+    const pages = await screen.findAllByTestId("skill-page-row");
+
+    // The folder is mentioned as context; only the markdown page is openable.
+    expect(pages).toHaveLength(1);
+    expect(screen.getByTestId("skill-pages").textContent).toContain("scripts/");
+    expect(screen.getByTestId("skill-pages").textContent).toContain("3 files");
+  });
+
+  test("a built-in skill offers no page editing at all", async () => {
+    server.skills = [{ ...SKILL, id: "bundled:pdf", name: "pdf", scope: "bundled", editable: false }];
+    mount("skills");
+    await settled();
+
+    fireEvent.click(screen.getByText("pdf"));
+    await screen.findByTestId("skill-detail");
+    expect(screen.queryByTestId("skill-pages")).toBeNull();
   });
 });

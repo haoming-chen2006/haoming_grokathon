@@ -221,6 +221,13 @@ corrupt `library.json` stopped looking like an empty one, and `resolveInjection`
 **Iteration 3** — the panel. Three sections against the real `/api/library`, create/edit/delete for
 each, server-side render, turn up/down, and injection by typed event.
 
+**Iteration 4** — a skill became an editable *directory* rather than one editable file. The panel
+can now add, open, edit and delete the other markdown pages beside `SKILL.md`, which is TOOL-004's
+second clause and the plural in §10's "a directory of markdown files". The user names a page ("Tone
+of voice") and the slug is derived for them; they never type a filename, an extension or a path.
+Subdirectories are named as context but not browsable — a folder browser is a filesystem, and
+TOOL-010 says this panel is not one. Built-in skills expose no page editing at all.
+
 | Item | State | Where |
 |---|---|---|
 | TOOL-1 opens over every page, Esc, URL-driven | **done** — shell's frame, panel renders body only | `ToolsPanel.tsx` |
@@ -233,7 +240,7 @@ each, server-side render, turn up/down, and injection by typed event.
 | TOOL-8 A-00 finding written with evidence | **done** | §1 above |
 | TOOL-9 tests + `bun run typecheck` clean | **done** — 109 tests | see below |
 
-`bun run typecheck` is clean. 109 tests pass across `promptLibrary.test.ts`, `library.test.ts` and
+`bun run typecheck` is clean. 114 tests pass across `promptLibrary.test.ts`, `library.test.ts` and
 `toolsPanel.test.tsx`. The full gate is deliberately not run: siblings have half-finished edits on
 disk (brief §7).
 
