@@ -186,6 +186,19 @@ function DocumentSurface({
   const claimFor = (lineNo: number) =>
     claims.find((c) => lineNo >= c.report.lines!.from && lineNo <= c.report.lines!.to);
 
+  /**
+   * Which declared area, if any, was declared on this line.
+   *
+   * This is the one place the document and the inspector are visibly the same object: area 3 in
+   * the list and the line that declares area 3 carry the same colour, so "what this document
+   * declares" is legible without reading the inspector at all. The index is the area's position in
+   * the declaration, which is exactly what the inspector uses, so the two cannot disagree.
+   */
+  const areaOnLine = (lineNo: number) => {
+    const i = decl?.areas.findIndex((a) => a.line === lineNo) ?? -1;
+    return i >= 0 ? { area: decl!.areas[i], index: i } : undefined;
+  };
+
   return (
     <div data-testid="document-surface" className="min-w-0 flex-1 overflow-auto px-6 py-5">
       <div className="mb-4 flex flex-col gap-1.5">
@@ -215,27 +228,33 @@ function DocumentSurface({
           const lineNo = i + 1;
           const claim = claimFor(lineNo);
           const inDeclaration = decl && lineNo >= decl.blockStart && lineNo <= decl.blockEnd;
+          const declared = areaOnLine(lineNo);
           const enc = claim ? PRESENCE_ENCODING[claim.state] : undefined;
           const rule =
             enc?.stroke === "filled" ? "border-solid" : enc?.stroke === "dashed" ? "border-dashed" : "";
+          // Presence wins the rule when both apply: a live agent is the more urgent fact, and the
+          // declared area keeps its colour on the text itself.
+          const edge = claim
+            ? `${AREA_BORDER[claim.report.areaIndex - 1]} ${rule} ${AREA_GUTTER[claim.report.areaIndex - 1]}`
+            : declared
+              ? `${AREA_BORDER[declared.index % 6]} border-solid ${AREA_GUTTER[declared.index % 6]}`
+              : "border-transparent";
           return (
             <div
               key={lineNo}
-              data-testid={claim ? `line-${lineNo}-presence` : undefined}
-              className={`flex gap-3 border-l-[3px] pl-3 ${
-                claim
-                  ? `${AREA_BORDER[claim.report.areaIndex - 1]} ${rule} ${
-                      AREA_GUTTER[claim.report.areaIndex - 1]
-                    }`
-                  : "border-transparent"
-              }`}
+              data-testid={
+                claim ? `line-${lineNo}-presence` : declared ? `line-${lineNo}-area` : undefined
+              }
+              className={`flex gap-3 border-l-[3px] pl-3 ${edge}`}
             >
               <span className="w-8 shrink-0 select-none text-right text-ink-ghost">{lineNo}</span>
               {/* The gutter word: the state is legible without reading the colour. */}
               <span className="w-24 shrink-0 truncate text-[10px] uppercase tracking-[0.06em] text-ink-faint">
                 {claim && claim.report.lines?.from === lineNo
                   ? `${claim.report.agentName} · ${PRESENCE_ENCODING[claim.state].label}`
-                  : ""}
+                  : declared
+                    ? `area · ${declared.area.name}`
+                    : ""}
               </span>
               <span
                 className={`min-w-0 whitespace-pre-wrap ${
@@ -292,7 +311,13 @@ export function DesignDocumentsPage({ selectionId }: WorkspacePageProps) {
   const { docs, loading, error } = useDesignDocs();
   const doc = useDoc(docs, selectionId);
   const now = useMemo(() => Date.now(), []);
-  const reports = useMemo(() => mockPresence(now, 1), [now]);
+  // Clamped to the document being viewed: the mock's ranges are fixed, and a claim on line 24 of
+  // a 20-line document would be a highlight pointing at nothing. Clamping is what the real
+  // presence layer will do anyway when a document shrinks under a running agent.
+  const reports = useMemo(
+    () => (doc ? mockPresence(now, 1).filter((r) => !r.lines || r.lines.to <= doc.lineCount) : []),
+    [now, doc],
+  );
 
   if (loading) return <Centered>Loading design documents…</Centered>;
   if (error) return <Centered>{error}</Centered>;

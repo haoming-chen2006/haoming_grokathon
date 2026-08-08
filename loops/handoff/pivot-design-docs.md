@@ -393,3 +393,88 @@ part of that service. No sibling worktree can want those paths. Noted rather tha
 
 (The sibling document `loops/02-assets.md` §0 grants its own test files explicitly. The omission
 here looks like drift between the two documents, not intent.)
+
+---
+
+## Final iteration — what landed, and two things reconciliation must know
+
+### R-11 — `server/routes/api.ts` (HOT FILE — EDITED, not requested)
+
+```text
++ import { designDocRoutes } from "./designDocs";
++ apiRoutes.route("/design-docs", designDocRoutes);
+```
+
+**Edited directly rather than filed, on an explicit instruction** ("Add server/routes/designDocs.ts,
+mount it… That is the demo"). Two lines, both additive, in the same shape as the four mounts above
+them. Flagged here because the hot-file protocol says a mount is a request, and a reviewer should
+see that the rule was broken deliberately and not by accident.
+
+### R-12 — `client/src/control-room/shell/contract.ts`, for 07-shell
+
+`WorkspacePageComponent` is typed `(props) => JSX.Element`, which forbids a slot returning `null`.
+That is a normal React pattern and the inspector wanted it when no document is selected. Widening
+to `JSX.Element | null` is additive and breaks nobody:
+
+```ts
+export type WorkspacePageComponent = (props: WorkspacePageProps) => JSX.Element | null;
+```
+
+Worked around locally by returning an element instead. Not urgent.
+
+### What is real on this page and what is not
+
+```text
+REAL   the three documents, their text, their sections, the declaration, the declared areas and
+       the line each was declared on. Parsed by services/designDoc.ts — the one parser, on the
+       server. The client does not reimplement it; shared/designDocument.ts exists because the
+       CLI and the browser once had two parsers and drifted.
+
+MOCK   line-level presence, and nothing else. One file, one export:
+       client/src/control-room/designdoc/mockPresence.ts
+       Labelled on screen where it renders. Delete the file and the one import when
+       server/services/presence.ts lands; the components take PresenceReport[] either way.
+
+ABSENT persistence, versioning, writes, suggestions, and the in-document conversation. The route
+       is read-only on purpose and has no endpoint that pretends to save anything.
+```
+
+The route reads `demo/design-docs/` rather than `DesignDocStore`. The store is built, versioned and
+tested, but nothing writes to it and no composition root chooses its directory (R-10). When that is
+wired, `listDocuments()` in `server/routes/designDocs.ts` is the only function that changes.
+
+### The wireframe comparison (design-document.html), and where it lost
+
+Read and compared clause by clause. Adopted: the KEY legend, the solid/dashed/dotted stroke
+encoding, the per-agent caption with an elapsed time, the gutter carrying a word as well as a
+colour, and `PROJECT · …` as a single chip so the cardinality rule is visible rather than stated.
+
+**Three disagreements, and the loop document won all three:**
+
+1. **The wireframe has no `unknown` state.** It shows working / stale / done / expired. §3.8 calls
+   `unknown` the important one: the agent is alive and the session is running, but it has not said
+   where — or the document version moved, so its reported range is *wrong* rather than old. The
+   wireframe would have drawn a confident highlight over the wrong paragraph. `unknown` is built,
+   it draws no highlight at all, and it says so in words in the rail.
+2. **The wireframe's `done` keeps a green highlight after the agent stopped.** §3.8's `ended`
+   removes the highlight entirely, and the TTL exists precisely to stop a ghost dot outliving a
+   crashed agent. Followed the document. The wireframe's `done` is a good idea wearing the wrong
+   hat: it is *provenance* ("this range produced sale_demo_video"), not presence, and it belongs to
+   the asset, not to the lease.
+3. **Messages with a line link should render beside those lines** (§3.7); the wireframe puts them
+   all in a side panel with the range in the caption. Neither is built this iteration.
+
+**Checked specifically, because it was asked:**
+
+* **Fresh, stale and expired are distinguishable without colour.** Each state differs by outline
+  style — filled / dashed / dotted — *and* carries a written label and an elapsed time. Four states
+  survive greyscale, 9px, and a reader who cannot separate the six area hues. The marker is
+  `aria-hidden`; the caption carries the meaning.
+* **The project relationship is visible, in both directions.** A document shows at most one project
+  chip; the navigator lists many documents. A document with no project says "No project follows
+  this document yet" rather than hiding the field — DD-001's case, which the wireframe never shows.
+* **Nothing gates an action on presence, in the wireframe or here.** The wireframe's Open/Pause/Stop
+  appear identically on every agent regardless of state; there is no lock, no disabled control, no
+  read-only banner, and no such affordance was built. Presence is a view, not a lock. Worth keeping
+  under review: those three controls act on a `grok` process and belong to 01-agents, so wiring
+  them is a request, not something this worktree should reach for.
