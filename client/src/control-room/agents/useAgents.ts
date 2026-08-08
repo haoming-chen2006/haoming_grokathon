@@ -55,6 +55,13 @@ export interface AgentsData {
   launch(taskId: string): Promise<void>;
   pause(agentId: string): Promise<void>;
   addAgent(input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }): Promise<void>;
+  /** Create an agent and put it inside one area — the box-click flow. */
+  addAgentToArea(input: {
+    areaId: string;
+    name: string;
+    role: string;
+    capabilities?: { images: boolean; voice: boolean };
+  }): Promise<void>;
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -211,6 +218,31 @@ export function useAgents(projectId: string): AgentsData {
       run("Pausing", () =>
         json(`/api/coding-agents/${agentId}/session/pause`, { method: "POST", body: "{}" }),
       ),
+    addAgentToArea: (input: {
+      areaId: string;
+      name: string;
+      role: string;
+      capabilities?: { images: boolean; voice: boolean };
+    }) =>
+      // Two calls, not one: the registry creates agents and `workArea` owns which area an agent is
+      // in, and collapsing them into a create-with-area would give the boundary rule two homes. If
+      // the assignment fails the agent still exists and is visible, unassigned — a half-made agent
+      // you can see beats a silent rollback.
+      run(`Starting ${input.name}`, async () => {
+        const created = await json<{ id: string }>("/api/coding-agents", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId,
+            name: input.name,
+            role: input.role,
+            ...(input.capabilities ? { capabilities: input.capabilities } : {}),
+          }),
+        });
+        await json(`/api/coding-agents/${created.id}/area`, {
+          method: "PATCH",
+          body: JSON.stringify({ areaId: input.areaId }),
+        });
+      }),
     addAgent: (input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }) =>
       run("Adding", () =>
         json("/api/coding-agents", {

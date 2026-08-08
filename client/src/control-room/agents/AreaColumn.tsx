@@ -10,6 +10,7 @@
  * it (`AREA_GLYPHS`, eight distinct shapes) and its name, which is what makes the column readable
  * when two areas land on the same published hue.
  */
+import { useState } from "react";
 import { AgentCard, Money } from "./AgentCard";
 import { agentsInArea, areaAccent, knownSpend, launchRefusal, launchableTask } from "./board";
 import { NO_VOCABULARY, type AgentView, type AgentVocabulary, type AreaView, type TaskView } from "./types";
@@ -28,6 +29,18 @@ export interface AreaColumnProps {
   onSelect(selectionId: string | undefined): void;
   onPause(agentId: string): void;
   onLaunch?(taskId: string): void;
+  /**
+   * Hire an agent into THIS area — the box-click flow.
+   *
+   * Optional so the column still renders read-only wherever the caller cannot create; the control
+   * is simply absent then, rather than present and refusing.
+   */
+  onStartAgent?(input: {
+    areaId: string;
+    name: string;
+    role: string;
+    capabilities?: { images: boolean; voice: boolean };
+  }): void;
 }
 
 export function AreaColumn({
@@ -42,6 +55,7 @@ export function AreaColumn({
   onSelect,
   onPause,
   onLaunch,
+  onStartAgent,
 }: AreaColumnProps) {
   const accent = areaAccent(area);
   const inside = agentsInArea(area, agents);
@@ -91,12 +105,15 @@ export function AreaColumn({
       ) : null}
 
       {inside.length === 0 ? (
-        <p data-testid="area-empty" className="text-[13px] leading-snug text-ink-faint">
-          {/* "Nobody assigned" is the server's own word for it, and it is not a status: an area
-              nobody works in is the absence of one. Idle would claim a session exists. */}
-          {area.statusPresentation?.label ?? "Nobody assigned"} — no agent is hired into this area
-          yet, so nothing here is being worked on.
-        </p>
+        <>
+          <p data-testid="area-empty" className="text-[13px] leading-snug text-ink-faint">
+            {/* "Nobody assigned" is the server's own word for it, and it is not a status: an area
+                nobody works in is the absence of one. Idle would claim a session exists. */}
+            {area.statusPresentation?.label ?? "Nobody assigned"} — no agent is hired into this area
+            yet, so nothing here is being worked on.
+          </p>
+          {onStartAgent ? <StartAgentHere area={area} busy={busy} onStart={onStartAgent} /> : null}
+        </>
       ) : (
         <div className="flex flex-wrap gap-3">
           {inside.map((agent) => {
@@ -125,5 +142,110 @@ export function AreaColumn({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Put an agent inside an empty area.
+ *
+ * The box is the unit of work and it is also the boundary, so hiring happens ON the box rather than
+ * in a global form that then asks which area — an agent belongs to exactly one, and choosing it
+ * twice is a chance to choose differently.
+ *
+ * Capability is the money control, not a feature switch: media tools are REGISTERED per capability,
+ * so a text-only agent cannot reach a priced endpoint at all. The prices are on the options because
+ * the person clicking this is the person paying.
+ */
+function StartAgentHere({
+  area,
+  busy,
+  onStart,
+}: {
+  area: AreaView;
+  busy?: boolean;
+  onStart: NonNullable<AreaColumnProps["onStartAgent"]>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [capability, setCapability] = useState<"base" | "images" | "voice" | "both">("base");
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        data-testid={`start-agent-${area.id}`}
+        onClick={() => setOpen(true)}
+        className="rounded-[7px] border border-dashed border-border-strong px-2.5 py-2 text-[13px] text-ink-faint hover:bg-surface-hover"
+      >
+        Start an agent here
+      </button>
+    );
+  }
+
+  return (
+    <form
+      data-testid={`start-agent-form-${area.id}`}
+      onSubmit={(e) => {
+        e.preventDefault();
+        onStart({
+          areaId: area.id,
+          name: name.trim(),
+          // The area is the role. A separate role field would be a second name for the same thing,
+          // and this agent exists to do this area's work.
+          role: area.name,
+          ...(capability === "base"
+            ? {}
+            : {
+                capabilities: {
+                  images: capability === "images" || capability === "both",
+                  voice: capability === "voice" || capability === "both",
+                },
+              }),
+        });
+        setName("");
+        setCapability("base");
+        setOpen(false);
+      }}
+      className="flex flex-col gap-1.5 rounded-[7px] border border-dashed border-border-strong p-2"
+    >
+      <input
+        data-testid={`start-agent-name-${area.id}`}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name this agent"
+        aria-label="Agent name"
+        className="rounded border border-border bg-surface px-2 py-1 text-[13px] text-ink placeholder:text-ink-ghost"
+      />
+      <select
+        data-testid={`start-agent-capability-${area.id}`}
+        aria-label="What this agent may produce"
+        value={capability}
+        onChange={(e) => setCapability(e.target.value as typeof capability)}
+        className="rounded border border-border bg-surface px-2 py-1 text-[13px] text-ink"
+      >
+        <option value="base">Text only — base Grok</option>
+        <option value="images">Images — $0.02 each</option>
+        <option value="voice">Speech — $15 per million characters</option>
+        <option value="both">Images and speech</option>
+      </select>
+      <div className="flex gap-1.5">
+        <button
+          type="submit"
+          data-testid={`start-agent-submit-${area.id}`}
+          disabled={!name.trim() || busy}
+          title={name.trim() ? `Hire into ${area.name}` : "Name the agent first"}
+          className="flex-1 rounded border border-border-strong bg-surface-active px-2 py-1 text-[13px] text-ink disabled:opacity-40"
+        >
+          Start
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded border border-border px-2 py-1 text-[13px] text-ink-faint hover:bg-surface-hover"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
