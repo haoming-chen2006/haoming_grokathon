@@ -162,6 +162,8 @@ export function ControlRoomApp() {
                 agentName={(id) => room.agents.find((a) => a.id === id)?.name}
                 onApprove={room.approvePlan}
                 onLaunch={room.launchTask}
+                onGenerate={room.generatePlan}
+                generating={room.planning}
               />
             )}
             {tab === "reviews" && (

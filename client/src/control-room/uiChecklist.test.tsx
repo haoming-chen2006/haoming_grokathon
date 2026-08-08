@@ -48,6 +48,7 @@ const PROJECT = {
   ],
   tasks: [{ id: "t1", objective: "Implement greet", assignedAgentId: "a1", status: "working", dependsOn: [] }],
   plan: { id: "plan_1", state: "draft", milestones: [] },
+
 };
 
 const AGENTS = [
@@ -63,14 +64,18 @@ const AGENTS = [
 
 const calls: Array<{ method: string; url: string }> = [];
 
+/** Whether the fixture project already has a plan. The generate flow only exists when it does not. */
+let hasPlan = true;
+
 function stubFetch() {
+  hasPlan = true;
   calls.length = 0;
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
     calls.push({ method: init?.method ?? "GET", url: String(url) });
     const send = (data: unknown) => new Response(JSON.stringify(data), { status: 200 });
     const u = String(url);
     if (u === "/api/projects") return send([{ id: "p1", name: "Greeting Service", goal: "g", repositoryPath: "/tmp/repo" }]);
-    if (u.endsWith("/api/projects/p1")) return send(PROJECT);
+    if (u.endsWith("/api/projects/p1")) return send(hasPlan ? PROJECT : { ...PROJECT, plan: undefined });
     if (u.includes("/document")) return send({ title: "Design", version: 2, content: "# Design" });
     if (u.includes("/coding-agents?projectId")) return send(AGENTS);
     if (u.includes("/progress")) return send({ percent: 50, completed: 1, total: 2 });
@@ -300,5 +305,21 @@ describe("the approval gate is reachable from the shell (V-018)", () => {
     await openTab("plan");
     await waitFor(() => expect(screen.getByTestId("plan-task-owner-t1")).toBeTruthy());
     expect(screen.getByTestId("plan-task-owner-t1").textContent).toBe("Backend Engineer");
+  });
+});
+
+describe("the browser flow does not send you back to the command line", () => {
+  test("with no plan, the Plan tab offers to generate one and calls the endpoint", async () => {
+    // The panel used to name `bun run new -- --plan`, which ended the browser flow at the step
+    // that turns a document into work.
+    hasPlan = false;
+    await openApp();
+    await openTab("plan");
+    await waitFor(() => expect(screen.getByTestId("plan-generate")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("plan-generate"));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.url.includes("/plan/generate"))).toBe(true),
+    );
   });
 });

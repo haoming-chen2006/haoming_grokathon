@@ -172,6 +172,33 @@ describe("Control Room shell", () => {
     await waitFor(() => expect(screen.getByTestId("project-name").textContent).toBe("Greeting Service"));
   });
 
+  test("requirements in the pasted document are imported with the project", async () => {
+    // Otherwise a project created in the browser has a document and nothing to track against it,
+    // while the same document through `bun run new` yields requirements — the two disagreeing.
+    projectsResponse = [];
+    render(<ControlRoomApp />);
+    await waitFor(() => expect(screen.getByTestId("new-project")).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId("np-repo"), { target: { value: "/tmp/repo" } });
+    fireEvent.change(screen.getByTestId("np-name"), { target: { value: "Greeting Service" } });
+    fireEvent.change(screen.getByTestId("np-design"), {
+      target: { value: "# Design\n\n- GREET-01: greet returns a greeting\n" },
+    });
+
+    projectsResponse = [{ id: "p1", name: "Greeting Service", goal: "g", repositoryPath: "/tmp/repo" }];
+    fireEvent.click(screen.getByTestId("np-submit"));
+
+    await waitFor(() => {
+      const req = calls.find((c) => c.method === "POST" && c.url.endsWith("/requirements"));
+      expect(req, "no requirement was posted").toBeTruthy();
+      expect(JSON.parse(req!.body!)).toEqual({ id: "GREET-01", description: "greet returns a greeting" });
+    });
+
+    // The requirement goes to its own endpoint, not smuggled into the project body.
+    const projectPost = calls.find((c) => c.method === "POST" && c.url === "/api/projects");
+    expect(JSON.parse(projectPost!.body!).requirements).toBeUndefined();
+  });
+
   test("every tab renders its panel", async () => {
     await openShell();
 

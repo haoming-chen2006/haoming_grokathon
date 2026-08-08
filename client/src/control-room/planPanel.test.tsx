@@ -78,13 +78,43 @@ describe("the approval gate is operable from the Control Room (V-018)", () => {
     expect(screen.getByTestId("plan-task-owner-t1").textContent).toBe("ghost");
   });
 
-  test("no plan explains how to make one rather than showing a blank panel", () => {
+  test("no plan explains what a plan is rather than showing a blank panel", () => {
     render(<PlanPanel plan={null} tasks={[]} />);
-    expect(screen.getByTestId("plan-empty").textContent).toContain("bun run new");
+    expect(screen.getByTestId("plan-empty").textContent).toContain("Planner reads the design document");
   });
 
   test("an approved plan with no tasks says so", () => {
     render(<PlanPanel plan={approved} tasks={[]} />);
     expect(screen.getByTestId("plan-no-tasks")).toBeTruthy();
+  });
+});
+
+describe("generating a plan from the Control Room (§10 step 4)", () => {
+  test("with no plan, the panel offers to generate one instead of naming a CLI command", () => {
+    render(<PlanPanel plan={null} tasks={[]} onGenerate={() => {}} />);
+    const empty = screen.getByTestId("plan-empty").textContent ?? "";
+    expect(screen.getByTestId("plan-generate")).toBeTruthy();
+    // The old copy told the user to leave the browser.
+    expect(empty).not.toContain("bun run");
+    // And it explains the gate before anything runs.
+    expect(empty.toLowerCase()).toContain("nothing runs until you approve");
+  });
+
+  test("generating calls back once and reports that it is running", () => {
+    let calls = 0;
+    const { rerender } = render(<PlanPanel plan={null} tasks={[]} onGenerate={() => { calls += 1; }} />);
+    fireEvent.click(screen.getByTestId("plan-generate"));
+    expect(calls).toBe(1);
+
+    rerender(<PlanPanel plan={null} tasks={[]} onGenerate={() => { calls += 1; }} generating />);
+    // A real agent turn takes a minute; silence would read as a broken button.
+    expect(screen.getByTestId("plan-generating").textContent).toContain("takes a minute");
+    fireEvent.click(screen.getByTestId("plan-generate"));
+    expect(calls).toBe(1);
+  });
+
+  test("a caller that cannot generate shows no control", () => {
+    render(<PlanPanel plan={null} tasks={[]} />);
+    expect(screen.queryByTestId("plan-generate")).toBeNull();
   });
 });

@@ -55,6 +55,7 @@ describe("opening a repository from the Control Room (§10 steps 1-2)", () => {
       baseBranch: "develop",
       budgetUsd: 25,
       documentContent: "# Auth\n\n- AUTH-01: login returns a token",
+      requirements: [{ id: "AUTH-01", description: "login returns a token" }],
     });
   });
 
@@ -91,5 +92,38 @@ describe("opening a repository from the Control Room (§10 steps 1-2)", () => {
     expect(submit.disabled).toBe(true);
     fireEvent.click(submit);
     expect(calls).toBe(0);
+  });
+});
+
+describe("requirements are read from the pasted document", () => {
+  test("the form says which requirements it found, before you submit", () => {
+    render(<NewProjectPanel onCreate={() => {}} />);
+    expect(screen.getByTestId("np-requirements").textContent).toContain("No requirements found");
+
+    fill({ "np-design": "# Auth\n\n- AUTH-01: login returns a token\n- AUTH-02: sessions rotate\n" });
+    const preview = screen.getByTestId("np-requirements").textContent ?? "";
+    expect(preview).toContain("2 requirements");
+    expect(preview).toContain("AUTH-01");
+    expect(preview).toContain("AUTH-02");
+  });
+
+  test("they are passed with the project, using the same parser as the CLI", () => {
+    const got: NewProjectInput[] = [];
+    render(<NewProjectPanel onCreate={(input) => { got.push(input); }} />);
+    fill({
+      "np-repo": "/tmp/repo", "np-name": "Auth",
+      "np-design": "- AUTH-01: login returns a token\n- not a requirement\n",
+    });
+    fireEvent.click(screen.getByTestId("np-submit"));
+
+    expect(got[0].requirements).toEqual([{ id: "AUTH-01", description: "login returns a token" }]);
+  });
+
+  test("a document with no requirements passes none rather than an empty list", () => {
+    const got: NewProjectInput[] = [];
+    render(<NewProjectPanel onCreate={(input) => { got.push(input); }} />);
+    fill({ "np-repo": "/tmp/repo", "np-name": "Auth", "np-design": "# Just prose\n" });
+    fireEvent.click(screen.getByTestId("np-submit"));
+    expect(got[0].requirements).toBeUndefined();
   });
 });

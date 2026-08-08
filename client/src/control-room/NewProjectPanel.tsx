@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { parseRequirements } from "../../../shared/designDocument";
 
 export interface NewProjectInput {
+  /** Requirements read out of the document, imported after the project is created. */
+  requirements?: Array<{ id: string; description: string }>;
   name: string;
   goal: string;
   repositoryPath: string;
@@ -36,6 +39,9 @@ export function NewProjectPanel({ onCreate, busy, error }: Props) {
   // A project without a repository has nothing to work in, and one without a name is unfindable.
   const ready = repositoryPath.trim().length > 0 && name.trim().length > 0;
 
+  // The same parser the CLI uses, so the two cannot disagree about what a document contains.
+  const found = parseRequirements(documentContent);
+
   const field = "w-full rounded border border-white/10 bg-neutral-900 px-2 py-1.5 text-sm text-white placeholder-white/25 focus:border-white/30 focus:outline-none";
   const label = "mb-1 block text-[11px] uppercase tracking-wide text-white/40";
 
@@ -53,6 +59,7 @@ export function NewProjectPanel({ onCreate, busy, error }: Props) {
           baseBranch: baseBranch.trim() || undefined,
           budgetUsd: budget.trim() ? Number(budget) : undefined,
           documentContent: documentContent.trim() || undefined,
+          requirements: found.length ? found : undefined,
         });
       }}
     >
@@ -107,6 +114,11 @@ export function NewProjectPanel({ onCreate, busy, error }: Props) {
         <div className="mt-1 text-[11px] text-white/35">
           Paste a PRD, an issue or a technical design. It becomes version 1 of the project document,
           which agents may read and propose changes to, but never edit directly.
+        </div>
+        <div data-testid="np-requirements" className="mt-1 text-[11px] text-white/45">
+          {found.length === 0
+            ? 'No requirements found. Write them as list items — "- AUTH-01: Login returns a token" — to track implementation against them.'
+            : `${found.length} requirement${found.length === 1 ? "" : "s"} will be imported: ${found.map((r) => r.id).join(", ")}`}
         </div>
       </div>
 

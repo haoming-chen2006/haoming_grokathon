@@ -105,6 +105,7 @@ export function useControlRoom() {
   const [budgetAlert, setBudgetAlert] = useState<BudgetAlert | null>(null);
   const [acpSessionId, setAcpSessionId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -332,7 +333,17 @@ export function useControlRoom() {
   const createProject = useCallback(async (input: NewProjectInput) => {
     setCreating(true);
     try {
-      const project = await json<any>("/api/projects", { method: "POST", body: JSON.stringify(input) });
+      const { requirements, ...projectInput } = input;
+      const project = await json<any>("/api/projects", { method: "POST", body: JSON.stringify(projectInput) });
+
+      // Requirements are a separate endpoint, so a rejected one must not lose the project.
+      for (const requirement of requirements ?? []) {
+        try {
+          await json(`/api/projects/${project.id}/requirements`, {
+            method: "POST", body: JSON.stringify(requirement),
+          });
+        } catch { /* reported by the project view; the project itself stands */ }
+      }
       await loadProjects();
       setState((s) => ({ ...s, projectId: project.id, loading: true, error: null }));
     } catch (err) {
@@ -341,6 +352,26 @@ export function useControlRoom() {
       setCreating(false);
     }
   }, [loadProjects]);
+
+  /**
+   * Ask the Planner to propose tasks from the design document (§10 step 4).
+   *
+   * The Plan panel used to tell the user to run `bun run new -- --plan`, which meant the browser
+   * flow ended at the one step that turns a document into work. This is a real agent turn, so the
+   * caller shows it as running.
+   */
+  const generatePlan = useCallback(async () => {
+    if (!state.projectId) return;
+    setPlanning(true);
+    try {
+      await json(`/api/projects/${state.projectId}/plan/generate`, { method: "POST", body: "{}" });
+      void loadProject(state.projectId);
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setPlanning(false);
+    }
+  }, [state.projectId, loadProject]);
 
   const refresh = useCallback(() => {
     if (state.projectId) void loadProject(state.projectId);
@@ -360,6 +391,8 @@ export function useControlRoom() {
     launchTask,
     createProject,
     creating,
+    generatePlan,
+    planning,
     transcript,
     sessionState,
     selectProject: (id: string) => setState((s) => ({ ...s, projectId: id, loading: true })),

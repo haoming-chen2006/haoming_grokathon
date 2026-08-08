@@ -6,6 +6,9 @@ interface Props {
   agentName?: (agentId: string) => string | undefined;
   onApprove?: () => void;
   onLaunch?: (taskId: string) => void;
+  /** Ask the Planner to propose tasks from the design document. A real agent turn. */
+  onGenerate?: () => void;
+  generating?: boolean;
 }
 
 /**
@@ -20,13 +23,34 @@ interface Props {
  * treatment as approving a stale suggestion or merging with failing tests. A control that is absent
  * teaches nothing; one that explains its refusal teaches the gate.
  */
-export function PlanPanel({ plan, tasks, agentName, onApprove, onLaunch }: Props) {
+export function PlanPanel({
+  plan, tasks, agentName, onApprove, onLaunch, onGenerate, generating,
+}: Props) {
   if (!plan) {
+    // This used to tell the user to run `bun run new -- --plan`, which ended the browser flow at
+    // the one step that turns a document into work.
     return (
       <div data-testid="plan-empty" className="p-4 text-sm text-white/50">
-        No implementation plan yet. Generate one from the design document with{" "}
-        <code className="rounded bg-white/10 px-1">bun run new -- --plan</code>, or post a plan to{" "}
-        <code className="rounded bg-white/10 px-1">/api/projects/:id/plan</code>.
+        <div className="mb-3">
+          No implementation plan yet. The Planner reads the design document and the repository, and
+          proposes tasks for you to review — nothing runs until you approve them.
+        </div>
+        {onGenerate && (
+          <button
+            type="button"
+            data-testid="plan-generate"
+            onClick={onGenerate}
+            disabled={generating}
+            className="rounded bg-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {generating ? "Planning…" : "Generate plan"}
+          </button>
+        )}
+        {generating && (
+          <div data-testid="plan-generating" className="mt-2 text-[11px] text-white/40">
+            Running a real Grok session against the design document. This takes a minute.
+          </div>
+        )}
       </div>
     );
   }

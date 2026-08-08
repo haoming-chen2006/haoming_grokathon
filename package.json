@@ -35,7 +35,7 @@
     "start": "bun run server/index.ts",
     "dev": "concurrently \"bun run --watch server/index.ts\" \"bun run --cwd client dev\"",
     "build": "bun run --cwd client build",
-    "test": "bun test server/ client/src scripts/",
+    "test": "bun test server/ client/src scripts/ shared/",
     "typecheck": "tsc --noEmit && bun run --cwd client tsc --noEmit",
     "verify": "bun run typecheck && bun run test && bun run build && bun run audit",
     "acceptance": "bun run scripts/acceptance/v052.mjs",

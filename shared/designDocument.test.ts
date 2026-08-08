@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseRequirements, firstHeading } from "./designDocument.mjs";
+import { parseRequirements, firstHeading } from "./designDocument";
 
 describe("reading requirements from a design document", () => {
   test("all three list forms are recognised", () => {

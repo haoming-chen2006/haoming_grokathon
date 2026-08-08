@@ -3994,7 +3994,7 @@ require git — both before anything is created.
 
 ### A worse finding underneath it
 
-The requirement parser was extracted to `scripts/lib/designDocument.mjs` so it could be tested, and
+The requirement parser was extracted so it could be tested (now `shared/designDocument.ts`), and
 six tests were written for it. **The suite total did not move.**
 
 ```text
@@ -4177,6 +4177,66 @@ the project, read the plan, approve it, launch a task, watch the session.
 
 ---
 
+## Finishing the browser flow (iteration 68)
+
+Last iteration ended by claiming the flow was "operable end to end in the browser". That was too
+strong, and walking it as a user showed where:
+
+```text
+create a project in the form   →  document saved, and no requirements
+open the Plan tab              →  "Generate one with `bun run new -- --plan`"
+```
+
+Two steps in, the interface sent the user back to the command line — at exactly the step that turns
+a document into work.
+
+**The parser is now shared, not duplicated.** `bun run new` read requirements out of a document and
+the form did not. Writing a second parser for the browser would have meant the CLI and the UI
+eventually disagreeing about what a project's requirements are, so it moved to
+`shared/designDocument.ts` and both import it. The form previews what it found before you submit —
+`2 requirements will be imported: AUTH-01, AUTH-02` — because a silent import is indistinguishable
+from a broken one.
+
+Requirements post to their own endpoint after the project is created, and a rejected one does not
+lose the project. The shell test asserts both: that the requirement is posted, and that it is *not*
+smuggled into the project body.
+
+**The Plan panel generates a plan.** The empty state explains what the Planner does and offers a
+button, rather than naming a command. It reports that it is running and cannot be double-fired,
+because a real agent turn takes a minute and silence reads as a broken button.
+
+```text
+control experiments
+  unwire Generate plan            (fail) the Plan tab offers to generate one and calls the endpoint
+  stop importing requirements     (fail) requirements in the pasted document are imported
+  restored                        34 pass / 0 fail
+```
+
+### The docs audit caught the move
+
+Relocating the parser left `VERIFICATION.md` citing the parser's old path, and `bun run audit:docs`
+failed the gate on it:
+
+```text
+UNRESOLVED FILE CITATIONS (1) — a reader following these finds nothing:
+  VERIFICATION.md:3997  scripts/lib/designDocument.mjs
+```
+
+It then failed a second time on the sentence above, which had quoted the dead path in backticks
+while describing it — a backticked path in this document reads as a citation whether it is meant as
+one or not. That is the fourth and fifth time an audit has failed the gate on this ledger rather
+than on the code. Each time the check was right and the prose was adjusted. A file move is precisely when evidence goes stale, and precisely when
+nobody thinks to re-read the evidence.
+
+```text
+bun run verify → exit 0, 709 pass / 0 fail, four audits clean
+```
+
+The browser flow now runs without a command line: **create the project, generate a plan, approve
+it, launch a task, watch the session.**
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4203,7 +4263,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 701 pass / 0 fail, 42 files;
+[x] Required tests pass.                    — 709 pass / 0 fail, 42 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -4273,9 +4333,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 83 ahead of main
+commits 85 ahead of main
 build   bun run build exit 0
-tests   701 pass / 0 fail across 42 files
+tests   709 pass / 0 fail across 42 files
 audits  0 orphans; every endpoint has a caller
 ```
 

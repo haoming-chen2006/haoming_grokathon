@@ -13,7 +13,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { execSync } from "child_process";
-import { parseRequirements, firstHeading } from "./lib/designDocument.mjs";
+import { parseRequirements, firstHeading } from "../shared/designDocument.ts";
 
 const BASE = process.env.OPENUI_URL || "http://localhost:6968";
 

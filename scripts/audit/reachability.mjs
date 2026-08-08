@@ -96,7 +96,7 @@ function trackedFiles() {
   const untracked = execSync("git ls-files --others --exclude-standard", { cwd: ROOT }).toString();
   return (tracked + untracked).split("\n")
     .filter(Boolean)
-    .filter((f) => ["server/", "client/src/", "scripts/", "bin/"].some((d) => f.startsWith(d)))
+    .filter((f) => ["server/", "client/src/", "scripts/", "bin/", "shared/"].some((d) => f.startsWith(d)))
     .filter((f) => SOURCE_EXT.has(extname(f)));
 }
 

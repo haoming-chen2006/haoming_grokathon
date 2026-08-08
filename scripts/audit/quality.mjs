@@ -34,7 +34,7 @@ function candidateFiles() {
   ];
   const preExisting = new Set(gitLines("git ls-tree -r --name-only main"));
   return all
-    .filter((f) => ["server/", "client/src/", "scripts/", "bin/"].some((d) => f.startsWith(d)))
+    .filter((f) => ["server/", "client/src/", "scripts/", "bin/", "shared/"].some((d) => f.startsWith(d)))
     .filter((f) => SOURCE_EXT.has(f.split(".").pop()))
     .filter((f) => !preExisting.has(f))
     // This script necessarily contains every indicator it searches for.
