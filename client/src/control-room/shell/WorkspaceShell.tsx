@@ -8,12 +8,12 @@
  * The shell lives here rather than in `ControlRoomApp.tsx` because that file is hot and shared by
  * eight worktrees; it becomes a five-line re-export at reconciliation (request R-3).
  *
- * **Measurements come from the owner's wireframe** at assets-page.html: a 44px toolbar, 14px
- * region gutters, a 15/14/13/11/10 type scale, hairline rules, and mono numerals. Where that
- * wireframe and §3.1 disagree, §3.1 wins and the disagreement is written down in
- * loops/handoff/pivot-shell.md rather than resolved silently — the one that matters is that the
- * wireframe selects pages in a horizontal strip while §3.1 puts the page list in the navigator,
- * which is also what the published `navigator` slot means ("beneath the page selector").
+ * **Measurements come from the owner's two wireframes**, assets-page.html and
+ * design-document.html, which agree on the chrome to the pixel: a 44px toolbar with 14px padding
+ * and a 14px gap, hairline rules, a 15/14/13/11/10 type scale, mono numerals, 24px toolbar
+ * controls at radius 5, and headline pages set apart from secondary ones by a rule. Where the
+ * wireframes disagree with each other or with §3.1, the decisions are recorded in
+ * loops/handoff/pivot-shell.md rather than taken silently.
  */
 import { useEffect, useState } from "react";
 import type { PageDescriptor, WorkspacePageProps } from "./contract";
@@ -24,7 +24,7 @@ import { useWorkspaceRoute } from "./router";
 import { useTheme } from "./theme";
 import { UNPRICED, useShellData, type ShellNotification, type ShellSpend } from "./useShellData";
 
-/** Section label: mono, small, tracked, quiet. The wireframe uses it for every region heading. */
+/** Section label: mono, small, tracked, quiet. Both wireframes use it for every region heading. */
 function SectionLabel({ children }: { children: string }) {
   return (
     <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-ghost">{children}</div>
@@ -36,33 +36,43 @@ function SectionLabel({ children }: { children: string }) {
  *
  * Renders "unknown", never $0.00. usageAccounting's DEFAULT_RATES holds no Grok model, so in wave 1
  * an unpriced turn is the normal case and a plausible-looking zero would be a fabricated figure —
- * the same defect as a fabricated affordance. The wireframe shows "$18.40 / $50.00" with a meter;
- * that is the shape this slot takes the day 06-tools-cost lands the ledger, with no change here.
+ * the same defect as a fabricated affordance.
+ *
+ * The label comes from design-document.html, which prefixes the figure with a mono `PROJECT SPEND`
+ * where assets-page.html leaves it bare. Labelled won: a bare "$18.40 / $50.00" floating in a
+ * toolbar has to be decoded, and it is the one number §3.1 puts on every page precisely because a
+ * 60-second generated experience costs ~$5.52 in media alone. It also makes the unpriced case
+ * readable — "PROJECT SPEND unknown" says what is unknown, where a bare "unknown" does not.
  */
 function Spend({ spend }: { spend: ShellSpend }) {
-  if (!spend.known) {
-    return (
-      <div
-        data-testid="toolbar-spend"
-        title="No rate is known for the models this workspace drives, so the total cannot be priced yet."
-        className="font-mono text-[11px] text-ink-faint"
-      >
-        spend unknown
-      </div>
-    );
-  }
-  const pct = spend.budgetUsd ? Math.min(100, (spend.usd / spend.budgetUsd) * 100) : 0;
   return (
-    <div data-testid="toolbar-spend" className="flex items-center gap-2">
-      <span className="font-mono text-[11px] text-ink-muted">
-        ${spend.usd.toFixed(2)}
-        {spend.budgetUsd ? ` / $${spend.budgetUsd.toFixed(2)}` : ""}
+    <div data-testid="toolbar-spend" className="flex items-baseline gap-2">
+      <span className="font-mono text-[9px] uppercase tracking-[0.07em] text-ink-ghost">
+        Project spend
       </span>
-      {spend.budgetUsd ? (
-        <span className="h-[7px] w-24 overflow-hidden rounded border border-border-strong">
-          <span className="block h-full bg-accent" style={{ width: `${pct}%` }} />
+      {spend.known ? (
+        <>
+          <span className="font-mono text-[11px] text-ink-muted">
+            ${spend.usd.toFixed(2)}
+            {spend.budgetUsd ? ` / $${spend.budgetUsd.toFixed(2)}` : ""}
+          </span>
+          {spend.budgetUsd ? (
+            <span className="h-[7px] w-24 self-center overflow-hidden rounded border border-border-strong">
+              <span
+                className="block h-full bg-accent"
+                style={{ width: `${Math.min(100, (spend.usd / spend.budgetUsd) * 100)}%` }}
+              />
+            </span>
+          ) : null}
+        </>
+      ) : (
+        <span
+          className="font-mono text-[11px] text-ink-faint"
+          title="No rate is known for the models this workspace drives, so the total cannot be priced yet."
+        >
+          unknown
         </span>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -159,8 +169,12 @@ function ResizeHandle({
  *
  * Three headline pages above a divider, two secondary below it. The divider costs one border and
  * is how a first-time user knows where to look; secondary means the product is coherent without
- * those pages, not that they are half-built. Following the wireframe's treatment: headline rows
- * carry a border and the full type size, secondary rows are plain, smaller and quieter.
+ * those pages, not that they are half-built.
+ *
+ * Both wireframes give headline pages a bordered pill at the full type size and secondary pages
+ * plain quieter text one step down, with a rule between. That treatment is adopted; its
+ * *placement* is §3.1's — in the navigator, not in a horizontal strip — because the published
+ * contract already says `PageDescriptor.navigator` renders "beneath the page selector".
  */
 function PageSelector({
   active,
@@ -185,7 +199,9 @@ function PageSelector({
         className={
           page.rank === "headline"
             ? `${base} border py-[7px] text-[15px] ${
-                isActive ? "border-accent bg-accent/10 text-ink" : "border-border text-ink-muted hover:bg-surface-hover"
+                isActive
+                  ? "border-accent bg-accent/10 text-ink"
+                  : "border-border text-ink-muted hover:bg-surface-hover"
               }`
             : `${base} py-1.5 text-[14px] ${
                 isActive ? "text-ink" : "text-ink-faint hover:bg-surface-hover"

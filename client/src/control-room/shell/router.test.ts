@@ -81,8 +81,9 @@ describe("region geometry", () => {
 
   test("main's minimum outranks both side regions, and the inspector yields first", () => {
     // 1280 - 288 - 320 = 672, still above MAIN_MIN, so nothing yields yet.
-    expect(layout(1280, { width: 288, collapsed: false }, { width: 320, collapsed: false }).main)
-      .toBeGreaterThanOrEqual(MAIN_MIN);
+    expect(
+      layout(1280, { width: 288, collapsed: false }, { width: 320, collapsed: false }).main,
+    ).toBeGreaterThanOrEqual(MAIN_MIN);
 
     // At 1000px the two regions plus MAIN_MIN do not fit: the inspector gives up the difference.
     const tight = layout(1000, { width: 288, collapsed: false }, { width: 320, collapsed: false });
@@ -120,5 +121,18 @@ describe("region geometry", () => {
     localStorage.setItem("openui-sidebar-pct", "25");
     expect(readRegion("navigator").width).toBe(NAVIGATOR.initial);
     localStorage.removeItem("openui-sidebar-pct");
+  });
+
+  test("the two wireframes' navigator widths both fit inside the resizable range", () => {
+    // assets-page.html draws 262; design-document.html draws 196 and 184. The disagreement is the
+    // argument for a resizable rail, not for a third hardcoded number — but a wireframe width the
+    // user could never reach by dragging would mean the range itself is wrong.
+    for (const drawn of [262, 196, 184]) {
+      const clamped = Math.min(Math.max(drawn, NAVIGATOR.min), NAVIGATOR.max);
+      expect(`${drawn} -> ${clamped}`).toBe(`${drawn} -> ${drawn < NAVIGATOR.min ? NAVIGATOR.min : drawn}`);
+    }
+    // 196 and 184 are below the 220 minimum: the design wants a narrower rail than §3.1 allows.
+    // Recorded as a disagreement in the handoff rather than silently widening the range here.
+    expect(NAVIGATOR.min).toBeGreaterThan(184);
   });
 });

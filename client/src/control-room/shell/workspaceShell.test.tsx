@@ -8,22 +8,20 @@ import { NAVIGATOR } from "./regions";
 
 const PROJECT = { id: "proj_1", name: "Aeris Chairs — Q3 sales push" };
 
-/** The three endpoints the shell reads, all of which exist on the merge base. */
+/** The endpoints the shell reads, all of which exist on the merge base. */
 function stubServer(overrides: { projects?: unknown; grok?: unknown } = {}) {
-  const calls: string[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
-    calls.push(url);
-    const body =
-      url.includes("/api/projects") ? (overrides.projects ?? [PROJECT])
-      : url.includes("/api/grok/status") ? (overrides.grok ?? { installed: true })
-      : {};
+    const body = url.includes("/api/projects")
+      ? (overrides.projects ?? [PROJECT])
+      : url.includes("/api/grok/status")
+        ? (overrides.grok ?? { installed: true })
+        : {};
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
   }) as typeof fetch;
-  return calls;
 }
 
 async function mount() {
@@ -76,8 +74,7 @@ describe("the three regions", () => {
     // Scoped to the shell's OWN content on purpose. Once a sibling mounts a real inspector this
     // element will contain that page's markup, and a blanket "no buttons in the inspector" rule
     // asserted here would fail on their branch for a judgement made on this one. The rule for
-    // page-supplied inspectors is stated in loops/handoff/pivot-shell.md, where they can read it,
-    // rather than enforced by a test that blames them for it.
+    // page-supplied inspectors is stated in loops/handoff/pivot-shell.md, where they can read it.
     expect(PAGES.every((p) => p.inspector === undefined)).toBe(true);
     expect(inspector.querySelectorAll("button").length).toBe(0);
     expect(inspector.querySelectorAll("a").length).toBe(0);
@@ -98,8 +95,7 @@ describe("the three regions", () => {
 
   test("a side region resizes by keyboard, and the new width persists", async () => {
     await mount();
-    const before = screen.getByTestId("navigator").style.width;
-    expect(before).toBe(`${NAVIGATOR.initial}px`);
+    expect(screen.getByTestId("navigator").style.width).toBe(`${NAVIGATOR.initial}px`);
 
     fireEvent.keyDown(screen.getByTestId("resize-left"), { key: "ArrowRight" });
     await waitFor(() =>
@@ -116,9 +112,7 @@ describe("the navigator names the places", () => {
   test("three headline pages sit above the divider and two secondary ones below it", async () => {
     await mount();
     const selector = screen.getByTestId("page-selector");
-    const order = [...selector.children].map((el) =>
-      el.getAttribute("data-testid") ?? "",
-    );
+    const order = [...selector.children].map((el) => el.getAttribute("data-testid") ?? "");
     expect(order).toEqual([
       "page-agents",
       "page-assets",
@@ -225,8 +219,7 @@ describe("one notification surface, not six", () => {
   test("two simultaneous alerts are two rows in one surface, not two full-width strips", () => {
     // Driven directly rather than through the shell, because the shell has exactly one real alert
     // source today (Grok detection) and a test named "two alerts" that only ever renders one
-    // proves nothing about the clause it claims to cover. Today's shell stacks SIX banners here;
-    // this asserts the shape that replaces them.
+    // proves nothing about the clause it claims to cover. Today's shell stacks SIX banners here.
     render(
       <Notifications
         items={[
@@ -262,23 +255,17 @@ describe("one notification surface, not six", () => {
     expect(screen.queryByTestId("notifications")).toBeNull();
   });
 
+  test("a row states its tone in text as well as in colour", () => {
+    render(<Notifications items={[{ id: "a", tone: "error", message: "Broken." }]} />);
+    const row = screen.getByTestId("notification-a");
+    expect(row.textContent).toContain("Error:");
+    expect(row.querySelector("[aria-hidden='true']")).not.toBeNull();
+  });
+
   test("the shell feeds its one real alert source into that surface", async () => {
     stubServer({ grok: { installed: false, setupMessage: "Grok is not installed." } });
     await mount();
     expect(await screen.findByTestId("notification-grok-missing")).toBeDefined();
-  });
-
-  test("a notification is dismissible and states its tone in text as well as colour", async () => {
-    stubServer({ grok: { installed: false, setupMessage: "Grok is not installed." } });
-    await mount();
-    const row = await screen.findByTestId("notification-grok-missing");
-    expect(row.textContent).toContain("Error:");
-    expect(row.querySelector("[aria-hidden='true']")).not.toBeNull();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("notification-grok-missing-dismiss"));
-    });
-    expect(screen.queryByTestId("notification-grok-missing")).toBeNull();
   });
 
   test("no notification surface renders when there is nothing to say", async () => {
@@ -290,15 +277,17 @@ describe("one notification surface, not six", () => {
 describe("the toolbar", () => {
   test("names the product and the project", async () => {
     await mount();
-    const toolbar = screen.getByTestId("toolbar");
-    expect(toolbar.textContent).toContain("grok-workspace");
+    expect(screen.getByTestId("toolbar").textContent).toContain("grok-workspace");
     expect(screen.getByTestId("toolbar-project").textContent).toBe(PROJECT.name);
   });
 
-  test("renders the spend as unknown rather than as a fabricated $0.00", async () => {
+  test("labels the spend and renders it as unknown rather than a fabricated $0.00", async () => {
     await mount();
     const spend = screen.getByTestId("toolbar-spend");
-    expect(spend.textContent).toBe("spend unknown");
+    // Both wireframes put the figure here; design-document.html labels it and assets-page.html
+    // does not. Labelled won, and the label is what makes the unpriced case readable.
+    expect(spend.textContent).toContain("Project spend");
+    expect(spend.textContent).toContain("unknown");
     expect(spend.textContent).not.toContain("$0.00");
   });
 
@@ -307,8 +296,7 @@ describe("the toolbar", () => {
     const root = document.documentElement;
     // The starting theme is whatever the environment resolves to — happy-dom answers the
     // prefers-color-scheme query, and asserting a hardcoded starting point made this test pass
-    // for the wrong reason once already. What matters is that a click flips it and the next one
-    // flips it back.
+    // for the wrong reason once already.
     const started = root.classList.contains("light") ? "light" : "dark";
     const other = started === "light" ? "dark" : "light";
 

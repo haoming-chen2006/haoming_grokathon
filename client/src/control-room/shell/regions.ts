@@ -10,6 +10,12 @@
  *   navigator  288 default, 220 minimum
  *   main       480 minimum — the constraint that wins when the window is small
  *   inspector  320 default, 260 minimum
+ *
+ * The two wireframes disagree about the navigator's width — assets-page.html draws 262, and
+ * design-document.html draws 196 (and 184 in its second state). Neither is wrong: a list of assets
+ * and a list of document titles want different room. That disagreement is the argument for the
+ * widths being resizable and persisted rather than for picking a third number, so §3.1's 288
+ * default stands and the user moves it.
  */
 import { useCallback, useEffect, useState } from "react";
 

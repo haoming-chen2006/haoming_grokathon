@@ -1,8 +1,8 @@
 /**
  * The theme switch — loops/07-shell.md §3.7.
  *
- * The token layer (iteration 2) put both palettes in `client/src/index.css` behind the `light`
- * class on <html>. This is the thing that sets it.
+ * The token layer put both palettes in `client/src/index.css` behind the `light` class on <html>.
+ * This is the thing that sets it.
  *
  * Three parts, and the split matters:
  *   - the boot script in index.html stamps the class before the first paint (request R-2);
