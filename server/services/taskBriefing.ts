@@ -47,6 +47,16 @@ export function buildTaskBriefing(params: {
   lines.push("You are working in an isolated git worktree. Everything you need is in the current");
   lines.push("directory, and nothing you do here affects the base branch.");
   lines.push("");
+  // Observed: an agent finished its work and ran `git push origin agent/t1`. The fixture had no
+  // remote, so it failed and the agent spent the rest of its turn explaining git configuration
+  // instead of submitting. On a repository that *does* have a remote it would have succeeded —
+  // pushing an unreviewed branch to the user's origin, which is exactly the kind of unsanctioned
+  // outbound effect the approval gate exists to prevent. Nothing had told it otherwise.
+  lines.push("This work stays local. Do not push, and do not add or contact a git remote — there");
+  lines.push("may not be one, and publishing anything is the user's decision, not yours.");
+  lines.push("submit_code_for_review commits your changes for you; that is how work leaves your");
+  lines.push("worktree.");
+  lines.push("");
   lines.push("Use the openui-project MCP tools as you work:");
   lines.push("  - get_technical_design and get_requirements to read what was approved");
   lines.push("  - update_task_progress to report status as you go");

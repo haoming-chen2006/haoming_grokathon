@@ -5166,6 +5166,84 @@ the live walk  → 4 of 4 tests green on main, both requirements complete
 
 ---
 
+## Two agents at once, and a task advertising a review that did not exist (iteration 84)
+
+Iteration 83 ended by noting that parallelism was unreachable because the Planner had serialised
+one document. The fix was the document: two requirements stated as independent, in different files,
+one server-side and one client-side. The Planner then produced what was needed:
+
+```text
+t1 role='Backend Engineer'   dependsOn=[] req=SHOP-01
+t2 role='Frontend Engineer'  dependsOn=[] req=SHOP-02
+```
+
+Launched concurrently. Two worktrees, two branches, two live sessions, and the simultaneous
+`git worktree add` calls did not collide — the first real check of that, and it held. Costs were
+attributed per agent ($0.1887 backend, $0.1505 frontend) with the Planner's own turn making up the
+rest of the project total, so concurrent accounting holds too.
+
+### The bug: `needs_review` with nothing to review
+
+```text
+task t1: needs_review          submissions: [t2 only]
+agent-t1 worktree diff:        (empty — the change was never committed)
+agent statusDetail:            None
+```
+
+The backend agent implemented `totalWithTax`, called `update_task_progress` to mark the task
+`needs_review`, and stopped without submitting. So the Plan announced a review, the Reviews tab was
+empty, the work existed only as an uncommitted edit in a worktree, and the agent carried **no
+detail at all**.
+
+Iteration 77's guard exists for exactly this and did not fire, because it read:
+
+```ts
+if (!task || task.status !== "working") return undefined;
+```
+
+`needs_review` is the worst status to miss, not a safe one: it is the status that tells a user to
+stop watching and go look at the queue. The guard now covers every status that is neither unstarted
+nor terminal, and says something different for this case — that a review was announced and nothing
+was submitted. Confirmed live afterwards, on the real agent:
+
+```text
+"Marked task t1 ready for review but never submitted it, so there is nothing in
+ the review queue. Open the session and ask it to submit, or reassign the task."
+
+control: guard restricted to "working" again → 26 pass / 1 fail
+```
+
+A stricter fix was available — refuse `update_task_progress(needs_review)` when no submission
+exists — and was not taken. An agent that cannot report its state is worse off than a user who is
+told the report is empty, and the briefing already asks for a submission.
+
+### The second finding: the agent tried to push
+
+Nudged to submit, the agent ran:
+
+```text
+git add server/pricing.ts
+git commit -m "Update pricing logic in server/pricing.ts"
+git push origin agent/t1          ← failed; the fixture has no remote
+```
+
+and spent the remainder of its turn explaining git remote configuration instead of submitting.
+
+The failure is the harmless version. **On a repository that has a remote it would have succeeded**,
+pushing an unreviewed agent branch to the user's origin — an outbound effect nobody asked for, in a
+product whose central promise is that nothing leaves the base branch without approval. Nothing in
+the briefing had ever said otherwise; the agent did what agents habitually do.
+
+The briefing now states that the work stays local, that pushing and adding remotes are not its
+call, and — because a prohibition with no alternative strands it at the same point — that
+`submit_code_for_review` is what commits and moves the work.
+
+```text
+bun run verify → exit 0, 938 pass / 0 fail across 50 files, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

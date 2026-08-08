@@ -78,3 +78,22 @@ describe("what an agent is told about other tasks' failures", () => {
     expect(brief).toMatch(/report_blocker only if you cannot do your own task/i);
   });
 });
+
+describe("what an agent is told about publishing its work", () => {
+  const brief = buildTaskBriefing({ project: { goal: "Ship the todo service" }, task, requirement });
+
+  test("it is told not to push, and why that is not its call", () => {
+    // Observed: an agent finished and ran `git push origin agent/t1`. The fixture had no remote, so
+    // it failed and the agent spent the rest of the turn explaining git configuration instead of
+    // submitting. On a repository with a remote it would have succeeded — pushing an unreviewed
+    // branch to the user's origin, which is the unsanctioned outbound effect the gate exists to
+    // stop. Nothing in the briefing had said otherwise.
+    expect(brief).toContain("Do not push");
+    expect(brief.toLowerCase()).toContain("remote");
+  });
+
+  test("it is told what does move the work instead", () => {
+    // A prohibition with no alternative just leaves the agent stuck at the same point.
+    expect(brief).toContain("submit_code_for_review commits your changes for you");
+  });
+});

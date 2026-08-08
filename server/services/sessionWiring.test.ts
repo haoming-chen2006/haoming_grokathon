@@ -456,6 +456,70 @@ describe("an agent that stops short of submitting says so", () => {
     expect(getAgentRegistry().get(agent.id).statusDetail ?? "").not.toContain("Stopped without submitting");
   });
 
+  test("a task marked ready for review with nothing submitted is called out", async () => {
+    // Observed on a two-agent run: the agent implemented the change, called update_task_progress to
+    // mark the task `needs_review`, and stopped without submitting. The guard tested
+    // `status !== "working"` and so said nothing — the task advertised a review that did not exist,
+    // the queue was empty, the work sat uncommitted in the worktree, and the agent carried no
+    // detail. It is the status that most makes a user stop looking, so it is the worst one to miss.
+    const store = getProjectStore();
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "u4", objective: "o" }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    store.updateTask(projectId, "u4", { status: "working" }, { kind: "user", id: "user" });
+    store.updateTask(projectId, "u4", { status: "needs_review" }, { kind: "user", id: "user" });
+
+    const agent = getAgentRegistry().create({ projectId, name: "E", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "u4");
+
+    const mgr = managerThatJustTalks();
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "do the task");
+
+    const detail = getAgentRegistry().get(agent.id).statusDetail ?? "";
+    expect(detail, "a review that does not exist was announced with no warning").toContain("never submitted it");
+    expect(detail).toContain("u4");
+  });
+
+  test("a task that reached review with a real submission is left alone", async () => {
+    const store = getProjectStore();
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "u5", objective: "o" }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    store.updateTask(projectId, "u5", { status: "working" }, { kind: "user", id: "user" });
+
+    const agent = getAgentRegistry().create({ projectId, name: "F", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "u5");
+    store.addRequirement(projectId, { id: "U-5", description: "d" }, { kind: "user", id: "user" });
+    store.submitCode(projectId, {
+      taskId: "u5", agentId: agent.id, requirementIds: ["U-5"], branch: "agent/u5",
+      changedFiles: ["a.ts"], summary: "s", testResults: { passed: 1, failed: 0, total: 1 }, costUsd: 0.01,
+    });
+
+    const mgr = managerThatJustTalks();
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "anything else?");
+
+    expect(getAgentRegistry().get(agent.id).statusDetail ?? "").toBe("");
+  });
+
+  test("a completed task says nothing", async () => {
+    const store = getProjectStore();
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "u6", objective: "o" }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    store.updateTask(projectId, "u6", { status: "working" }, { kind: "user", id: "user" });
+    store.updateTask(projectId, "u6", { status: "complete" }, { kind: "user", id: "user" });
+
+    const agent = getAgentRegistry().create({ projectId, name: "G", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "u6");
+
+    const mgr = managerThatJustTalks();
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "hello");
+    expect(getAgentRegistry().get(agent.id).statusDetail ?? "").toBe("");
+  });
+
   test("an agent with no task is left alone", async () => {
     const agent = getAgentRegistry().create({ projectId, name: "D", role: "Reviewer" });
     const mgr = managerThatJustTalks();

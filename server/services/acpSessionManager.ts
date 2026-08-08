@@ -119,10 +119,22 @@ export class AcpSessionManager {
 
       const project = getProjectStore().getProject(agent.projectId);
       const task = project.tasks.find((t) => t.id === agent.currentTaskId);
-      if (!task || task.status !== "working") return undefined;
+      // `pending` has not started, and the terminal states have nothing left to say.
+      if (!task || task.status === "pending" || task.status === "complete" || task.status === "failed") {
+        return undefined;
+      }
 
       const submitted = project.submissions.some((s) => s.taskId === task.id);
       if (submitted) return undefined;
+
+      // This used to test `status !== "working"`, which let the worst case through silently.
+      // Observed: an agent implemented its task, called update_task_progress to mark it
+      // `needs_review`, and stopped without submitting. The task then advertised a review that did
+      // not exist, the queue was empty, the work sat uncommitted in the worktree, and the agent
+      // carried no detail at all — the one status that makes a user stop looking.
+      if (task.status === "needs_review") {
+        return `Marked task ${task.id} ready for review but never submitted it, so there is nothing in the review queue. Open the session and ask it to submit, or reassign the task.`;
+      }
 
       return `Stopped without submitting task ${task.id}. Open the session and ask it to continue, or reassign the task.`;
     } catch {
