@@ -884,3 +884,50 @@ The palette and the typography still come from GrokNight/GrokDay rather than fro
 Both files set `font-family:'Patrick Hand'`, a handwriting face, with outline-only boxes and
 `#8fb0ff` as the single accent. Two files agreeing on a wireframe convention is still a wireframe
 convention. The accent remains an owner decision worth two lines, as recorded above.
+
+---
+
+## R-10 — the guide affordance is blocked on the reachability audit
+
+**Filed because it was built, worked, and had to be reverted — not because it is hard.**
+
+`docs/USER-GUIDE.md` has merged, so §3.1's fourth toolbar control (the `?`) and SHELL-015 are
+buildable. They were built this iteration (`shell/guide.ts`, `shell/GuideModal.tsx`, a `?` in the
+toolbar, per-page entry, and a missing-entry report) and reverted, because there is no way to get
+the guide's text into the client from inside this worktree's boundary without turning the gate red:
+
+```text
+attempt 1   import raw from "../../../../docs/USER-GUIDE.md?raw"   (Vite's raw loader)
+            + an ambient declare module "*.md?raw" in shell/raw-md.d.ts
+  ->  ORPHANS (1) client/src/control-room/shell/raw-md.d.ts
+      A .d.ts is reachable from nothing BY CONSTRUCTION — nothing imports an ambient
+      declaration — so scripts/audit/reachability.mjs reports every one as dead code. This is
+      the repository's ONLY .d.ts, so the case has never come up.
+
+attempt 2   drop the .d.ts, use @ts-expect-error on the import instead
+  ->  Unresolvable imports (2)
+        client/src/control-room/shell/guide.ts -> ../../../../docs/USER-GUIDE.md?raw
+      resolveSpec() cannot resolve a Vite query suffix, and unresolved imports also exit 1.
+```
+
+Both failures are in `scripts/audit/reachability.mjs`, which §18.3 makes hot. Reverted rather than
+shipped red: a missing `?` button costs less than a red gate at reconciliation.
+
+**Any ONE of these unblocks it, and the first is three lines:**
+
+```text
+(a) scripts/audit/reachability.mjs — ignore .d.ts files in trackedFiles(), and strip a `?...`
+    query from a specifier before resolving it in resolveSpec(). Both are correct in general,
+    not special cases for this: an ambient declaration is never imported, and Vite query
+    suffixes are a normal part of a Vite client.
+(b) a static route serving docs/USER-GUIDE.md, so the modal fetches it at run time. Needs a new
+    endpoint in a file this worktree does not own.
+(c) client/src/vite-env.d.ts with the standard Vite triple-slash reference, which is where this
+    declaration conventionally lives — still blocked by (a)'s first half.
+```
+
+The reverted code is in commit `e134df6` and its follow-ups; `git revert` of the revert plus fix
+(a) is the whole job. The component split was: `guide.ts` finds the `##` section matching the
+current page's label and reports every page that has no entry; `GuideModal.tsx` is scrim, Esc, a
+contents rail and the section body. **No guide prose was authored in this worktree**, per §3.8 —
+the words stay the guide worktree's.
