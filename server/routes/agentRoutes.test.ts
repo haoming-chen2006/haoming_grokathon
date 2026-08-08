@@ -630,3 +630,150 @@ describe("brief coverage over HTTP (AGENTS-002)", () => {
     expect(json.error).toContain("projectId");
   });
 });
+
+// ------------------------------------------ an agent is hired into exactly one area (AGENTS-003)
+
+describe("hiring an agent into an area", () => {
+  let root: string;
+
+  async function makeArea(extra: Record<string, unknown> = {}) {
+    const { json } = await req("POST", "/api/coding-agents/areas", {
+      projectId, name: "Slides", briefSectionAnchor: "§3 Deck", milestoneId: "m3", rootPath: root, ...extra,
+    });
+    return json;
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "openui-route-area-assign-"));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("the area records which agent works in it", async () => {
+    const agent = makeAgent();
+    const area = await makeArea();
+
+    const { status, json } = await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: area.id });
+    expect(status).toBe(200);
+    expect(json.area.id).toBe(area.id);
+    expect(json.area.ownerAgentId).toBe(agent.id);
+    expect(json.previousAreaId).toBeUndefined();
+
+    // And it is the stored record, not just the reply.
+    const listed = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    expect(listed.json[0].ownerAgentId).toBe(agent.id);
+  });
+
+  test("hiring into a second area is a move, and says which area was left", async () => {
+    // An agent works in exactly one area. Two would make "the area this agent writes in" a
+    // question with two answers, and the write guard needs exactly one.
+    const agent = makeAgent();
+    const slides = await makeArea();
+    const video = await makeArea({ name: "Video assets", milestoneId: "m4", briefSectionAnchor: "§4 Experience" });
+
+    await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: slides.id });
+    const { json } = await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: video.id });
+
+    expect(json.area.id).toBe(video.id);
+    expect(json.previousAreaId).toBe(slides.id);
+
+    const listed = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    const owners = Object.fromEntries(listed.json.map((a: any) => [a.name, a.ownerAgentId]));
+    expect(owners["Slides"]).toBeUndefined();
+    expect(owners["Video assets"]).toBe(agent.id);
+  });
+
+  test("an occupied area is refused, and the refusal names the remedy", async () => {
+    // A refusal that does not say what to do instead produces a retry.
+    const first = makeAgent();
+    const second = makeAgent({ name: "Second" });
+    const area = await makeArea();
+    await req("PATCH", `/api/coding-agents/${first.id}/area`, { areaId: area.id });
+
+    const { status, json } = await req("PATCH", `/api/coding-agents/${second.id}/area`, { areaId: area.id });
+    expect(status).toBe(409);
+    expect(json.code).toBe("AREA_OCCUPIED");
+    expect(json.error).toContain(first.id);
+    expect(json.error).toContain(`PATCH /api/coding-agents/${first.id}/area`);
+    expect(json.error).toContain('"areaId": null');
+
+    // The remedy works, and the second agent can then be hired.
+    const freed = await req("PATCH", `/api/coding-agents/${first.id}/area`, { areaId: null });
+    expect(freed.status).toBe(200);
+    expect(freed.json.area).toBeNull();
+    expect(freed.json.previousAreaId).toBe(area.id);
+
+    const retry = await req("PATCH", `/api/coding-agents/${second.id}/area`, { areaId: area.id });
+    expect(retry.status).toBe(200);
+    expect(retry.json.area.ownerAgentId).toBe(second.id);
+  });
+
+  test("re-hiring an agent into the area it already holds is not a move", async () => {
+    const agent = makeAgent();
+    const area = await makeArea();
+    await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: area.id });
+
+    const { status, json } = await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: area.id });
+    expect(status).toBe(200);
+    expect(json.area.ownerAgentId).toBe(agent.id);
+    expect(json.previousAreaId).toBeUndefined();
+  });
+
+  test("an agent may not be hired into another project's area", async () => {
+    // Otherwise the agent's cwd would be a directory outside its own project.
+    const agent = makeAgent();
+    const otherProject = new ProjectStore(join(dataDir, "projects")).createProject({
+      name: "Other", goal: "g", repositoryPath: "/tmp/r2",
+    }).id;
+    const foreign = await makeArea({ projectId: otherProject, name: "Elsewhere", milestoneId: "m9" });
+
+    const { status, json } = await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: foreign.id });
+    expect(status).toBe(409);
+    expect(json.code).toBe("AREA_WRONG_PROJECT");
+    expect(json.error).toContain(otherProject);
+    expect(json.error).toContain(projectId);
+  });
+
+  test("an unknown agent and an unknown area are both 404, and change nothing", async () => {
+    const agent = makeAgent();
+    const area = await makeArea();
+
+    const badAgent = await req("PATCH", "/api/coding-agents/agent_nope/area", { areaId: area.id });
+    expect(badAgent.status).toBe(404);
+
+    const badArea = await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: "area_nope" });
+    expect(badArea.status).toBe(404);
+    expect(badArea.json.error).toContain("area_nope");
+
+    const listed = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    expect(listed.json[0].ownerAgentId).toBeUndefined();
+  });
+
+  test("a missing areaId is refused; null is how an agent is removed from its area", async () => {
+    const agent = makeAgent();
+    const { status, json } = await req("PATCH", `/api/coding-agents/${agent.id}/area`, {});
+    expect(status).toBe(400);
+    expect(json.error).toContain("null");
+  });
+
+  test("an agent with no live session is not told the change applies later", async () => {
+    // appliesAtNextStart is false here because there is nothing already running to be wrong about.
+    const agent = makeAgent();
+    const area = await makeArea();
+    const { json } = await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: area.id });
+    expect(json.appliesAtNextStart).toBe(false);
+  });
+
+  test("hiring an agent into an area moves the area's derived status off unstaffed", async () => {
+    const agent = makeAgent();
+    const area = await makeArea();
+    expect(area.status).toBe("unstaffed");
+
+    getAgentRegistry().setStatus(agent.id, "working");
+    const { json } = await req("PATCH", `/api/coding-agents/${agent.id}/area`, { areaId: area.id });
+    expect(json.area.status).toBe("working");
+    expect(json.area.statusPresentation.label).toBe("Working");
+  });
+});

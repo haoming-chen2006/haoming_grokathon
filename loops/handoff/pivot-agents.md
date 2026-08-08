@@ -85,6 +85,43 @@ CONSUMER  server/services/workArea.ts will call it from createArea() once the fi
           branch calls it yet, and no half-built control was added in its place.
 ```
 
+### 2 — `CodingAgent` still describes a git worktree (filed iteration 3, blocks AGENTS-003)
+
+```text
+FILE      server/types/agent.ts
+DELETE    CodingAgent.branch    (:122)   — git is gone; nothing may read it
+DELETE    CodingAgent.worktree  (:123)
+ADD       areaId?: string
+ADD       capabilities?: { images: boolean; voice: boolean }
+WHY       an agent is hired into exactly one area and holds one capability set. Both are read by
+          server/services/workArea.ts and by the AGENTS page.
+```
+
+**`areaId` is a mirror, not the authority.** The relation is written today by `assignArea()` in
+`server/services/workArea.ts` onto `WorkArea.ownerAgentId`, because one writer of a relation is the
+whole point and `CodingAgent` is hot. When the field lands, `assignArea` should set it in the same
+call so the record can be read without a join; nothing should ever write it independently.
+
+**Deleting `branch`/`worktree` is not free — two callers pass them today**, and both are outside
+this worktree's row:
+
+```text
+server/routes/projects.ts:498   registry.assignTask(agent.id, taskId, { branch, worktree: created.path })
+                                the launch route; dies with the worktree creation it belongs to (A-5)
+server/routes/agents.ts:240     PATCH /api/coding-agents/:agentId/task passes body.branch/body.worktree
+                                THIS worktree's file. Removing the pass-through here is a one-line
+                                edit that will be made in the same iteration the type change lands,
+                                not before — removing it first would leave the launch route setting
+                                fields through a route that no longer forwards them.
+server/services/agentRegistry.ts:290   assignTask(agentId, taskId, { branch?, worktree? })
+                                THIS worktree's file. The opts parameter goes when both callers do.
+```
+
+`loops/01-agents.md` A-3 asks for `assignTask` to be renamed `assignArea`. It is not a rename in
+practice: task assignment and area assignment are different relations with different lifetimes — an
+agent keeps its area across many tasks — so `assignTask` keeps its name and its task, and
+`assignArea` is the separate function above. Recorded here because the loop document says otherwise.
+
 ### Foreseen, not yet filed
 
 The requests `loops/01-agents.md` §9 anticipates — `CodingAgent.areaId` and `.capabilities`,
@@ -152,6 +189,10 @@ tests fails on each run — the set grows and shrinks with the load, which is wh
 like and what a regression does not. The file is adjacent to `server/routes/projects.ts`, which the
 partition assigns to nobody, so raising the timeout or making the launch wait explicit is not this
 worktree's edit to make. Recorded rather than worked around.
+
+**Settled, iteration 3.** `bun run verify` ran green — **992 pass, 0 fail, exit 0, 114s** — at load
+average 19.28, with nothing changed to make it so. It was contention, not a defect. The suggestion
+below still stands as a robustness improvement, but it is no longer blocking anything.
 
 **Suggested fix for whoever owns it at reconciliation:** these tests await the HTTP launch and then
 read the registry; the 5000 ms default is a guess about process-spawn scheduling on an idle machine.

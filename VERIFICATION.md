@@ -5416,11 +5416,12 @@ an unfinished piece of work.**
 Items `AGENTS-001…AGENTS-018` are defined in `loops/01-agents.md` §8. The `V-0NN` rows above belong
 to the retired coding product and are not this loop's to update or delete.
 
-**Tally after iteration 2:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
+**Tally after iteration 3:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
 
 **PASS (1):** AGENTS-001
 **NOT TESTED (17):** AGENTS-002 … AGENTS-018. AGENTS-002 has two of its three clauses evidenced
-and is held at NOT TESTED for the third — see its entry below.
+and AGENTS-003 has part of its first; both are held at NOT TESTED for the rest — see their entries
+below.
 
 ## AGENTS-001: A work area is a record — PASS (iteration 1)
 
@@ -5609,3 +5610,95 @@ six of them in the iteration-2 full run (986 pass, 6 fail), every one a 5000 ms 
 that spawns a real `grok` process. Reproduced decisively at baseline: with every file this branch
 touched stashed, the same suite fails five tests of the same shape (36 pass, 5 fail). Not this
 branch's, and not this branch's file to fix — recorded in `loops/handoff/pivot-agents.md`.
+
+## AGENTS-003: An agent is spawned into an area — NOT TESTED (iteration 3)
+
+The relation exists and is enforced. Everything about *spawning* is blocked on files no worktree
+owns, and is recorded as such rather than approximated.
+
+```text
+Item:     AGENTS-003
+Command:  bun test server/routes/agentRoutes.test.ts server/services/workArea.test.ts
+Observed: 79 pass, 0 fail, 259 expect() calls.
+Reached from a launched agent or a rendered component: partly — PATCH
+          /api/coding-agents/:agentId/area is mounted on the agents router and exercised over
+          HTTP. No client caller yet; the AGENTS page is A-11.
+Clause not evidenced: clause 1's second half (branch/worktree removed from the record), and
+          clauses 2 and 3 entirely. All three need files outside this row; see below.
+```
+
+**Clause 1 — the agent record carries `areaId`; `branch` and `worktree` no longer exist on it.
+HALF DONE.** The relation is built and enforced, on `WorkArea.ownerAgentId` rather than on the
+agent record: `CodingAgent` lives in `server/types/agent.ts`, a hot file. One writer of a relation
+is the point of putting it there, and `areaId` is requested in the handoff as a mirror for display,
+not as a second authority. Deleting `branch`/`worktree` is requested in the same entry, together
+with the two callers that pass them today — one of which is the launch route and dies with A-5.
+
+`assignArea(agentId, areaId | null)` (`server/services/workArea.ts`) is the whole relation, and
+`PATCH /api/coding-agents/:agentId/area` is its surface:
+
+```text
+behaviour                                          evidence
+the area records which agent works in it           the stored record is re-read, not just the reply
+hiring into a second area is a move                the old area's ownerAgentId is cleared and
+                                                   previousAreaId names it
+an occupied area is refused                        409 AREA_OCCUPIED
+  ...and the refusal names the remedy              the message contains the exact call that frees
+                                                   it, and the test then makes that call and
+                                                   succeeds
+another project's area is refused                  409 AREA_WRONG_PROJECT, naming both projects —
+                                                   otherwise the agent's cwd would be a directory
+                                                   outside its own project
+unknown agent / unknown area                       404, and nothing is written
+re-hiring into the area already held               not reported as a move
+```
+
+`appliesAtNextStart` is on the response because a session's cwd is fixed at `session/new`:
+reassigning an agent that already has a live session changes where its *next* session runs and
+nothing about the one running now. Reporting that as done would be the dead control the quality
+audit forbids. The false case is asserted; the true case needs a live session and is held with
+clause 2.
+
+**Shown to fail before the change**, by mutation — each applied, the suites run, and reverted:
+
+```text
+mutation                                      test that failed
+allow cross-project hiring                    "an agent may not be hired into another project's area"
+allow two agents in one area                  "an occupied area is refused, and the refusal names
+                                              the remedy"
+stop releasing the old area on a move         "hiring into a second area is a move"
+ 49 pass, 3 fail — restored, 52 pass, 0 fail
+```
+
+**Clause 2 — the session's cwd is the area root, obtained from `resolveAgentEnvironment`. NOT DONE.**
+`resolveAgentEnvironment()` is deliberately not half-built. Its declared return type
+(`loops/01-agents.md` A-1) includes `capabilities`, which cannot be read from an agent record that
+has no capability field, and `hookConfigPath`, which is A-6. The signature is the contract handed to
+reconciliation, so shipping a version of it missing two fields would hand over the wrong contract.
+It lands whole at A-5/A-6.
+
+**Clause 3 — launching an agent with no area is refused with `NO_AREA`, and no session is opened.
+NOT DONE.** The launch route is `server/routes/projects.ts:461-526` and the cwd comes from
+`cwdFor` in `server/services/acpSessionManager.ts`. Both are treated as hot by this worktree and by
+the partition, which assigns them to nobody. Filed, not edited.
+
+**Gate at iteration 3: green.**
+
+```text
+bun run verify   exit 0 — 1001 pass, 0 fail, 52 files, 176s
+                 both typechecks exit 0; production build exit 0
+                 0 orphans; every endpoint has a caller; 0 dead controls; every citation resolves
+```
+
+The baseline run at the start of this iteration was also green — 992 pass, 0 fail, exit 0 in 114s at
+load average 19 — which settles the question left open in the two entries above: the
+`projectReads.test.ts` launch timeouts recorded under AGENTS-001 and AGENTS-002 were contention for
+the machine between seven parallel worktrees, not a defect. Nothing was changed to fix them.
+
+Two runs between those two greens each failed exactly one test, and the failure moved:
+`projectReads.test.ts` "relaunching the SAME task reuses its worktree" at 5139 ms, then
+`agentExecution.test.ts` "V-032: an agent edits files in its own worktree and nowhere else" at
+4843 ms. Both files then ran clean three times in a row (45 pass, 0 fail each) at the same load.
+Recorded rather than hidden: every failure this branch has seen is a timeout in a test that spawns a
+real `grok` process, none is in a suite this branch owns, and the owned suites have never failed a
+run.

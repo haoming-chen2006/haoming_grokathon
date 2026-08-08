@@ -9,8 +9,10 @@ import {
 import { AGENT_RUNTIME_STATUSES, AGENT_STATUS_PRESENTATION } from "../types/agent";
 import { getProjectStore } from "../services/projectStore";
 import {
+  AreaAssignmentError,
   MilestoneNotInPlanError,
   areaStatusPresentation,
+  assignArea,
   coverBrief,
   createTaskInArea,
   deriveAreaStatus,
@@ -34,6 +36,10 @@ function fail(c: any, err: unknown) {
       { error: err.message, code: err.code, scope: err.scope, spent: err.spent, limit: err.limit },
       402, // Payment Required — the spend gate, distinct from a permission failure.
     );
+  }
+  if (err instanceof AreaAssignmentError) {
+    // 409: the request is well formed and the state refuses it. The message names the remedy.
+    return c.json({ error: err.message, code: err.code }, 409);
   }
   if (err instanceof MilestoneNotInPlanError) {
     // 400, not 404: the area and the project both exist, and the caller can fix this by planning.
@@ -236,6 +242,32 @@ agentRoutes.patch("/:agentId/task", async (c) => {
         worktree: body.worktree,
       }),
     );
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/**
+ * Hire an agent into an area, or remove it from the one it holds (AGENTS-003).
+ *
+ * `appliesAtNextStart` is not decoration. A session's cwd is fixed at `session/new`, so reassigning
+ * an agent that already has a live session changes where its *next* session will run and nothing
+ * about where this one is running. Reporting that as done would be the same dead control the Tools
+ * panel is forbidden from showing.
+ */
+agentRoutes.patch("/:agentId/area", async (c) => {
+  try {
+    const body = await c.req.json();
+    if (body?.areaId === undefined) {
+      return c.json({ error: "areaId is required; pass null to remove the agent from its area" }, 400);
+    }
+    const agentId = c.req.param("agentId");
+    const result = assignArea(agentId, body.areaId);
+    return c.json({
+      area: result.area ? areaView(result.area) : null,
+      previousAreaId: result.previousAreaId,
+      appliesAtNextStart: getAcpSessionManager().has(agentId),
+    });
   } catch (err) {
     return fail(c, err);
   }

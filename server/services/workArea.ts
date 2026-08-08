@@ -16,6 +16,7 @@ import { join } from "path";
 import { atomicWriteJson } from "./persistence";
 import { canonical } from "./boundary";
 import { getProjectStore } from "./projectStore";
+import { getAgentRegistry } from "./agentRegistry";
 import { AGENT_STATUS_PRESENTATION, type AgentRuntimeStatus } from "../types/agent";
 import type { Actor, CodingTask } from "../types/project";
 
@@ -203,6 +204,19 @@ export class WorkAreaStore {
     return this.list().find((a) => a.ownerAgentId === agentId) ?? null;
   }
 
+  /**
+   * Record which agent works here, or clear it. Record-level only — the cross-store checks that
+   * make an assignment legitimate live in `assignArea`, which is the path callers use.
+   */
+  setOwner(areaId: string, ownerAgentId: string | undefined): WorkArea {
+    const area = this.get(areaId);
+    if (ownerAgentId === undefined) delete area.ownerAgentId;
+    else area.ownerAgentId = ownerAgentId;
+    area.updatedAt = nowIso();
+    this.save();
+    return area;
+  }
+
   create(input: CreateAreaInput): WorkArea {
     const projectId = required(input?.projectId, "projectId");
     const name = required(input?.name, "name");
@@ -251,6 +265,72 @@ export class WorkAreaStore {
     this.save();
     return area;
   }
+}
+
+// ─────────────────────────────────────────────── hiring an agent into an area
+
+/** An assignment was refused. The message names the remedy; the code lets the route map it. */
+export class AreaAssignmentError extends Error {
+  constructor(
+    readonly code: "AREA_OCCUPIED" | "AREA_WRONG_PROJECT",
+    message: string,
+  ) {
+    super(message);
+    this.name = "AreaAssignmentError";
+  }
+}
+
+export interface AreaAssignment {
+  /** The area the agent now works in, or null when it was removed from the one it had. */
+  area: WorkArea | null;
+  /** The area the agent was moved out of, if any. */
+  previousAreaId?: string;
+}
+
+/**
+ * Hire an agent into an area — the relation `loops/01-agents.md` A-3 calls "an agent is assigned
+ * exactly one area".
+ *
+ * The authority is the area record's `ownerAgentId`, not a field on the agent: `CodingAgent` lives
+ * in a hot file this worktree does not edit, and one writer of a relation is the whole point.
+ * `CodingAgent.areaId` is requested in the handoff as a mirror of this, for display.
+ *
+ * Pass `null` to remove the agent from whatever area it holds. That is the remedy an occupied area
+ * names, so the refusal below is actionable rather than a dead end.
+ */
+export function assignArea(agentId: string, areaId: string | null): AreaAssignment {
+  const store = getWorkAreaStore();
+  const agent = getAgentRegistry().get(agentId); // throws "Agent not found: <id>"
+  const held = store.forAgent(agentId);
+
+  if (areaId === null) {
+    if (held) store.setOwner(held.id, undefined);
+    return { area: null, previousAreaId: held?.id };
+  }
+
+  const area = store.get(areaId); // throws "Work area not found: <id>"
+
+  if (area.projectId !== agent.projectId) {
+    // An agent hired into another project's area would be given a cwd outside its own project.
+    throw new AreaAssignmentError(
+      "AREA_WRONG_PROJECT",
+      `Agent ${agentId} belongs to project ${agent.projectId}; area ${areaId} (${area.name}) belongs to ` +
+        `project ${area.projectId}. An agent may only be hired into an area of its own project.`,
+    );
+  }
+
+  if (area.ownerAgentId && area.ownerAgentId !== agentId) {
+    throw new AreaAssignmentError(
+      "AREA_OCCUPIED",
+      `Area ${areaId} (${area.name}) is already worked by agent ${area.ownerAgentId}. ` +
+        `Free it first: PATCH /api/coding-agents/${area.ownerAgentId}/area with { "areaId": null }.`,
+    );
+  }
+
+  // A move, not a second hiring: an agent works in exactly one area, so the old one is released
+  // before the new one is taken.
+  if (held && held.id !== areaId) store.setOwner(held.id, undefined);
+  return { area: store.setOwner(areaId, agentId), previousAreaId: held && held.id !== areaId ? held.id : undefined };
 }
 
 // ─────────────────────────────────────────────── the area's work: one milestone, and its tasks
