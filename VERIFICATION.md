@@ -7571,3 +7571,29 @@ The three outstanding clauses are about status pills rendering their labels. **N
 appears anywhere in the running product**: every page slot is unmerged, so nothing renders an
 agent, and the pills live in components R-7 has not been applied to. The clause cannot be evidenced
 by looking, because there is nothing to look at. Held, not claimed.
+
+### Correction to the correction — there were two causes, not one
+
+The entry above ("the red gate was mine, not the machine's") replaced one single-cause story with
+another, and overreached. It said: *"the timeout was the symptom of a missing key, not of CPU
+contention."* That is wrong. Measured this iteration, with `.env` sourced throughout:
+
+```text
+full `bun run verify`, whole suite in parallel      1395 pass · 3 fail
+                                                    all three "timed out after 5000ms"
+the same file alone, load average 8.56              41 pass · 0 fail
+the same file alone again                           41 pass · 0 fail
+```
+
+Credentials were present in every one of those runs. So:
+
+* **the 401s were the missing `.env`** — that part stands, and sourcing it is what took the suite
+  from a wall of auth failures to a clean run;
+* **the 5000ms timeouts are load-dependent and happen with or without credentials.** Tests that
+  spawn real processes against a fixed 5s limit fail when the machine is busy and pass when it is
+  not, which is what the iteration-1 stashed-tree reproduction actually showed.
+
+Both are real and independent. The first correction was right that a red gate had been attributed
+to the environment and left alone for two iterations; it was wrong to conclude that one cause
+explained everything. The honest guidance is: source `.env` first, and if timeouts remain, check
+the load before believing them.

@@ -767,9 +767,12 @@ the actual error appeared:
  giving up after 3 retries."   http_status: 401       ← 22 of these in one run
 ```
 
-**An ACP test with no credentials hangs on a retrying auth handshake until the 5s limit.** The
-timeout was the symptom; the missing key was the cause. Load only changed which tests were slow
-enough to trip it, which is exactly what made contention look like a sufficient explanation.
+**An ACP test with no credentials hangs on a retrying auth handshake until the 5s limit**, so the
+missing key produced timeouts as well as 401s. **But it is not the only cause, and a later
+measurement corrected this note:** with `.env` sourced throughout, the full parallel suite still
+produced three 5000ms timeouts, while the same file run alone at load 8.5 passed 41/41 twice. The
+401s were the missing key. The timeouts are load-dependent and happen with or without credentials.
+Source `.env` first; if timeouts remain, check the load before believing them.
 
 **If your gate is red with `timed out after 5000ms` in tests that spawn agents, do this first:**
 
