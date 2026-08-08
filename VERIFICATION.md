@@ -6825,3 +6825,524 @@ Nothing attempted. Stages 3–10 of the §4.11 build order are not started.
    will conflict at reconciliation. This loop appends only at the end of the file, under one
    heading, and never edits a line above it. Filed in the handoff as a partition gap.
 ```
+# Pivot ledger — DESIGN DOCUMENTS (`loops/03-design-documents.md`)
+
+> Appended by worktree `03-design-docs`, branch `pivot/design-docs`. Everything above this line is
+> the retired product's ledger (V-001…V-052) and is not edited by this worktree. Nine worktrees
+> share this file and none owns it; see the partition gap recorded in
+> `loops/handoff/pivot-design-docs.md`.
+
+**Iteration:** 5 · **Tally:** 5 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED (DD-009 now 4 of 5 clauses)
+
+**Gate (`bun run verify`), iteration 5: RED — exit 1, on four known flaky tests.**
+
+```text
+1. server typecheck   tsc --noEmit                       exit 0
+2. client typecheck   cd client && tsc --noEmit          exit 0
+3. tests              bun test server/ client/src …      exit 1 — 1006 pass, 4 fail, 55 files
+4. build              (not reached — verify short-circuits)
+5. audits             (not reached)
+```
+
+All four are F-1, all in `server/routes/projectReads.test.ts`, all at ~5.13-5.17s against a 5000ms
+budget, at load 55. The record across five iterations:
+
+```text
+iteration 1  load 117  → 3 fail;  re-run → 0 fail
+iteration 2  load 117  → 5 fail;  re-run at load 50 → 5 fail
+iteration 3  load  24  → 0 fail
+iteration 4  load  40  → 1 fail
+iteration 5  load  55  → 4 fail
+```
+
+Load-dependent, same file every time, never touched by this worktree, and 41/41 green at
+`--timeout 60000`. **Read "PASS" below as "these clauses are evidenced by re-runnable commands",
+not as "the suite was green".**
+
+Stage 1 of §3.11 is done: the store, the synchronous invariant, and sections with minted anchors.
+Stage 2 is done for DD-002; DD-003 is held one clause short. Stage 3 is done for DD-004, the strict
+declaration parser; DD-005 is held on 01-agents. Stage 4 is done for DD-008; DD-007 is held on the
+sweep's wiring. DD-001, DD-002, DD-004, DD-006 and DD-008 PASS.
+
+## DD-001: A design document exists independently of any project — PASS
+
+Reproduce: `bun test server/services/designDoc.test.ts server/services/designDocInvariants.test.ts`
+(15 pass, 0 fail).
+
+```text
+Document created with no project:
+  id=doc_msks9slj1u3guhz title="Q3 Enterprise Deck" followedByProjectId=undefined
+  files on disk: ["doc_msks9slj1u3guhz.json"]
+  No ProjectStore was constructed; the test asserts the data dir contains only design-docs/.
+
+Restart round-trip:
+  Proven across a REAL second process, not a second store instance in the same process:
+  the test spawns `process.execPath -e` which imports DesignDocStore fresh and re-reads the
+  document. Restored after restart:
+    title="Brief"  sections=["Research","Slides"]  anchors identical to pre-restart
+    sections[0].currentVersion=3  body="prospect material v3"
+    versions=[1,2,3]  authorIds=["user-1","user-1","user-2"]
+    versions[2].changeSummary="narrowed the list"
+
+Deliberate async method → test output:
+  Mutation: `retitleDocument` changed to `async … Promise<DesignDoc>`.
+    (fail) DesignDocStore stays synchronous > no method returns a Promise
+    error: an async method reintroduces the interleaving that loses concurrent updates
+    3 pass, 1 fail            [reverted; file diffed clean against backup]
+
+Explanation removed → test output:
+  Mutation: the "no `await` occurs inside it" sentence deleted from the class comment.
+    (fail) DesignDocStore stays synchronous > the invariant is documented where someone would break it
+    error: the explanation of WHY synchrony is load-bearing was deleted
+    3 pass, 1 fail            [reverted; file diffed clean against backup]
+```
+
+Also covered (§3.2, §3.8.5): `firstLine` is derived on read and never persisted.
+
+```text
+firstLine (read) = [1,4]
+firstLine (disk) = [null,null]
+Mutation: StoredSection aliased to DocSection so firstLine becomes storable →
+  (fail) DesignDocStore stays synchronous > a derived line number is never persisted
+  14 pass, 1 fail            [reverted]
+```
+
+Honest note on this control: the mutation was caught by the type-level guard, not by the
+on-disk assertion, because the write path never had a `firstLine` to persist in the first place.
+The on-disk assertion is a regression guard, not the active control.
+
+## DD-006: Section anchors are minted and survive a retitle — PASS
+
+```text
+Anchor at creation:
+  title="Research"  anchor=sec_msks9slj272cya6
+  Minted, not slugged. Two sections both titled "Research" get distinct anchors — a slugged
+  anchor collides there and the second section silently inherits the first's presence.
+
+Anchor after retitle:
+  title="Market research"  anchor=sec_msks9slj272cya6   (unchanged)
+  areaId=area-research      (unchanged)
+  currentVersion=2  versions=[1,2]   (history intact; a retitle appends no version, because
+                                      the text of record did not change)
+
+areaId after retitle and reorder:
+  order=[["Slides","sec_msks9slj32f71b6",null],
+         ["Market research","sec_msks9slj272cya6","area-research"]]
+
+manifestVersion before/after reorder:
+  before=1  after=2   — and no anchor changed; the anchor set is identical across the reorder.
+
+Positive control (§5a — a suspiciously clean result is a bug in the check):
+  Mutation: anchor derived from the title, `sec_${title.toLowerCase().replace(…)}` →
+    (fail) DD-006 … > an anchor is minted at creation and is not derived from the title
+    10 pass, 1 fail          [reverted; file diffed clean against backup]
+```
+
+## DD-002: A document may be followed by at most one project — PASS
+
+Reproduce: `bun test server/services/designDoc.test.ts server/services/designDocInvariants.test.ts`
+(26 pass, 0 fail).
+
+```text
+The link is a single field on the document:
+  followedByProjectId: string | undefined, on DesignDoc — not an array on Project.
+  On disk: typeof followedByProjectId === "string". Two projects on one document is
+  unrepresentable, not merely forbidden.
+
+Second follow attempt → error body:
+  {
+    "name": "DocumentAlreadyFollowedError",
+    "code": "DOCUMENT_ALREADY_FOLLOWED",
+    "docId": "doc_msksl5go0001o6leth",
+    "currentProjectId": "proj-1",
+    "requestedProjectId": "proj-2",
+    "message": "Design document doc_msksl5go0001o6leth is already followed by project proj-1;
+                proj-2 cannot also follow it."
+  }
+  All three ids, so the UI can offer "open the other project" as the next click.
+
+followedByProjectId before/after:
+  before=proj-1  after=proj-1   — the refusal changes nothing.
+
+documentIds invariant test output:
+  Reads server/types/project.ts and fails on any line matching /\bdocumentIds\b/.
+  Current: 0 offenders.
+  This check cannot be proven by deliberate mutation, because server/types/project.ts is a hot
+  file this worktree may not edit. Two substitutes, both run:
+    (a) the test asserts the source contains "export interface Project {" first, so a moved file
+        or a path typo fails loudly instead of passing vacuously;
+    (b) the detector logic was run against a COPY of project.ts with `documentIds: string[];`
+        injected → flagged ["274: documentIds: string[];"].
+        git status server/types/project.ts → clean; the hot file was never edited.
+
+Agent unfollow attempt:
+  PermissionDeniedError code=PERMISSION_DENIED
+  "Only a user may unfollow a design document. An agent may read the document and submit a
+   suggestion against it."
+  followedByProjectId still = proj-1
+  Follow is refused for an agent on the same path. Re-following the SAME project is idempotent
+  and not an error, so a retry is safe.
+```
+
+## DD-003: A project may follow many documents — HELD (3 of 4 clauses)
+
+Three clauses pass. The fourth cannot be satisfied from this worktree, so per §5 the item is held
+rather than marked PASS.
+
+```text
+Documents followed / derived list:
+  listDocumentsForProject("proj-1") = ["Brief A","Brief B","Brief C"]
+  listDocumentsForProject("proj-2") = ["Other project's"]
+  Derived by scan, never stored: no file on disk contains "documentIds" or a documents array.
+
+After the project-deleted sweep — documents present / followedByProjectId:
+  store.unfollowProject("proj-1") swept 3 documents
+  documents still present: 4 → ["Brief A","Brief B","Brief C","Other project's"]
+  followedByProjectId of each swept: [null,null,null]
+  other project untouched: proj-2
+  A swept document keeps its sections, anchors and version history ([1,2]).
+
+Re-follow:
+  followDocument(A, "proj-9") → proj-9
+
+FAILING CLAUSE — "deleting the project unfollows all three":
+  The sweep exists and is tested, but nothing calls it. Project deletion is
+  ProjectStore.deleteProject (server/services/projectStore.ts:261), which is a HOT file this
+  worktree may not edit. Until the one-line wiring in loops/handoff/pivot-design-docs.md (R-8) is
+  applied, deleting a project in the real product leaves a dangling followedByProjectId.
+  The store operation is proven; the production path is not. Item held.
+```
+
+## A defect this stage found in stage 1's code
+
+Stage 2 surfaced a real ordering bug in the iteration-1 store, which is why the first run of the
+new tests was red:
+
+```text
+expected ["Brief A","Brief B","Brief C"]
+received ["Brief C","Brief A","Brief B"]
+```
+
+`listDocuments` sorted on `createdAt` alone. `Date.now()` has millisecond resolution, so documents
+created on one tick — a seeded project, an import, a test — tie, and the order fell back to
+`readdirSync`: filesystem order, which differs between machines and shifts as files are rewritten.
+A user's list of briefs reordering itself between page loads is not cosmetic.
+
+Fixed with a total sort, `createdAt` then `id`, and by zero-padding the id's counter so ids sort in
+creation order (unpadded, `"z"` sorts before `"10"`, so the 36th document jumps ahead of the 37th).
+
+Positive controls — both fail on demand:
+
+```text
+drop the id tiebreak from the sort   → 19 pass, 2 fail
+unpad the id counter, keep tiebreak  → 20 pass, 1 fail   (isolates the digit-boundary case)
+40 documents on one tick, distinct createdAt values < 40 asserted, so the test cannot pass by
+having accidentally avoided the tie it exists to test.
+```
+
+## DD-004: The declaration block is parsed strictly or refused with a line number — PASS
+
+Reproduce: `bun test server/services/designDocDeclaration.test.ts` (18 pass, 0 fail, 3262
+assertions).
+
+```text
+Valid block → declaration:
+  {
+    "name": "Q3 Enterprise Deck",
+    "category": "slides",
+    "budget": 25,
+    "areas": [
+      { "name": "Research", "description": "prospect and competitor material", "line": 6 },
+      { "name": "X",        "description": "the @acme timeline",               "line": 7 }
+    ],
+    "blockStart": 1,
+    "blockEnd": 8
+  }
+  All five categories accepted: documents, slides, tables, workflows, software.
+
+Unknown key → error:
+  [{ "line": 4,
+     "message": "Unknown key `bugdet`. Expected one of: name, category, budget, areas." }]
+  The §3.4 case exactly: a user who writes `bugdet: 25` and sees no error believes they set a
+  budget. Errors accumulate rather than stopping at the first.
+
+Duplicate block → error:
+  [{ "line": 8,
+     "message": "A design document may contain only one `project` block; found one at line 1
+                 and another at line 8." }]
+  Both line numbers, so the user can find the block they forgot they wrote.
+
+Bad category → error:
+  [{ "line": 3,
+     "message": "`category` must be one of: documents, slides, tables, workflows, software.
+                 Got `powerpoint`." }]
+
+Never inferred from prose:
+  "name: …\ncategory: slides\nareas:\n  - Research: everything" OUTSIDE a fence
+    → ok: true, declaration: undefined.
+  A ```project block nested inside a ````text block is documentation, not a declaration.
+  A document with no block declares nothing and that is NOT an error: {"ok":true,"errors":[]}.
+
+Line numbers are the RENDERED document's line numbers, not the section's — proven through the
+store: an error in a declaration in the second section reports line 8, the line the user sees.
+
+Fuzz/edge inputs run, exceptions thrown:
+  25 adversarial inputs — empty, bare fences, unterminated fences, ":", "::::", orphan list
+  items, "budget: NaN/Infinity/1e10", a 10,000-char name, NUL bytes, a lone surrogate
+  (\ud800), 500 emoji, 500 area lines, and 200 stacked project blocks.
+  Exceptions thrown: 0.
+  The harness also asserts the RESULT is well-formed for every input — ok is boolean, errors is
+  an array, ok===true implies zero errors, and every error carries an integer line > 0.
+```
+
+Positive controls — every check made to fail on demand (§5a):
+
+```text
+silently ignore unknown keys      → 16 pass, 2 fail
+drop the duplicate-block check    → 17 pass, 1 fail
+accept any category               → 15 pass, 3 fail
+make the parser throw on NUL      → 17 pass, 1 fail — the fuzz harness caught it and printed
+                                    both offending inputs with their error text
+```
+
+**A note on the fourth control, because it nearly passed silently.** The first attempt to inject
+the throw used a `perl -0pi` multiline substitution that did not match, so nothing was mutated and
+the suite reported 18 pass — which reads exactly like "the fuzz test tolerates a throwing parser".
+It was caught only by checking `grep -c` for the injected text, which returned 0. The control was
+redone with a Python edit that verifiably applied. This is §5a's "one round of audit probes silently
+passed everything because the harness escaped its own backticks", reproduced in miniature: **check
+the probe applied before believing the probe's result.**
+
+## DD-005: Creating the project from a declaration is a human action — NOT TESTED (held)
+
+One clause is evidenced; the rest cannot be reached from this worktree yet, so the item is held
+rather than partially claimed.
+
+```text
+Documents parsed, projects created without a click:
+  store.declarationFor(docId) parses on read and creates nothing — no project, no team, no
+  spend. Asserted: after parsing a valid declaration, followedByProjectId is still undefined.
+  Parsing is automatic and continuous; applying is a separate human action.
+
+Apply action actor id:            NOT BUILT — the apply path is not written.
+Re-apply diff shown:              NOT BUILT.
+Occupied-area removal refusal:    BLOCKED — "refused while an agent is bound to the area, and
+                                  the refusal names the agent" needs the agent↔area binding in
+                                  server/services/workArea.ts, owned by 01-agents. That file
+                                  does not exist in this worktree yet:
+                                    ls server/services/workArea.ts → No such file or directory
+                                  Building a second area model here to satisfy the clause is
+                                  exactly the duplication §0 exists to prevent.
+```
+
+## DD-008: A credential cannot be written into a design document — PASS
+
+Reproduce: `bun test server/services/designDocVersioning.test.ts` (16 pass, 0 fail).
+
+```text
+Attempted write:
+  writeSection(body: "key AKIAIOSFODNN7EXAMPLE", expectedVersion: 3, actor: user)
+
+Refusal:
+  SecretExposureError code=SECRET_EXPOSURE
+  "Refusing to store a credential in design document section "Research": detected
+   aws-access-key. Reference it from the environment instead."
+  It names WHERE — the section by title — so the author knows which write to fix, and it
+  refuses rather than redacting, because a silently-altered design document is its own
+  problem: the author needs to know their credential did not land.
+
+Section version after refusal:
+  before=3  after=3   — body unchanged, versions[] unchanged. No half-write.
+
+Uploaded/created case:
+  createDocument with a credential in a section body throws on the same path, and
+  listDocuments() is [] afterwards — the refusal precedes persistence, so there is no
+  half-created document.
+
+Agent-originated write:
+  CORRECTED IN ITERATION 5. This line previously read "refused identically, same message".
+  That was wrong. Since DD-009, an agent cannot write a section at all: the permission
+  check fires before the secret check, so a direct agent write is refused with
+  PERMISSION_DENIED, not SecretExposureError. Agent-authored text reaches the store only
+  as a user accepting a suggestion, and that path IS scanned — the clause is carried by
+  the suggestion-accept case below, not by a direct agent write.
+
+Suggestion-accept path refusal:
+  Accepting a suggestion IS a section write carrying fromSuggestionId — there is no second
+  code path, so there is no second place for the check to be forgotten. A write with
+  fromSuggestionId "sug-1" and a github-token in the body is refused, section stays at
+  version 1 with one version record.
+
+Ordering, asserted rather than assumed:
+  A write that is BOTH stale and carries a credential reports VERSION_CONFLICT — the
+  version check runs first. Which error the user sees decides what they do next, so the
+  order is pinned by a test.
+
+False positives checked:
+  "We will need an AWS access key and a GitHub token for the deploy step." is accepted.
+  A false positive here blocks a user from writing their brief, which is worse than
+  annoying: the design document is where the work is declared.
+```
+
+Positive controls:
+
+```text
+remove assertNoSecrets from writeSection    → 13 pass, 3 fail
+remove the optimistic-concurrency check     → 14 pass, 2 fail
+```
+
+Each mutation was confirmed applied (`grep -c` = 1) before its result was believed — see the
+iteration-3 note on a probe that silently no-opped.
+
+## DD-007: Section writes are versioned, conflict-detected and independent — HELD (3 of 4)
+
+```text
+Version history after 3 writes:
+  [ { "version": 1, "authorId": "user-1" },
+    { "version": 2, "authorId": "user-1", "changeSummary": "first" },
+    { "version": 3, "authorId": "user-2", "changeSummary": "second" } ]
+  Append-only: version 1 still holds the text it held.
+
+Stale write error body:
+  { "name": "VersionConflictError", "code": "VERSION_CONFLICT",
+    "baseVersion": 1, "currentVersion": 3,
+    "message": "Section sec_… has moved on: wrote against version 1, current is 3" }
+  Both numbers, because "conflict" alone renders into nothing a user can act on. The
+  refused write leaves body and versions[] untouched.
+
+Concurrent two-section write:
+  [ {"title":"Research","currentVersion":3,"body":"a3"},
+    {"title":"Slides","currentVersion":2,"body":"b2"} ]
+  Neither write bumped the other's version; manifestVersion unchanged. 25 interleaved
+  writes to two sections lose no update (26 versions each, both final bodies correct).
+
+Cross-section stale sweep result:
+  wrote section sec-b → swept 1
+  suggestion against sec-a: pending    ← document-wide sweep would have said "stale"
+  suggestion against sec-b: stale
+  Also proven: baseVersion >= newVersion untouched; another document untouched; already
+  resolved (accepted/rejected/stale/revision_requested) never re-marked; a suggestion with
+  no targetDocId left to the legacy path.
+  Positive control — restore the document-wide behaviour by deleting the anchor check →
+  15 pass, 1 fail.
+
+FAILING CLAUSE — the sweep is not reachable from production:
+  sweepStaleSuggestions() is a pure exported function and nothing calls it. Design-doc
+  suggestions cannot exist yet: they need targetDocId / targetSectionAnchor / lineRange on
+  submit_design_suggestion (handoff R-3), and the sweep must be invoked from
+  ProjectStore.updateDocument's sweep at server/services/projectStore.ts:324-329. Both are
+  hot files. **Verify through the production code path** — the unit is proven, the product
+  behaviour is not. Item held.
+```
+
+## Not claimed this iteration
+
+```text
+DD-005                                       held — blocked on 01-agents (workArea.ts).
+DD-009…DD-016                                NOT TESTED — stages 5-11 of §3.11.
+DD-017  export to a document asset           NOT TESTED — depends on 02-assets (X-3). Per §3.10
+                                             neither the route nor the button exists, deliberately.
+```
+
+## DD-009: An agent cannot write a design document, and suggests instead — HELD (4 of 5)
+
+Reproduce: `bun test server/services/designDocAgentSurface.test.ts` (10 pass, 0 fail).
+
+**This item began by reproducing a real defect in this worktree's own code.** Before the fix, an
+agent could rewrite the user's brief through the store:
+
+```text
+§3.9: "Agents never write a design document. Not through a tool, not inside their own
+       area, not with a scoped grant."
+
+DEFECT: the agent write SUCCEEDED.
+  body now: "REWRITTEN BY THE AGENT"
+  version: 2, authorId: agent-research
+```
+
+Stages 1-4 had accepted any actor on `writeSection`. The stage-4 ledger entry even recorded an
+"agent-originated write" as passing, which it did — for the wrong reason, because that test
+happened to carry a credential and was refused by the secret check. Corrected above.
+
+```text
+Direct write attempt → refusal text:
+  PermissionDeniedError code=PERMISSION_DENIED
+  "Agents cannot write a design document. Submit a suggestion instead:
+   submit_design_suggestion with targetDocId "doc_…" and targetSectionAnchor "sec_…".
+   A user reviews it, and accepting it produces the new version."
+  The refusal names the path AND the ids to use, because a refusal that does not say what
+  to do instead produces an agent that retries the same call until its budget is gone.
+  After the refusal: body is still "the user's own words", version 1, one version record.
+
+  The scoped grant does not help. Actor.canWriteDocument (server/types/project.ts:45-46)
+  is deliberately not consulted, and an agent holding it is refused even on a section
+  assigned to its own area — "not inside their own area, not with a scoped grant".
+
+  Every structural mutation is closed to agents too: followDocument, unfollowDocument,
+  writeSection.
+
+Tool surface:
+  DESIGN_DOC_MCP_TOOLS = ["read_design_document", "list_design_documents"]
+  There is no write tool, and its absence is the design. A test asserts the exact list,
+  asserts every name matches /^(read|list|report)_/, and greps the source for nine
+  forbidden registrations (write_design_section, apply_declaration,
+  create_project_from_document, promote_to_design_document, …) — so a tool added later
+  fails the check rather than passing unnoticed.
+  Precedent: DELIBERATELY_USER_ONLY (projectMcpServer.ts:692) — an agent cannot approve
+  its own work, and by the same reasoning cannot rewrite the brief it is judged against.
+
+Read output carries line numbers (§3.8.2):
+  numberedDocument() returns right-aligned ABSOLUTE line numbers, and a ranged read still
+  numbers absolutely:
+    "5  ## Slides" / "6  deck"   for fromLine 5, toLine 6
+  An agent cannot report a line range it was never shown; a tool returning bare prose
+  guarantees every later focus report is the model counting newlines, and it will be
+  wrong. Out-of-range, inverted and negative ranges clamp rather than throw.
+
+FAILING CLAUSES — not claimable from here:
+  "a suggestion carries targetDocId, targetSectionAnchor, lineRange and baseVersion" and
+  "accepting it produces a new section version with fromSuggestionId set and
+  originalProposedText retained" — the suggestion record is DesignSuggestion in
+  server/types/project.ts, and the three target fields are handoff R-3. The accept half is
+  proven insofar as writeSection records fromSuggestionId (DD-007 evidence), but the
+  record it would come from cannot exist yet.
+
+  "the suggestion renders in the margin beside the lines it names" — needs the document
+  view, which is stage 11. No client code exists in this worktree yet.
+  Item held.
+```
+
+Positive controls:
+
+```text
+let agents write sections                     → 6 pass, 4 fail
+renumber read output from 1 (relative)        → 8 pass, 2 fail
+add write_design_section to the tool surface  → 8 pass, 2 fail
+```
+
+A note on the harness, again: the first run of these three controls printed **no output at all** —
+no failures and no summary — because the wrapper function swallowed it. Read naively that looks
+like three controls passing, i.e. three checks that cannot fail. Re-running each mutation directly
+showed all three do fail. Second time this loop has hit a probe-harness defect; see F-5.
+
+## Five items now cannot reach PASS from inside this worktree
+
+This is a property of the partition, not of the work, and it is stated here because §8 defines done
+as all seventeen items PASS:
+
+```text
+DD-003  needs ProjectStore.deleteProject to call unfollowProject          (hot; R-8)
+DD-005  needs the agent↔area binding in workArea.ts                       (01-agents; F-4)
+DD-007  needs the section sweep invoked from projectStore's sweep         (hot; R-3 + R-9)
+DD-009  needs the suggestion target fields, and the margin rendering      (hot R-3; stage 11)
+DD-017  needs assetStore                                                  (02-assets; X-3)
+```
+
+Each has its logic built and unit-proven here, and each is one wiring edit away. None can be closed
+before reconciliation.
+
+
+`writeSection` carries `expectedVersion`, `VersionConflictError` and `assertNoSecrets` because a
+version history cannot exist without a write path. That does **not** make DD-007 or DD-008 PASS:
+their remaining clauses — concurrent two-section writes, the cross-section stale sweep, and the
+suggestion-accept path — are untested, and the items are held.
