@@ -9,7 +9,10 @@ import {
 import { AGENT_RUNTIME_STATUSES, AGENT_STATUS_PRESENTATION } from "../types/agent";
 import { getProjectStore } from "../services/projectStore";
 import {
+  MilestoneNotInPlanError,
   areaStatusPresentation,
+  coverBrief,
+  createTaskInArea,
   deriveAreaStatus,
   getWorkAreaStore,
   type WorkArea,
@@ -31,6 +34,10 @@ function fail(c: any, err: unknown) {
       { error: err.message, code: err.code, scope: err.scope, spent: err.spent, limit: err.limit },
       402, // Payment Required — the spend gate, distinct from a permission failure.
     );
+  }
+  if (err instanceof MilestoneNotInPlanError) {
+    // 400, not 404: the area and the project both exist, and the caller can fix this by planning.
+    return c.json({ error: err.message, code: err.code, areaId: err.areaId, milestoneId: err.milestoneId }, 400);
   }
   const message = err instanceof Error ? err.message : String(err);
   if (message.includes("not found")) return c.json({ error: message, code: "NOT_FOUND" }, 404);
@@ -140,6 +147,34 @@ agentRoutes.post("/areas", async (c) => {
   try {
     const body = await c.req.json();
     return c.json(areaView(getWorkAreaStore().create(body)), 201);
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/**
+ * Which sections of the brief have nobody working on them (AGENTS-002).
+ *
+ * Registered before `/areas/:areaId/...` so "coverage" is never read as an area id.
+ */
+agentRoutes.get("/areas/coverage", (c) => {
+  try {
+    const projectId = c.req.query("projectId");
+    if (!projectId) return c.json({ error: "projectId is required" }, 400);
+    const brief = getProjectStore().getDocument(projectId).content;
+    return c.json(coverBrief(brief, getWorkAreaStore().list(projectId)));
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/** Create a task inside an area. The area's milestone is not a parameter — see createTaskInArea. */
+agentRoutes.post("/areas/:areaId/tasks", async (c) => {
+  try {
+    const body = await c.req.json();
+    if (!body?.objective) return c.json({ error: "objective is required" }, 400);
+    const task = createTaskInArea(c.req.param("areaId"), body, { kind: "user", id: "user" });
+    return c.json(task, 201);
   } catch (err) {
     return fail(c, err);
   }

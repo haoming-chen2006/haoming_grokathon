@@ -55,15 +55,67 @@ WHY    a canvas coordinate has no meaning once the canvas is gone. The route IS 
 
 ## Hot-file requests
 
-None yet. Iteration 1 (AGENTS-001) needed no hot-file change: the work-area store is the authority
-for which area an agent is hired into (`WorkArea.ownerAgentId`), so nothing on `CodingAgent` had to
-change to build it.
+### 1 — `Requirement.designSection` has no update path (filed iteration 2, blocks AGENTS-002)
 
-The requests foreseen by `loops/01-agents.md` §9 — `CodingAgent.areaId` and `.capabilities`,
+```text
+FILE      server/services/projectStore.ts
+CHANGE    add "designSection" to the Pick<> allow-list in updateRequirement's patch type
+          (currently: status | ownerAgentId | branch | worktree | affectedFiles | reviewStatus |
+           testsPassing | testsTotal | taskIds)
+SIGNATURE updateRequirement(
+            projectId: string,
+            requirementId: string,
+            patch: Partial<Pick<Requirement,
+              "status" | "ownerAgentId" | "branch" | "worktree" | "affectedFiles" |
+              "reviewStatus" | "testsPassing" | "testsTotal" | "taskIds" | "designSection">>,
+            actor: Actor,
+          ): Requirement
+WHY       AGENTS-002 clause 1 — "creating an area sets Requirement.designSection for the
+          requirements it covers". loops/01-agents.md A-2 says the field is settable and set by
+          nothing, and names area creation as its producer. It is settable only at
+          addRequirement (server/services/projectStore.ts, and the body of
+          POST /api/projects/:projectId/requirements at server/routes/projects.ts:203).
+          Requirements normally exist before areas do — they are imported from the design
+          document by parseRequirements (shared/designDocument.ts) — so the producer needs the
+          update path, not the create path. Object.assign already writes whatever the patch
+          carries; the Pick list is the only thing refusing it.
+NOT DONE  server/types/project.ts needs no change: the field is already declared at :79.
+CONSUMER  server/services/workArea.ts will call it from createArea() once the field is patchable,
+          stamping briefSectionAnchor onto each requirement the area covers. Nothing on this
+          branch calls it yet, and no half-built control was added in its place.
+```
+
+### Foreseen, not yet filed
+
+The requests `loops/01-agents.md` §9 anticipates — `CodingAgent.areaId` and `.capabilities`,
 `DesignSuggestion.targetAreaId`, `ProjectMcpContext.areaId`, the launch route's `NO_AREA` refusal —
 will be filed here as the stages that need them land (A-3, A-5, A-6, A-7), each with the signature
 other worktrees depend on. Filing them before they are built would state signatures nothing has
 exercised.
+
+---
+
+## Additions to the §9 public contract
+
+`loops/01-agents.md` §9 lists the HTTP surface this worktree hands back. Two routes were added that
+the list does not name. Both are on the agents router, both are literal segments registered before
+`/:agentId`, and neither needs a mount edit:
+
+```text
+GET    /api/coding-agents/areas/coverage?projectId=      which sections of the brief have no area
+POST   /api/coding-agents/areas/:areaId/tasks            create a task inside an area; the area's
+                                                         milestone is not a parameter
+```
+
+`GET /areas/coverage` is registered before `POST /areas/:areaId/tasks` so "coverage" is never read
+as an area id.
+
+**Assumption about 03-design-docs.** Coverage reads the brief from
+`ProjectStore.getDocument(projectId).content` and parses ATX headings, because that is the only
+brief-shaped text that exists today. `loops/01-agents.md` §2 item 11 says a project may follow
+several documents, so if 03 ships a section parser or a multi-document brief, `briefSections()` in
+`server/services/workArea.ts` should be replaced by it rather than kept alongside it — two parsers
+of one document drift, which is the reason `shared/designDocument.ts` exists at all.
 
 ---
 
@@ -86,10 +138,20 @@ observed   iteration 1, 2026-08-08
             (seven worktrees running at once)
 ```
 
-Not caused by this branch: it reproduces with this branch's changes removed, and a different pair of
-tests failed in each run. The file is adjacent to `server/routes/projects.ts`, which the partition
-assigns to nobody, so raising the timeout or making the launch wait explicit is not this worktree's
-edit to make. Recorded rather than worked around.
+Iteration 2, as the machine got busier:
+
+```text
+  bun run verify with iteration 2's changes          986 pass, 6 fail — all the same shape
+  the same file with every change of this branch
+    stashed (four files)                             36 pass, 5 fail
+  machine   load average 35.83 / 42.92 / 41.14
+```
+
+Not caused by this branch: it reproduces with this branch's changes removed, and a different set of
+tests fails on each run — the set grows and shrinks with the load, which is what contention looks
+like and what a regression does not. The file is adjacent to `server/routes/projects.ts`, which the
+partition assigns to nobody, so raising the timeout or making the launch wait explicit is not this
+worktree's edit to make. Recorded rather than worked around.
 
 **Suggested fix for whoever owns it at reconciliation:** these tests await the HTTP launch and then
 read the registry; the 5000 ms default is a guess about process-spawn scheduling on an idle machine.

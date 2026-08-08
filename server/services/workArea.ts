@@ -15,7 +15,9 @@ import { homedir } from "os";
 import { join } from "path";
 import { atomicWriteJson } from "./persistence";
 import { canonical } from "./boundary";
+import { getProjectStore } from "./projectStore";
 import { AGENT_STATUS_PRESENTATION, type AgentRuntimeStatus } from "../types/agent";
+import type { Actor, CodingTask } from "../types/project";
 
 /**
  * The accent palette, in assignment order. Token names only: light and dark resolve them
@@ -249,6 +251,157 @@ export class WorkAreaStore {
     this.save();
     return area;
   }
+}
+
+// ─────────────────────────────────────────────── the area's work: one milestone, and its tasks
+
+/**
+ * The area's milestone is not in the project's plan, so a task created here would carry a
+ * `milestoneId` that links to nothing.
+ *
+ * This refusal exists because `ProjectStore.addTask` pushes the task onto its milestone with
+ * `project.plan.milestones.find(...)?.taskIds.push(...)` — optional all the way down. A task whose
+ * milestone is absent is stored happily, the milestone's `taskIds` stays empty, and nothing
+ * reports it. That is how `Milestone.taskIds` came to be decorative in the shipping product: plan
+ * generation created every task without a `milestoneId` and nothing ever asked whether the
+ * relation had run.
+ */
+export class MilestoneNotInPlanError extends Error {
+  readonly code = "MILESTONE_NOT_IN_PLAN";
+  constructor(
+    readonly areaId: string,
+    readonly milestoneId: string,
+    detail: string,
+  ) {
+    super(`Area ${areaId} names milestone ${milestoneId}, which ${detail}`);
+    this.name = "MilestoneNotInPlanError";
+  }
+}
+
+/** Everything `ProjectStore.addTask` accepts except the milestone, which the area decides. */
+export interface CreateAreaTaskInput {
+  id?: string;
+  objective: string;
+  requirementId?: string;
+  assignedAgentId?: string;
+  dependsOn?: string[];
+  expectedFiles?: string[];
+  completionCriteria?: string[];
+  requiredTests?: string[];
+  budgetUsd?: number;
+}
+
+/**
+ * Create a task inside an area. The task carries the area's milestone id — always, and not as an
+ * argument the caller may supply: the area is what decides which milestone its work belongs to,
+ * the same reasoning that keeps an agent's identity off the MCP tool parameters.
+ */
+export function createTaskInArea(areaId: string, params: CreateAreaTaskInput, actor: Actor): CodingTask {
+  const area = getWorkAreaStore().get(areaId);
+  const store = getProjectStore();
+  const plan = store.getProject(area.projectId).plan;
+  if (!plan) {
+    throw new MilestoneNotInPlanError(areaId, area.milestoneId, "cannot exist: the project has no plan yet");
+  }
+  if (!plan.milestones.some((m) => m.id === area.milestoneId)) {
+    throw new MilestoneNotInPlanError(
+      areaId,
+      area.milestoneId,
+      `is not in the project's plan (its milestones are: ${plan.milestones.map((m) => m.id).join(", ") || "none"})`,
+    );
+  }
+  return store.addTask(area.projectId, { ...params, milestoneId: area.milestoneId }, actor);
+}
+
+// ─────────────────────────────────────────────── which sections of the brief nobody is working on
+
+export interface BriefSection {
+  /** The heading text exactly as the brief writes it. */
+  anchor: string;
+  level: number;
+  areaId?: string;
+  areaName?: string;
+  /** How the area's anchor was matched to this section — recorded because it may be wrong. */
+  matchKind?: "exact" | "normalised";
+}
+
+export interface BriefCoverage {
+  sections: BriefSection[];
+  coveredCount: number;
+  /** Anchors of the sections nobody is working on. The useful signal, not an error. */
+  uncovered: string[];
+  /** Areas whose anchor matches no section of the brief — a resolution failure, so it is named. */
+  unmatchedAreas: Array<{ areaId: string; name: string; briefSectionAnchor: string }>;
+}
+
+/**
+ * The brief's sections, in document order.
+ *
+ * A fenced code block may contain lines beginning with `#`, and reading those as sections invents
+ * headings the author never wrote. A single level-one heading at the top is the document's title —
+ * `firstHeading` in `shared/designDocument.ts` already treats it that way — so it is not a section
+ * of the brief either.
+ */
+export function briefSections(markdown: string | undefined | null): BriefSection[] {
+  const out: BriefSection[] = [];
+  let inFence = false;
+  const lines = String(markdown ?? "").split("\n");
+  for (const [index, line] of lines.entries()) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = line.match(/^(#{1,6})\s+(.+?)\s*$/);
+    if (!m) continue;
+    const level = m[1]!.length;
+    const anchor = m[2]!;
+    // The title: a level-one heading before any other heading has been seen.
+    if (level === 1 && out.length === 0 && lines.slice(0, index).every((l) => !/^#{1,6}\s+/.test(l))) continue;
+    out.push({ anchor, level });
+  }
+  return out;
+}
+
+/**
+ * Compare a heading and an area's anchor without demanding they were typed the same way.
+ *
+ * The anchor on an area is a string a model wrote during team assembly; the heading is a string the
+ * user wrote in the brief. An exact lookup between two such strings resolved to nobody once
+ * already, and because nothing recorded which one had failed to match, the bug read as random for
+ * two iterations. So: strip the section marker and the numbering, fold case and punctuation, and
+ * report which kind of match happened.
+ */
+function normaliseAnchor(anchor: string): string {
+  return anchor
+    .toLowerCase()
+    .replace(/^[\s§#*]*\d+(?:[.)]\d+)*[.)]?\s*/, "") // "§3 Deck", "3. Deck", "3) Deck" -> "deck"
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function coverBrief(markdown: string | undefined | null, areas: WorkArea[]): BriefCoverage {
+  const sections = briefSections(markdown);
+  const unmatchedAreas: BriefCoverage["unmatchedAreas"] = [];
+
+  for (const area of areas) {
+    const free = sections.filter((s) => !s.areaId);
+    const exact = free.find((s) => s.anchor === area.briefSectionAnchor);
+    const section =
+      exact ?? free.find((s) => normaliseAnchor(s.anchor) === normaliseAnchor(area.briefSectionAnchor));
+    if (!section) {
+      // An area pointing at a section the brief does not contain is not silently dropped: the
+      // board has to be able to say which anchor failed to resolve.
+      unmatchedAreas.push({ areaId: area.id, name: area.name, briefSectionAnchor: area.briefSectionAnchor });
+      continue;
+    }
+    section.areaId = area.id;
+    section.areaName = area.name;
+    section.matchKind = exact ? "exact" : "normalised";
+  }
+
+  const uncovered = sections.filter((s) => !s.areaId).map((s) => s.anchor);
+  return { sections, coveredCount: sections.length - uncovered.length, uncovered, unmatchedAreas };
 }
 
 /** Process-wide store, persisted alongside the rest of the state — see getAgentRegistry. */

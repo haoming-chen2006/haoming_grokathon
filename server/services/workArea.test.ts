@@ -7,6 +7,8 @@ import {
   AREA_GLYPHS,
   WorkAreaStore,
   areaStatusPresentation,
+  briefSections,
+  coverBrief,
   deriveAreaStatus,
   getWorkAreaStore,
 } from "./workArea";
@@ -195,5 +197,98 @@ describe("persistence", () => {
 
     process.env.OPENUI_DATA_DIR = dataDir;
     expect(getWorkAreaStore().list("p1")).toHaveLength(1);
+  });
+});
+
+// --------------------------------------------------------------- AGENTS-002: sections and tasks
+
+describe("the sections of a brief", () => {
+  test("headings become sections, in document order", () => {
+    const brief = [
+      "# Sales presentation",
+      "intro prose",
+      "## §1 Audience",
+      "who we are pitching",
+      "## §2 Channel",
+      "### Tone",
+      "## §3 Deck",
+    ].join("\n");
+    expect(briefSections(brief).map((s) => s.anchor)).toEqual(["§1 Audience", "§2 Channel", "Tone", "§3 Deck"]);
+    expect(briefSections(brief)[2]!.level).toBe(3);
+  });
+
+  test("a heading inside a fenced code block is not a section", () => {
+    // A brief that shows a shell transcript would otherwise sprout sections nobody wrote.
+    const brief = ["## Real section", "```bash", "# not a heading", "echo hi", "```", "## Also real"].join("\n");
+    expect(briefSections(brief).map((s) => s.anchor)).toEqual(["Real section", "Also real"]);
+  });
+
+  test("the leading level-one heading is the title, not a section", () => {
+    expect(briefSections("# The brief\n\n## One\n").map((s) => s.anchor)).toEqual(["One"]);
+    // Two level-one headings means they are being used as sections, so both count.
+    expect(briefSections("# One\n\n# Two\n").map((s) => s.anchor)).toEqual(["Two"]);
+  });
+
+  test("an empty or absent brief has no sections rather than throwing", () => {
+    expect(briefSections("")).toEqual([]);
+    expect(briefSections(undefined)).toEqual([]);
+  });
+});
+
+describe("coverage of the brief", () => {
+  const brief = ["# Sales presentation", "## §1 Audience", "## §2 Channel", "## §3 Deck", "## §4 Experience"].join(
+    "\n",
+  );
+
+  test("sections with no area are listed as uncovered", () => {
+    const store = makeStore();
+    const research = area(store, { name: "Research", briefSectionAnchor: "§1 Audience", milestoneId: "m1" });
+
+    const coverage = coverBrief(brief, store.list("p1"));
+    expect(coverage.sections).toHaveLength(4);
+    expect(coverage.coveredCount).toBe(1);
+    expect(coverage.uncovered).toEqual(["§2 Channel", "§3 Deck", "§4 Experience"]);
+    expect(coverage.sections[0]!.areaId).toBe(research.id);
+    expect(coverage.sections[0]!.areaName).toBe("Research");
+    expect(coverage.sections[0]!.matchKind).toBe("exact");
+  });
+
+  test("an anchor a model wrote differently still resolves, and says how it matched", () => {
+    // The roster the assembly turn returns contains anchors the model chose. An exact lookup
+    // against a string a model wrote is how four tasks once ended up owned by nobody.
+    const store = makeStore();
+    area(store, { name: "Slides", briefSectionAnchor: "Deck", milestoneId: "m3" });
+    const coverage = coverBrief(brief, store.list("p1"));
+    expect(coverage.uncovered).not.toContain("§3 Deck");
+    expect(coverage.sections.find((s) => s.anchor === "§3 Deck")!.matchKind).toBe("normalised");
+    expect(coverage.unmatchedAreas).toEqual([]);
+  });
+
+  test("an area pointing at a section the brief does not contain is named, not dropped", () => {
+    const store = makeStore();
+    const ghost = area(store, { name: "Podcast", briefSectionAnchor: "§9 Podcast", milestoneId: "m9" });
+    const coverage = coverBrief(brief, store.list("p1"));
+    expect(coverage.coveredCount).toBe(0);
+    expect(coverage.unmatchedAreas).toEqual([
+      { areaId: ghost.id, name: "Podcast", briefSectionAnchor: "§9 Podcast" },
+    ]);
+  });
+
+  test("two areas cannot both claim one section", () => {
+    const store = makeStore();
+    area(store, { name: "Research", briefSectionAnchor: "§1 Audience", milestoneId: "m1" });
+    area(store, { name: "Research again", briefSectionAnchor: "1. Audience", milestoneId: "m2" });
+    const coverage = coverBrief(brief, store.list("p1"));
+    expect(coverage.coveredCount).toBe(1);
+    expect(coverage.unmatchedAreas.map((a) => a.name)).toEqual(["Research again"]);
+  });
+
+  test("a brief with no sections at all covers nothing and says so", () => {
+    const store = makeStore();
+    area(store, { name: "Research", briefSectionAnchor: "§1 Audience" });
+    const coverage = coverBrief("just prose, no headings", store.list("p1"));
+    expect(coverage.sections).toEqual([]);
+    expect(coverage.uncovered).toEqual([]);
+    expect(coverage.unmatchedAreas).toHaveLength(1);
   });
 });

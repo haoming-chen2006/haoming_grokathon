@@ -483,3 +483,150 @@ describe("work areas over HTTP", () => {
     expect(json[0].unresolvedOwnerAgentId).toBe(agent.id);
   });
 });
+
+// --------------------------------------------------- tasks inside an area, and brief coverage
+
+describe("a task created inside an area carries that area's milestone (AGENTS-002)", () => {
+  const USER = { kind: "user" as const, id: "user" };
+  let root: string;
+
+  function planned(milestoneIds: string[]) {
+    const store = new ProjectStore(join(dataDir, "projects"));
+    store.createPlan(projectId, { milestones: milestoneIds.map((id) => ({ id, name: id })) }, USER);
+    return store;
+  }
+
+  async function makeArea(extra: Record<string, unknown> = {}) {
+    const { json } = await req("POST", "/api/coding-agents/areas", {
+      projectId, name: "Slides", briefSectionAnchor: "§3 Deck", milestoneId: "m3", rootPath: root, ...extra,
+    });
+    return json;
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "openui-route-area-task-"));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("the task carries the milestone id and the milestone's taskIds is no longer empty", async () => {
+    // Milestone.taskIds was decorative in the shipping product: plan generation created every task
+    // without a milestoneId, so the relation existed and had never run.
+    const store = planned(["m3"]);
+    const areaJson = await makeArea();
+
+    const { status, json } = await req("POST", `/api/coding-agents/areas/${areaJson.id}/tasks`, {
+      objective: "draft the deck outline",
+    });
+    expect(status).toBe(201);
+    expect(json.milestoneId).toBe("m3");
+
+    const plan = store.getProject(projectId).plan!;
+    expect(plan.milestones.find((m) => m.id === "m3")!.taskIds).toEqual([json.id]);
+  });
+
+  test("the area decides the milestone; a caller cannot supply a different one", async () => {
+    const store = planned(["m3", "m4"]);
+    const areaJson = await makeArea();
+
+    const { json } = await req("POST", `/api/coding-agents/areas/${areaJson.id}/tasks`, {
+      objective: "sneak into another milestone", milestoneId: "m4",
+    });
+    expect(json.milestoneId).toBe("m3");
+    expect(store.getProject(projectId).plan!.milestones.find((m) => m.id === "m4")!.taskIds).toEqual([]);
+  });
+
+  test("a milestone that is not in the plan is refused, naming what failed to resolve", async () => {
+    // addTask pushes with `milestones.find(...)?.taskIds.push(...)` — optional all the way down, so
+    // without this refusal the task is stored and the relation silently does not run.
+    const store = planned(["m1"]);
+    const areaJson = await makeArea();
+
+    const { status, json } = await req("POST", `/api/coding-agents/areas/${areaJson.id}/tasks`, {
+      objective: "orphan",
+    });
+    expect(status).toBe(400);
+    expect(json.code).toBe("MILESTONE_NOT_IN_PLAN");
+    expect(json.milestoneId).toBe("m3");
+    expect(json.error).toContain("m1");
+    expect(store.getProject(projectId).tasks).toHaveLength(0);
+  });
+
+  test("a project with no plan at all is refused with the same code, not a silent orphan", async () => {
+    const areaJson = await makeArea();
+    const { status, json } = await req("POST", `/api/coding-agents/areas/${areaJson.id}/tasks`, {
+      objective: "orphan",
+    });
+    expect(status).toBe(400);
+    expect(json.code).toBe("MILESTONE_NOT_IN_PLAN");
+    expect(json.error).toContain("no plan yet");
+  });
+
+  test("an unknown area is a 404 and creates nothing", async () => {
+    const store = planned(["m3"]);
+    const { status, json } = await req("POST", "/api/coding-agents/areas/area_nope/tasks", { objective: "x" });
+    expect(status).toBe(404);
+    expect(json.error).toContain("area_nope");
+    expect(store.getProject(projectId).tasks).toHaveLength(0);
+  });
+
+  test("an area's tasks count towards its own progress and no other area's", async () => {
+    planned(["m3", "m4"]);
+    const slides = await makeArea();
+    const video = await makeArea({ name: "Video assets", milestoneId: "m4", briefSectionAnchor: "§4 Experience" });
+    await req("POST", `/api/coding-agents/areas/${slides.id}/tasks`, { objective: "one" });
+    await req("POST", `/api/coding-agents/areas/${slides.id}/tasks`, { objective: "two" });
+    await req("POST", `/api/coding-agents/areas/${video.id}/tasks`, { objective: "three" });
+
+    const { json } = await req("GET", `/api/coding-agents/areas?projectId=${projectId}`);
+    const bySlug = Object.fromEntries(json.map((a: any) => [a.name, a]));
+    expect(bySlug["Slides"].tasksTotal).toBe(2);
+    expect(bySlug["Video assets"].tasksTotal).toBe(1);
+  });
+});
+
+describe("brief coverage over HTTP (AGENTS-002)", () => {
+  const USER = { kind: "user" as const, id: "user" };
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "openui-route-coverage-"));
+    new ProjectStore(join(dataDir, "projects")).updateDocument(
+      projectId,
+      ["# Sales presentation", "## §1 Audience", "## §2 Channel", "## §3 Deck", "## §4 Experience"].join("\n"),
+      USER,
+      {},
+    );
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("sections of the brief with no area are reported as uncovered", async () => {
+    await req("POST", "/api/coding-agents/areas", {
+      projectId, name: "Research", briefSectionAnchor: "§1 Audience", milestoneId: "m1", rootPath: root,
+    });
+
+    const { status, json } = await req("GET", `/api/coding-agents/areas/coverage?projectId=${projectId}`);
+    expect(status).toBe(200);
+    expect(json.sections).toHaveLength(4);
+    expect(json.coveredCount).toBe(1);
+    expect(json.uncovered).toEqual(["§2 Channel", "§3 Deck", "§4 Experience"]);
+    expect(json.sections[0].areaName).toBe("Research");
+  });
+
+  test("coverage resolves as its own route, not as an area id", async () => {
+    const { status, json } = await req("GET", `/api/coding-agents/areas/coverage?projectId=${projectId}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(json.sections)).toBe(true);
+  });
+
+  test("without a projectId the request is refused rather than answered for nobody", async () => {
+    const { status, json } = await req("GET", "/api/coding-agents/areas/coverage");
+    expect(status).toBe(400);
+    expect(json.error).toContain("projectId");
+  });
+});

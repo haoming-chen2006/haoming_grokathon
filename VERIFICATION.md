@@ -5416,10 +5416,11 @@ an unfinished piece of work.**
 Items `AGENTS-001…AGENTS-018` are defined in `loops/01-agents.md` §8. The `V-0NN` rows above belong
 to the retired coding product and are not this loop's to update or delete.
 
-**Tally after iteration 1:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
+**Tally after iteration 2:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
 
 **PASS (1):** AGENTS-001
-**NOT TESTED (17):** AGENTS-002 … AGENTS-018
+**NOT TESTED (17):** AGENTS-002 … AGENTS-018. AGENTS-002 has two of its three clauses evidenced
+and is held at NOT TESTED for the third — see its entry below.
 
 ## AGENTS-001: A work area is a record — PASS (iteration 1)
 
@@ -5524,3 +5525,87 @@ removed, so this is contention for the machine rather than a regression. Recorde
 `loops/handoff/pivot-agents.md` for the reconciler rather than worked around, because the file is
 adjacent to `server/routes/projects.ts`, which the partition assigns to nobody. Every suite this
 branch owns is green five runs in a row.
+
+## AGENTS-002: Every area maps to one section and one milestone — NOT TESTED (iteration 2)
+
+Two of three clauses are evidenced. The item is held, not upgraded: a partially-satisfied item is
+NOT TESTED, not PASS.
+
+```text
+Item:     AGENTS-002
+Command:  bun test server/services/workArea.test.ts server/routes/agentRoutes.test.ts
+Observed: 70 pass, 0 fail, 223 expect() calls.
+Reached from a launched agent or a rendered component: partly — POST
+          /api/coding-agents/areas/:areaId/tasks and GET /api/coding-agents/areas/coverage are
+          mounted on the agents router and exercised over HTTP. Neither has a client caller yet,
+          because the AGENTS page is A-11. G-4 is not satisfied for them and does not claim to be.
+Clause not evidenced: clause 1 — "creating an area sets Requirement.designSection for the
+          requirements it covers". Blocked on a hot file; see below.
+```
+
+**Clause 1 — `Requirement.designSection`. NOT DONE, and not worked around.** The field is declared
+(`server/types/project.ts:79`) and settable only at creation: `ProjectStore.addRequirement` accepts
+it, and `updateRequirement`'s patch is a `Pick<>` allow-list that omits it. Requirements normally
+exist before areas do — they are imported from the design document by `parseRequirements`
+(`shared/designDocument.ts`) — so area creation needs the update path, and `server/services/projectStore.ts`
+is a hot file no worktree edits directly. The one-word request, with the full signature and the
+consumer that will call it, is filed in `loops/handoff/pivot-agents.md`. No producer was built on
+the create path to claim the clause: that would be an endpoint the product does not use, standing in
+for one it does.
+
+**Clause 2 — every task created inside an area carries that area's `milestoneId`, and the
+milestone's `taskIds` is non-empty. PASS.** `createTaskInArea()`
+(`server/services/workArea.ts`) sets `milestoneId` from the area and merges it *after* the caller's
+parameters, so the area decides which milestone its work belongs to and a caller cannot name a
+different one — the same reasoning that keeps an agent's identity off MCP tool parameters. The HTTP
+test asserts the effect rather than the response: after one `POST /areas/:areaId/tasks`, the plan's
+milestone `taskIds` equals `[task.id]`.
+
+The refusal matters as much as the write. `ProjectStore.addTask` links the task to its milestone
+with `project.plan.milestones.find((m) => m.id === task.milestoneId)?.taskIds.push(task.id)` —
+optional all the way down. A task naming a milestone that is not in the plan is stored happily, the
+relation silently does not run, and nothing reports it. That is how `Milestone.taskIds` came to be
+decorative through 900+ tests. `createTaskInArea` therefore refuses with `MILESTONE_NOT_IN_PLAN`,
+naming the area's milestone and listing the plan's, and refuses the no-plan case with the same code.
+
+**Clause 3 — sections of the brief with no area are listed as uncovered. Computed and served; not
+yet on a page.** `coverBrief()` returns the brief's sections in document order, each with the area
+covering it, plus `uncovered` and `coveredCount` — the "3 of 5 sections of your brief have nobody
+working on them" line. Served at `GET /api/coding-agents/areas/coverage?projectId=`. The rendering
+half of the clause waits for A-11, and is why the item is held.
+
+Two resolution failures are named rather than dropped, because an anchor on an area is a string a
+model wrote during team assembly and the heading is a string the user wrote:
+
+```text
+"Deck" against a brief heading "§3 Deck"     resolves, matchKind: "normalised"
+"§9 Podcast" against a brief with no such    unmatchedAreas: [{ areaId, name, briefSectionAnchor }]
+  heading                                    — the area is not silently dropped
+a second area claiming a taken section       the first keeps it; the second is reported unmatched
+a heading inside a fenced code block         not a section; a brief showing a shell transcript
+                                             would otherwise sprout headings nobody wrote
+```
+
+**Shown to fail before the change**, by mutation — each of these was applied, the suites run, and
+the mutation reverted:
+
+```text
+mutation                                            test that failed
+drop the MILESTONE_NOT_IN_PLAN guard                "a milestone that is not in the plan is refused"
+                                                    "a project with no plan at all is refused"
+                                                    (task stored, milestone.taskIds still empty)
+spread the caller's params last                     "the area decides the milestone"
+stop skipping fenced code blocks                    "a heading inside a fenced code block"
+match anchors exactly only                          "an anchor a model wrote differently"
+ 65 pass, 5 fail — restored, 70 pass, 0 fail
+```
+
+**Gate at iteration 2:** both typechecks exit 0; all four audits exit 0 — 0 orphans, 87 endpoints
+covered by a caller, 0 dead controls, every citation resolves. The five suites this branch owns are
+green five runs in a row (462 expect() calls per run).
+
+The `projectReads.test.ts` timeouts recorded under AGENTS-001 have grown with the machine's load —
+six of them in the iteration-2 full run (986 pass, 6 fail), every one a 5000 ms timeout in a test
+that spawns a real `grok` process. Reproduced decisively at baseline: with every file this branch
+touched stashed, the same suite fails five tests of the same shape (36 pass, 5 fail). Not this
+branch's, and not this branch's file to fix — recorded in `loops/handoff/pivot-agents.md`.
