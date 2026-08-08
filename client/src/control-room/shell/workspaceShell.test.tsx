@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { workspaceUrl } from "./contract";
 import { PAGES } from "./pages";
-import { DEFAULT_PAGE, navigate } from "./router";
+import { navigate } from "./router";
 import { Notifications, WorkspaceShell } from "./WorkspaceShell";
 import { NAVIGATOR } from "./regions";
 
