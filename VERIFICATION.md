@@ -5482,7 +5482,7 @@ Typecheck output with only contract.ts and pages.ts present:
 
 Handoff file, first commit (sha and date):
 
-  loops/handoff/pivot-shell.md — commit SHA-PENDING, 2026-08-08. R-1 carries the verbatim text of
+  loops/handoff/pivot-shell.md — commit c58ecd4, 2026-08-08. R-1 carries the verbatim text of
   contract.ts and pages.ts, the URL scheme, and the token names. R-2…R-9 are seeded in the same
   commit, per §0.2.
 
