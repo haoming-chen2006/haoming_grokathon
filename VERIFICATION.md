@@ -5416,12 +5416,20 @@ an unfinished piece of work.**
 Items `AGENTS-001…AGENTS-018` are defined in `loops/01-agents.md` §8. The `V-0NN` rows above belong
 to the retired coding product and are not this loop's to update or delete.
 
-**Tally after iteration 3:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
+**Tally after iteration 4:** 1 PASS · 0 FAIL · 0 BLOCKED · 17 NOT TESTED
 
 **PASS (1):** AGENTS-001
-**NOT TESTED (17):** AGENTS-002 … AGENTS-018. AGENTS-002 has two of its three clauses evidenced
-and AGENTS-003 has part of its first; both are held at NOT TESTED for the rest — see their entries
-below.
+**NOT TESTED (17):** AGENTS-002 … AGENTS-018. Four of them are partly evidenced and held for the
+rest — AGENTS-002 (two clauses of three), AGENTS-003 (half of one), AGENTS-007 (one of four),
+AGENTS-008 (one of two). Each entry below names the clause it is missing and why.
+
+**Blocked on hot files, all three requests filed with signatures in `loops/handoff/pivot-agents.md`:**
+
+```text
+server/services/projectStore.ts        designSection is not patchable    AGENTS-002 clause 1
+server/types/agent.ts                  no areaId, no capabilities        AGENTS-003, AGENTS-007
+server/services/projectMcpServer.ts    capability does not gate tools    AGENTS-007, AGENTS-008
+```
 
 ## AGENTS-001: A work area is a record — PASS (iteration 1)
 
@@ -5702,3 +5710,88 @@ Two runs between those two greens each failed exactly one test, and the failure 
 Recorded rather than hidden: every failure this branch has seen is a timeout in a test that spawns a
 real `grok` process, none is in a suite this branch owns, and the owned suites have never failed a
 run.
+
+## AGENTS-007 / AGENTS-008: Capability bounds the agent — NOT TESTED (iteration 4)
+
+The capability model, the tool mapping and the four presets are built, served and tested. The
+registration that makes them bind is `server/services/projectMcpServer.ts`, a hot file, and the
+field that records the choice is on `server/types/agent.ts`, another one. Both requests are filed.
+
+```text
+Item:     AGENTS-007
+Command:  bun test server/services/boundary.test.ts server/routes/agentRoutes.test.ts
+Observed: 74 pass, 0 fail, 338 expect() calls.
+Reached from a launched agent or a rendered component: partly — GET /api/coding-agents/capabilities
+          is mounted and exercised over HTTP. No client caller yet; the creation form is A-10/A-11.
+Clause not evidenced: clauses 1, 2 and 3 — recording {images, voice} on the agent needs the type
+          field, and a tools/list response reflecting capability needs the MCP registration.
+Clause evidenced: clause 4 — no clause of this item needed a network call or XAI_API_KEY, and
+          nothing added this iteration can make one.
+```
+
+**What exists.** `server/services/boundary.ts` now holds the capability model:
+
+```text
+base Grok              no media tool at all           every media tool withheld
+Grok + images          generate_image, edit_image,    narrate and transcribe withheld
+                       image_to_video, poll_video_job
+Grok + voice           narrate, transcribe            all four image tools withheld
+Grok + voice + images  the union                      nothing withheld
+```
+
+Video sits under `images` and is not a third flag, because it is the same endpoint family, the same
+credential and the same rate family; a picker offering it separately would imply a credential
+boundary that does not exist. A property test asserts that granted and withheld always *partition*
+the media tools, for all four combinations — so a tool added to one list and forgotten in the other
+fails the suite rather than becoming quietly unreachable or quietly universal.
+
+No per-unit price appears anywhere in this module. The rate table and the ledger are
+06-tools-cost's; two documents specifying the same prices is how they come to disagree.
+
+**Served, so the creation form cannot invent it.** `GET /api/coding-agents/capabilities` returns the
+four presets with their labels, their media tools and a one-line note on what each can spend on —
+the same reason `/statuses` exists. The badge names what the agent may *call*, and a test asserts
+that no preset id, label or spend note, and no tool name, contains "slide", "deck", "pptx",
+"powerpoint", "presentation", "docx" or "pdf". There is no xAI endpoint for any of them: the two
+surfaces that look like one are a Microsoft 365 add-in and a consumer chat product, both user
+interfaces.
+
+```text
+Item:     AGENTS-008
+Clause 1 (a base-Grok agent instructed to generate an image produces no image and no api.x.ai
+          request): NOT DONE. It needs the MCP registration to be capability-gated and a live
+          agent turn. Filed, not approximated.
+Clause 2 (the reason is the absence of the tool, and a test fails if that explanation is removed
+          from the code): PASS. server/services/boundary.test.ts reads boundary.ts and asserts four
+          sentences are present — that enforcement is registration rather than refusal, why an
+          advertised tool that always fails invites a retry, the DELIBERATELY_USER_ONLY precedent,
+          and that no slide tool exists. Deleting any of them fails the suite with a message naming
+          which explanation went.
+```
+
+**Shown to fail before the change**, by mutation — each applied, the suites run, and reverted:
+
+```text
+mutation                                       tests that failed
+let voice also grant the image tools           4 — including the granted/withheld partition
+rename the images badge "Grok + slides"        2 — the service test and the HTTP test
+delete two sentences of the explanation        1 — naming which explanation was removed
+ 67 pass, 7 fail — restored, 74 pass, 0 fail
+```
+
+**Why this is not simply deferred to whoever owns `projectMcpServer.ts`.** The mapping is the part
+that has to be right: a tool named in the wrong list is a media capability granted or denied by
+accident, and the file that registers the tools is edited by a reconciler who has not read this
+document. The handoff entry hands over a call — `toolsForCapability(ctx.capabilities ??
+BASE_CAPABILITIES)` — rather than a design, and warns that `PROJECT_MCP_TOOLS` is asserted
+element-for-element by three existing suites, so media tools must be a separate list.
+
+**Gate at iteration 4:** typechecks, build and all four audits exit 0 (0 orphans; every endpoint has
+a caller; 0 dead controls; every citation resolves). The five suites this branch owns are green five
+runs in a row, 644 expect() calls each.
+
+`bun run verify` is red on the known load flake and nothing else: 1010 pass, 5 fail, every failure a
+5000 ms timeout in a `projectReads.test.ts` test that spawns a real `grok` process, at load average
+50.38. Baselined again at that same load with this iteration's four files stashed — 40 pass, 1 fail,
+same shape. The control is iteration 3's run of the same suite at load 19: green, 1001 pass, 0 fail,
+with the launch path untouched by anything added since.

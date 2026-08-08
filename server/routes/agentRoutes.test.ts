@@ -777,3 +777,36 @@ describe("hiring an agent into an area", () => {
     expect(json.area.statusPresentation.label).toBe("Working");
   });
 });
+
+// ------------------------------------------------- the capability vocabulary (AGENTS-007)
+
+describe("the capability choices are served, not invented by the form", () => {
+  test("GET /capabilities returns the four presets with the tools each grants", async () => {
+    const { status, json } = await req("GET", "/api/coding-agents/capabilities");
+    expect(status).toBe(200);
+    expect(json.presets.map((p: any) => p.id)).toEqual(["base", "images", "voice", "voice+images"]);
+    expect(json.presets[0].mediaTools).toEqual([]);
+    expect(json.mediaTools).toContain("generate_image");
+    expect(json.mediaTools).toContain("narrate");
+  });
+
+  test("every preset carries the text a badge needs, and none names a medium the API cannot produce", async () => {
+    const { json } = await req("GET", "/api/coding-agents/capabilities");
+    for (const preset of json.presets) {
+      expect(preset.label.length).toBeGreaterThan(0);
+      expect(preset.spendNote.length).toBeGreaterThan(0);
+      for (const word of ["slide", "deck", "pptx", "presentation"]) {
+        expect(`${preset.label} ${preset.spendNote}`.toLowerCase()).not.toContain(word);
+      }
+    }
+  });
+
+  test("capabilities resolves as its own route, not as an agent id", async () => {
+    const agent = makeAgent();
+    const { json } = await req("GET", "/api/coding-agents/capabilities");
+    expect(json.presets).toBeTruthy();
+    expect(json.id).toBeUndefined();
+    // And a real agent id still resolves to the agent.
+    expect((await req("GET", `/api/coding-agents/${agent.id}`)).json.id).toBe(agent.id);
+  });
+});

@@ -122,6 +122,49 @@ practice: task assignment and area assignment are different relations with diffe
 agent keeps its area across many tasks — so `assignTask` keeps its name and its task, and
 `assignArea` is the separate function above. Recorded here because the loop document says otherwise.
 
+### 3 — capability must decide which MCP tools are registered (filed iteration 4, blocks AGENTS-007/008)
+
+```text
+FILE      server/services/projectMcpServer.ts
+ADD       ProjectMcpContext gains two fields:
+            areaId?: string
+            capabilities?: AgentCapabilities          // import type from ./boundary
+CHANGE    createProjectMcpServer(ctx) registers the media tools named by
+          toolsForCapability(ctx.capabilities ?? BASE_CAPABILITIES) and registers no other media
+          tool. Default is base Grok: an absent capabilities field must grant nothing.
+ADD       export const MEDIA_MCP_TOOLS = MEDIA_TOOLS   (or re-export) so a tools/list assertion can
+          name them without importing two modules.
+WHY       AGENTS-007 — "an agent without images has no image or video tool in its tools/list
+          response — absent, not present-and-failing". The enforcement is registration, not
+          refusal, following the DELIBERATELY_USER_ONLY precedent already in this file: a tool an
+          agent must not have is not registered. Do NOT register a media tool and return an error
+          from it — an advertised tool that always fails invites a retry, and a retry loop from an
+          agent with media capability is the failure mode that costs money.
+```
+
+**What this worktree already provides, so the edit above is a call and not a design:**
+
+```ts
+// server/services/boundary.ts — all exported, all tested, no network and no XAI_API_KEY needed
+export interface AgentCapabilities { images: boolean; voice: boolean }
+export const BASE_CAPABILITIES: AgentCapabilities            // { images: false, voice: false }
+export const IMAGE_TOOLS   // generate_image, edit_image, image_to_video, poll_video_job
+export const VOICE_TOOLS   // narrate, transcribe
+export const MEDIA_TOOLS   // the union
+export function toolsForCapability(c: AgentCapabilities): string[]
+export function toolsWithheldByCapability(c: AgentCapabilities): string[]
+export const CAPABILITY_PRESETS: CapabilityPreset[]          // the four the product offers
+export function capabilityPreset(c: AgentCapabilities): CapabilityPreset
+export function capabilityLabel(c: AgentCapabilities): string
+```
+
+**Note for the reconciler and for 04-generation.** `PROJECT_MCP_TOOLS` in that file is asserted
+element-for-element by three test files (`server/routes/mcp.test.ts`,
+`server/routes/mcpTools.test.ts`, `server/services/projectMcpServer.test.ts`). Media tools must
+therefore be a *separate* list, not appended to `PROJECT_MCP_TOOLS`, or those three suites break for
+every agent regardless of capability. The tool *implementations* are 04-generation's; this worktree
+names them and nothing more.
+
 ### Foreseen, not yet filed
 
 The requests `loops/01-agents.md` §9 anticipates — `CodingAgent.areaId` and `.capabilities`,

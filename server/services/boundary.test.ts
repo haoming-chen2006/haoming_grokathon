@@ -1,9 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, sep } from "path";
-import { canonical, isInsideRoot } from "./boundary";
+import {
+  BASE_CAPABILITIES,
+  CAPABILITY_PRESETS,
+  IMAGE_TOOLS,
+  MEDIA_TOOLS,
+  VOICE_TOOLS,
+  canonical,
+  capabilityLabel,
+  capabilityPreset,
+  isInsideRoot,
+  toolsForCapability,
+  toolsWithheldByCapability,
+} from "./boundary";
 
 /**
  * AGENTS-001, second clause: a symlink inside the root pointing outside it is resolved before any
@@ -95,5 +107,113 @@ describe("isInsideRoot", () => {
   test("an absolute path elsewhere on the machine is outside", () => {
     expect(isInsideRoot(root, "/etc/passwd")).toBe(false);
     expect(isInsideRoot(root, join(outside, "anything.md"))).toBe(false);
+  });
+});
+
+// ------------------------------------------------- capability: which tools exist (AGENTS-007/008)
+
+describe("capability decides which tools exist", () => {
+  test("base Grok grants no media tool at all", () => {
+    expect(toolsForCapability(BASE_CAPABILITIES)).toEqual([]);
+    // And every media tool is withheld — the list is exhaustive, not a sample.
+    expect(toolsWithheldByCapability(BASE_CAPABILITIES).sort()).toEqual([...MEDIA_TOOLS].sort());
+  });
+
+  test("images grants image and video tools; voice grants neither", () => {
+    expect(toolsForCapability({ images: true, voice: false })).toEqual([...IMAGE_TOOLS]);
+    for (const tool of VOICE_TOOLS) {
+      expect(toolsForCapability({ images: true, voice: false })).not.toContain(tool);
+    }
+  });
+
+  test("voice grants narration and transcription; images grants neither", () => {
+    expect(toolsForCapability({ images: false, voice: true })).toEqual([...VOICE_TOOLS]);
+    for (const tool of IMAGE_TOOLS) {
+      expect(toolsForCapability({ images: false, voice: true })).not.toContain(tool);
+    }
+  });
+
+  test("voice + images grants the union and withholds nothing", () => {
+    expect(toolsForCapability({ images: true, voice: true }).sort()).toEqual([...MEDIA_TOOLS].sort());
+    expect(toolsWithheldByCapability({ images: true, voice: true })).toEqual([]);
+  });
+
+  test("granted and withheld always partition the media tools, for every capability", () => {
+    for (const images of [true, false]) {
+      for (const voice of [true, false]) {
+        const capabilities = { images, voice };
+        const both = [...toolsForCapability(capabilities), ...toolsWithheldByCapability(capabilities)];
+        expect(both.sort()).toEqual([...MEDIA_TOOLS].sort());
+      }
+    }
+  });
+
+  test("video is granted by images, because it is the same endpoint family", () => {
+    // Not a separate flag: one credential, one rate family. A capability picker offering "video"
+    // separately would imply a credential boundary that does not exist.
+    expect(toolsForCapability({ images: true, voice: false })).toContain("image_to_video");
+    expect(toolsForCapability({ images: true, voice: false })).toContain("poll_video_job");
+  });
+});
+
+describe("the four presets", () => {
+  test("every combination of the two flags has exactly one preset", () => {
+    expect(CAPABILITY_PRESETS).toHaveLength(4);
+    const seen = new Set<string>();
+    for (const images of [true, false]) {
+      for (const voice of [true, false]) {
+        const preset = capabilityPreset({ images, voice });
+        expect(seen.has(preset.id)).toBe(false);
+        seen.add(preset.id);
+        expect(preset.mediaTools.sort()).toEqual(toolsForCapability({ images, voice }).sort());
+      }
+    }
+  });
+
+  test("the cheapest choice is first, so the expensive one is a deliberate step", () => {
+    expect(CAPABILITY_PRESETS[0]!.id).toBe("base");
+    expect(CAPABILITY_PRESETS[0]!.mediaTools).toEqual([]);
+    expect(CAPABILITY_PRESETS.at(-1)!.id).toBe("voice+images");
+  });
+
+  test("every preset carries a text label and a note about what it can spend on", () => {
+    for (const preset of CAPABILITY_PRESETS) {
+      expect(preset.label.trim().length).toBeGreaterThan(0);
+      expect(preset.spendNote.trim().length).toBeGreaterThan(0);
+    }
+    expect(capabilityLabel(BASE_CAPABILITIES)).toBe("base Grok");
+    expect(capabilityLabel({ images: true, voice: true })).toBe("Grok + voice + images");
+  });
+
+  test("no badge names a medium the API cannot produce", () => {
+    // There is no xAI slide, deck or document generation endpoint, and there cannot be one: the two
+    // surfaces that look like it are a Microsoft 365 add-in and a consumer chat product, both user
+    // interfaces. A badge naming one would promise an endpoint that does not exist.
+    const forbidden = ["slide", "deck", "pptx", "powerpoint", "presentation", "docx", "pdf"];
+    for (const preset of CAPABILITY_PRESETS) {
+      const text = `${preset.id} ${preset.label} ${preset.spendNote}`.toLowerCase();
+      for (const word of forbidden) expect(text).not.toContain(word);
+    }
+    for (const tool of MEDIA_TOOLS) {
+      for (const word of forbidden) expect(tool.toLowerCase()).not.toContain(word);
+    }
+  });
+});
+
+describe("the safety is the absence of the tool, and the code says so", () => {
+  test("the explanation is in the source, and this test fails if it is deleted", () => {
+    // AGENTS-008: "when safety comes from the absence of something, write that down — say so in
+    // the code, and make a test fail if the explanation is deleted." Without the explanation, the
+    // next reader sees a function returning a list and adds a register-and-refuse path, which is
+    // the retry loop that costs money.
+    const src = readFileSync(join(import.meta.dir, "boundary.ts"), "utf8");
+    expect(src, "the registration-not-refusal explanation was removed from boundary.ts").toContain(
+      "The enforcement is registration, not refusal",
+    );
+    expect(src, "the reason register-and-refuse is forbidden was removed").toContain(
+      "an advertised tool that always fails is",
+    );
+    expect(src, "the DELIBERATELY_USER_ONLY precedent was removed").toContain("DELIBERATELY_USER_ONLY");
+    expect(src, "the no-slide-endpoint explanation was removed").toContain("There is no slide, deck or document tool");
   });
 });

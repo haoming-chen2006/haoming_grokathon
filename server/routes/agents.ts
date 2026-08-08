@@ -7,6 +7,7 @@ import {
   getAcpSessionManager,
 } from "../services/acpSessionManager";
 import { AGENT_RUNTIME_STATUSES, AGENT_STATUS_PRESENTATION } from "../types/agent";
+import { CAPABILITY_PRESETS, MEDIA_TOOLS } from "../services/boundary";
 import { getProjectStore } from "../services/projectStore";
 import {
   AreaAssignmentError,
@@ -57,6 +58,16 @@ agentRoutes.get("/statuses", (c) =>
     presentation: AGENT_STATUS_PRESENTATION,
   }),
 );
+
+/**
+ * The four capability choices, with the media tools each grants (AGENTS-007).
+ *
+ * Here for the same reason `/statuses` is: the creation form must not invent this text. Capability
+ * is chosen once, at creation, and it is a budget control — a base-Grok agent cannot reach a
+ * per-unit endpoint at all — so the form has to be able to say what each choice costs the user at
+ * the moment of choosing.
+ */
+agentRoutes.get("/capabilities", (c) => c.json({ presets: CAPABILITY_PRESETS, mediaTools: MEDIA_TOOLS }));
 
 agentRoutes.get("/", (c) => c.json(getAgentRegistry().list(c.req.query("projectId") ?? undefined)));
 
