@@ -6,15 +6,17 @@ import { DesignDocumentPanel } from "./DesignDocumentPanel";
 import { RequirementDetail, RequirementList } from "./RequirementPanel";
 import { ReviewQueue, SuggestionQueue } from "./ReviewQueues";
 import { ConversationView } from "./ConversationView";
+import { PlanPanel } from "./PlanPanel";
 import { SessionDrawer } from "./SessionDrawer";
 import { useControlRoom } from "./useControlRoom";
 
-type Tab = "agents" | "canvas" | "document" | "reviews" | "conversations";
+type Tab = "agents" | "canvas" | "document" | "plan" | "reviews" | "conversations";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "agents", label: "Agents" },
   { id: "canvas", label: "Canvas" },
   { id: "document", label: "Design Document" },
+  { id: "plan", label: "Plan" },
   { id: "reviews", label: "Reviews" },
   { id: "conversations", label: "Conversations" },
 ];
@@ -155,6 +157,15 @@ export function ControlRoomApp() {
             )}
             {tab === "document" && (
               <DesignDocumentPanel document={room.document} onSave={room.saveDocument} onImport={room.saveDocument} />
+            )}
+            {tab === "plan" && (
+              <PlanPanel
+                plan={room.plan}
+                tasks={room.tasks}
+                agentName={(id) => room.agents.find((a) => a.id === id)?.name}
+                onApprove={room.approvePlan}
+                onLaunch={room.launchTask}
+              />
             )}
             {tab === "reviews" && (
               <div>

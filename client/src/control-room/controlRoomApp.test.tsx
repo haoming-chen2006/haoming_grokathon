@@ -100,11 +100,23 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+/**
+ * Render the shell and wait until its data has arrived.
+ *
+ * `control-room` appears as soon as `loading` flips false, but the project, document, agents and
+ * progress come from four separate fetches. Asserting straight after the frame is a race: it
+ * failed as "expected Greeting Service, received —" when a later fetch had not landed. Waiting for
+ * the project name means every test below starts from a loaded shell.
+ */
+async function openShell() {
+  render(<ControlRoomApp />);
+  await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+  await waitFor(() => expect(screen.getByTestId("project-name").textContent).toBe("Greeting Service"));
+}
+
 describe("Control Room shell", () => {
   test("loads a project and renders the header with live figures", async () => {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
-
+    await openShell();
     expect(screen.getByTestId("project-name").textContent).toBe("Greeting Service");
     expect(screen.getByTestId("project-goal").textContent).toBe("Implement the greeting feature");
     expect(screen.getByTestId("project-progress-text").textContent).toBe("50% · 1/2 requirements");
@@ -123,8 +135,7 @@ describe("Control Room shell", () => {
   });
 
   test("every tab renders its panel", async () => {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+    await openShell();
 
     // Agents is the default.
     expect(screen.getAllByTestId("agent-card")).toHaveLength(2);
@@ -144,8 +155,7 @@ describe("Control Room shell", () => {
   });
 
   test("the requirement list drives the implementation panel", async () => {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+    await openShell();
 
     // Nothing selected yet.
     expect(screen.getByTestId("requirement-detail-empty")).toBeTruthy();
@@ -165,9 +175,7 @@ describe("Control Room shell", () => {
   });
 
   test("opening a session replaces the panel with the drawer and calls the API", async () => {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
-
+    await openShell();
     fireEvent.click(screen.getAllByTestId("agent-open-session")[0]);
     await waitFor(() => expect(screen.getByTestId("session-drawer")).toBeTruthy());
 
@@ -187,15 +195,13 @@ describe("Control Room shell", () => {
   });
 
   test("the canvas tab renders and is wired to persist moves", async () => {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+    await openShell();
     fireEvent.click(screen.getByTestId("tab-canvas"));
     expect(screen.getByTestId("agent-canvas")).toBeTruthy();
   });
 
   test("agent status is shown with text, not colour alone", async () => {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+    await openShell();
     const labels = screen.getAllByTestId("agent-status-label").map((n) => n.textContent);
     expect(labels).toContain("Working");
     expect(labels).toContain("Idle");
@@ -204,8 +210,7 @@ describe("Control Room shell", () => {
 
 describe("the shell can reach archived conversation history", () => {
   async function openConversations() {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+    await openShell();
     fireEvent.click(screen.getByTestId("tab-conversations"));
     await waitFor(() => expect(screen.getByTestId("conversation-view")).toBeTruthy());
   }
@@ -233,10 +238,7 @@ describe("the shell can reach archived conversation history", () => {
 });
 
 describe("budget warnings reach the user (V-046)", () => {
-  async function open() {
-    render(<ControlRoomApp />);
-    await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
-  }
+  const open = openShell;
 
   test("a warning published before the limit is shown", async () => {
     // V-046 requires warnings to appear BEFORE the configured threshold. The server publishes

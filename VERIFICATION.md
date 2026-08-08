@@ -4047,17 +4047,72 @@ progress arrive from four separate fetches. Under the load of the server suites,
 lands *after* the click and resets state, so the selection is cleared and the panel falls back to
 `requirement-detail-empty` — which is exactly what the failure output showed.
 
-Fixed by waiting for the data rather than the frame: wait for the requirement row to exist before
-clicking, and for the detail to appear after.
+Fixed by waiting for the data rather than the frame — and then, following the iteration-54 lesson
+about checking the other branch, **the same shape was found in seven more places in that file and
+in the sibling `uiChecklist.test.tsx`**. Every one asserted immediately after `control-room`
+appeared. Fixing only the one that happened to fail would have left six loaded guns.
+
+Both files now open the shell through a helper that waits for the project name to render, so every
+test starts from a loaded shell rather than a mounted one.
 
 ```text
-three consecutive full `bun run verify` runs: 679 pass / 0 fail
+three consecutive full `bun run verify` runs: 692 pass / 0 fail
 ```
 
 **Worth separating from the live-agent flake.** Both are intermittent and both only appear in the
 full suite, and it would have been easy to file this under the known one. It is a different defect
 with a different cause — a UI test racing its own fixtures, not a model choosing badly — and the
 first diagnostic step was checking which it was.
+
+---
+
+## The approval gate got a button (iteration 66)
+
+V-018 requires that "proposed tasks do not launch automatically" and "Grok coding sessions launch
+only after approval". The server enforced both. The **only** way to pass the gate was:
+
+```bash
+curl -X POST .../plan/approve
+curl -X POST .../tasks/<id>/launch
+```
+
+So the one decision the design insists a human makes had no control in the human's interface, and
+the Control Room was something to watch rather than operate. `bun run new` (iteration 65) made
+stage 1 a single command and left this as the obvious hole.
+
+**A Plan tab.** It shows the plan's state, its tasks with owner, requirement and dependencies, an
+**Approve Plan** button while it is a draft, and a **Launch** button per task.
+
+**Launch is disabled rather than hidden while the plan is a draft, and says why** — matching the
+existing treatment of a stale suggestion and of merging with failing tests. The server would answer
+`PLAN_NOT_APPROVED`; an absent control teaches nothing, a control that explains its refusal teaches
+the gate. Dependencies get the same treatment: a task waiting on an incomplete one is disabled and
+names it.
+
+```text
+draft plan            state "Draft", approve offered, launch disabled titled "…must be approved…"
+approved plan         approve hidden, an unblocked task launchable
+t2 depends on t1      disabled, title names t1; enabled once t1 is complete
+completed task        launch disabled, "Already complete"
+no plan at all        explains how to make one instead of rendering blank
+```
+
+**Ten component tests and three through the assembled shell.** The shell ones matter more: this
+project's recurring defect is a component that works and a shell that never passes the prop, so the
+test that counts asserts the real request is issued.
+
+```text
+control experiment — the shell's onApprove prop removed:
+  (fail) approving calls the real endpoint
+  16 pass / 1 fail        restored: 17 pass / 0 fail
+```
+
+`bun run audit:quality`'s unpassed-handler check (iteration 55) also catches it, so this particular
+mistake now fails two ways.
+
+```text
+bun run verify → exit 0, 692 pass / 0 fail, four audits clean
+```
 
 ---
 
@@ -4087,7 +4142,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 679 pass / 0 fail, 40 files;
+[x] Required tests pass.                    — 692 pass / 0 fail, 41 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -4157,9 +4212,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 76 ahead of main
+commits 81 ahead of main
 build   bun run build exit 0
-tests   679 pass / 0 fail across 40 files
+tests   692 pass / 0 fail across 41 files
 audits  0 orphans; every endpoint has a caller
 ```
 

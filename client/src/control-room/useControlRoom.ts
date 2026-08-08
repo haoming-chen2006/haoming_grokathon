@@ -26,6 +26,23 @@ export interface BudgetAlert {
   limit: number;
 }
 
+export interface PlanView {
+  id: string;
+  state: "draft" | "approved" | "revising";
+  approvedBy?: string;
+  milestones: Array<{ id: string; name: string }>;
+}
+
+export interface TaskView {
+  id: string;
+  objective: string;
+  status: string;
+  assignedAgentId?: string;
+  requirementId?: string;
+  dependsOn: string[];
+  branch?: string;
+}
+
 export interface ControlRoomState {
   projects: ProjectSummary[];
   projectId: string | null;
@@ -36,6 +53,9 @@ export interface ControlRoomState {
   suggestions: DesignSuggestionView[];
   submissions: SubmissionView[];
   messages: MessageView[];
+  /** The implementation plan, absent until one is drafted. */
+  plan: PlanView | null;
+  tasks: TaskView[];
   progress: ProgressView | null;
   costUsd: number;
   loading: boolean;
@@ -44,7 +64,7 @@ export interface ControlRoomState {
 
 const EMPTY: ControlRoomState = {
   projects: [], projectId: null, project: null, document: null, requirements: [],
-  agents: [], suggestions: [], submissions: [], messages: [], progress: null,
+  agents: [], suggestions: [], submissions: [], messages: [], plan: null, tasks: [], progress: null,
   costUsd: 0, loading: true, error: null,
 };
 
@@ -113,6 +133,8 @@ export function useControlRoom() {
         suggestions: full.suggestions ?? [],
         submissions: full.submissions ?? [],
         messages: full.messages ?? [],
+        plan: full.plan ?? null,
+        tasks: full.tasks ?? [],
         agents,
         progress,
         costUsd: costs.projectCostUsd ?? 0,
@@ -271,6 +293,34 @@ export function useControlRoom() {
     if (state.projectId) void loadProject(state.projectId);
   }, [state.agents, state.projectId, loadProject]);
 
+  /**
+   * Approve the implementation plan (V-018).
+   *
+   * Until this existed the only way to pass the gate was a curl command, which made the Control
+   * Room something you watch rather than something you operate — and the approval is the one
+   * decision the design insists a human makes.
+   */
+  const approvePlan = useCallback(async () => {
+    if (!state.projectId) return;
+    try {
+      await json(`/api/projects/${state.projectId}/plan/approve`, { method: "POST", body: "{}" });
+      void loadProject(state.projectId);
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }, [state.projectId, loadProject]);
+
+  /** Launch the Grok session for a task. Refused by the server until the plan is approved. */
+  const launchTask = useCallback(async (taskId: string) => {
+    if (!state.projectId) return;
+    try {
+      await json(`/api/projects/${state.projectId}/tasks/${taskId}/launch`, { method: "POST", body: "{}" });
+      void loadProject(state.projectId);
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }, [state.projectId, loadProject]);
+
   const refresh = useCallback(() => {
     if (state.projectId) void loadProject(state.projectId);
   }, [state.projectId, loadProject]);
@@ -285,6 +335,8 @@ export function useControlRoom() {
     budgetAlert,
     dismissBudgetAlert: () => setBudgetAlert(null),
     pauseAll,
+    approvePlan,
+    launchTask,
     transcript,
     sessionState,
     selectProject: (id: string) => setState((s) => ({ ...s, projectId: id, loading: true })),

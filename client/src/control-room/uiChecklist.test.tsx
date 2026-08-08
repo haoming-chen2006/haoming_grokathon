@@ -47,6 +47,7 @@ const PROJECT = {
       links: [{ kind: "requirement", id: "GREET-01" }], threadId: "t2", createdAt: "" },
   ],
   tasks: [{ id: "t1", objective: "Implement greet", assignedAgentId: "a1", status: "working", dependsOn: [] }],
+  plan: { id: "plan_1", state: "draft", milestones: [] },
 };
 
 const AGENTS = [
@@ -92,6 +93,10 @@ function stubFetch() {
 async function openApp() {
   render(<ControlRoomApp />);
   await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+  // Wait for the data, not just the frame: `control-room` renders when loading ends, while the
+  // project, document, agents and progress are still four separate fetches in flight. Asserting
+  // straight after the frame raced them — see controlRoomApp.test.tsx's openShell.
+  await waitFor(() => expect(screen.getByTestId("project-name").textContent).toBe("Greeting Service"));
 }
 
 async function openTab(id: string) {
@@ -263,5 +268,37 @@ describe("a requirement shows the conversations about it (§21)", () => {
     expect(list.textContent).toContain("what shape is the greeting?");
     // The other message links to the branch, not this requirement — it must not appear here.
     expect(list.textContent).not.toContain("ready");
+  });
+});
+
+describe("the approval gate is reachable from the shell (V-018)", () => {
+  test("the Plan tab shows the draft and its approve control", async () => {
+    await openApp();
+    await openTab("plan");
+    await waitFor(() => expect(screen.getByTestId("plan-panel")).toBeTruthy());
+
+    expect(screen.getByTestId("plan-state").textContent).toBe("Draft");
+    expect(screen.getByTestId("plan-approve")).toBeTruthy();
+    // Launch mirrors the server's PLAN_NOT_APPROVED rather than offering an action it would refuse.
+    expect((screen.getByTestId("plan-launch-t1") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("approving calls the real endpoint", async () => {
+    // The whole point: this was a curl command until now, so the request itself is the assertion.
+    await openApp();
+    await openTab("plan");
+    await waitFor(() => expect(screen.getByTestId("plan-approve")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("plan-approve"));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.url.includes("/plan/approve"))).toBe(true),
+    );
+  });
+
+  test("the task owner is resolved to the agent's name", async () => {
+    await openApp();
+    await openTab("plan");
+    await waitFor(() => expect(screen.getByTestId("plan-task-owner-t1")).toBeTruthy());
+    expect(screen.getByTestId("plan-task-owner-t1").textContent).toBe("Backend Engineer");
   });
 });
