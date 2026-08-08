@@ -192,12 +192,17 @@ and neither has ever declared anything.
 
 ---
 
-## 3. State as of iteration 0
+## 3. State as of iteration 1
 
 ```text
-0 PASS · 0 FAIL · 0 BLOCKED · 16 NOT TESTED
-Gate: inherited from the control room — 715 tests across 42 suites, both typechecks, the
-      production build, four audits. Nothing in this checklist has been attempted.
+2 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED
+PASS: AS-001 (five types, cross-process persistence, unknown type refused)
+      AS-002 (synchronous store, invariant test, byte persistence outside it)
+Gate: bun run verify exit 0 — 949 tests across 51 suites, both typechecks, the production
+      build, four audits. 9 of those tests are this loop's.
+Built: §4.11 stage 1 only. server/services/assetStore.ts + its test. Stages 2–10 not started,
+      so AS-003…AS-016 are NOT TESTED, not FAIL.
+Open:  the gate is load-sensitive in two files outside this row — see the handoff, F-1.
 ```
 
 What exists today that this loop builds on, with the lines to read before changing anything:
