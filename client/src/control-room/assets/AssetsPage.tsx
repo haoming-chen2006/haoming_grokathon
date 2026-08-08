@@ -9,7 +9,7 @@
  */
 import { useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
-import { AssetPreview } from "./AssetPreview";
+import { AssetPreview, FilePreview } from "./AssetPreview";
 import { TYPE_LABELS, type MockAsset, type MockAssetType } from "./mockAssets";
 import { byType, formatCost, useAssets } from "./useAssets";
 
@@ -66,15 +66,15 @@ function AssetCard({
       }`}
     >
       <div className="h-[190px] shrink-0 overflow-hidden border-b border-border bg-surface">
-        <AssetPreview body={asset.body} />
+        {(asset.files ?? []).length > 0 ? <FilePreview asset={asset} /> : <AssetPreview body={asset.body} />}
       </div>
       <div className="flex flex-col gap-1.5 px-3.5 py-2.5">
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate text-[15px] text-ink">{asset.title}</span>
           <Label>
             {TYPE_LABELS[asset.type].replace(/s$/, "")}
-            {asset.body.kind === "slides" ? ` · ${asset.body.slides.length}` : ""}
-            {asset.body.kind === "workflow" ? " · 60s" : ""}
+            {asset.body?.kind === "slides" ? ` · ${asset.body.slides.length}` : ""}
+            {asset.body?.kind === "workflow" ? " · 60s" : ""}
           </Label>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -121,7 +121,7 @@ function OpenAsset({ asset, onClose }: { asset: MockAsset; onClose(): void }) {
         </button>
       </header>
       <div className="h-[340px] shrink-0 overflow-auto bg-surface">
-        <AssetPreview body={asset.body} />
+        {(asset.files ?? []).length > 0 ? <FilePreview asset={asset} /> : <AssetPreview body={asset.body} />}
       </div>
     </section>
   );

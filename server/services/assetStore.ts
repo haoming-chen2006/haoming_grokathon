@@ -380,15 +380,41 @@ export class AssetStore {
   }
 }
 
+/**
+ * Extension for a mime type, so a file on disk is openable by its name.
+ *
+ * Extended past the five generated kinds because a user uploads what they already have, and the
+ * first real upload was a PDF — which fell through to "bin" and produced a file nothing could open.
+ * The fallback is still "bin" rather than a guess: an unknown type with an honest extension beats a
+ * wrong one that makes an opener fail confusingly.
+ */
 const MIME_EXT: Record<string, string> = {
   "text/plain": "txt",
   "text/markdown": "md",
+  "text/html": "html",
   "text/csv": "csv",
   "application/json": "json",
+  "application/pdf": "pdf",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.ms-powerpoint": "ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/rtf": "rtf",
+  "application/zip": "zip",
   "image/png": "png",
   "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
   "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/mp4": "m4a",
+  "audio/ogg": "ogg",
   "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
 };
 
 export interface PersistFileInput {

@@ -11,6 +11,7 @@
 // rules the mock was careful to keep, which only matter once the data is real.
 
 import { Hono } from "hono";
+import { basename, join, resolve, sep } from "path";
 import { getAssetStore, persistFile, ASSET_TYPES, AssetNotFoundError, type AssetType } from "../services/assetStore";
 
 export const assetRoutes = new Hono();
@@ -116,6 +117,51 @@ assetRoutes.post("/", async (c) => {
 
     return c.json(asset, 201);
   } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/**
+ * GET /api/assets/:assetId/files/:fileId — the bytes.
+ *
+ * Nothing served an asset's contents, so an uploaded PDF was stored correctly and could not be
+ * looked at: the page had a record of a deliverable and no way to show the deliverable, which is
+ * the exact failure the Assets page exists to avoid.
+ *
+ * Served from the descriptor's own recorded path and mime rather than from anything the caller
+ * supplies, and the resolved path is checked to be inside the asset's own directory — a fileId is
+ * a URL parameter, and joining a user-supplied string into a path is how a directory traversal
+ * gets in.
+ */
+assetRoutes.get("/:assetId/files/:fileId", async (c) => {
+  const assetId = c.req.param("assetId");
+  const fileId = c.req.param("fileId");
+  try {
+    const store = getAssetStore();
+    const asset = store.getAsset(assetId);
+    const file = (asset.files ?? []).find((f) => f.id === fileId);
+    if (!file) return c.json({ error: `No file ${fileId} on ${assetId}` }, 404);
+
+    const dir = resolve(store.assetDir(assetId));
+    const full = resolve(join(dir, file.path));
+    if (full !== dir && !full.startsWith(dir + sep)) {
+      return c.json({ error: "That file is not inside its asset" }, 400);
+    }
+
+    const bytes = Bun.file(full);
+    if (!(await bytes.exists())) return c.json({ error: "The file's bytes are missing" }, 404);
+
+    // `inline` so a PDF or an image opens in the page rather than downloading. The filename is the
+    // stored path's basename, never a caller-supplied one.
+    return new Response(bytes, {
+      headers: {
+        "Content-Type": file.mime || "application/octet-stream",
+        "Content-Disposition": `inline; filename="${basename(file.path)}"`,
+        "Cache-Control": "no-cache",
+      },
+    });
+  } catch (err) {
+    if (err instanceof AssetNotFoundError) return c.json({ error: `No asset ${assetId}` }, 404);
     return fail(c, err);
   }
 });
