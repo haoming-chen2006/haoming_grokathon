@@ -49,7 +49,8 @@
     "install:client": "cd client && bun install",
     "demo:workspace": "bun run scripts/demo/workspace.mjs",
     "reset": "bun run scripts/demo/reset.mjs",
-    "fresh": "bun run scripts/demo/reset.mjs --purge && bun run build && bun run server/index.ts"
+    "fresh": "bun run scripts/demo/reset.mjs --purge && bun run build && bun run scripts/demo/serve.mjs",
+    "serve": "bun run scripts/demo/serve.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
