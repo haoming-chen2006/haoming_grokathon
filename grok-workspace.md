@@ -244,6 +244,43 @@ Engineer, Reviewer) does not.
 
 Agent creation is where **capability** is chosen, and capability is the important idea (§9).
 
+### 3.3.0 Use what Grok Build already has. Do not rebuild it.
+
+**A-00. This product is a delivery layer, not an agent runtime.** Its whole reason to exist is to
+take capability that already works inside Grok Build and put it in front of someone who will never
+open a terminal. Every hour spent reimplementing something `grok` already does is an hour spent
+making the product worse, because our version will be less tested and will drift.
+
+Before building any mechanism, run `grok --help` and `grok help <subcommand>` and check. As of
+`grok 0.2.118` the following already exist and **must be driven, not duplicated**:
+
+```text
+--worktree [NAME] / --worktree-ref   isolation, on a branch, from a given ref
+--sandbox <PROFILE>                  filesystem AND network jail
+--permission-mode / --allow / --deny  what an agent may do, enforced by the runtime
+--tools <TOOLS>                      which built-in tools an agent gets  ← capability
+--agent <NAME> / --agents <JSON>     agent definitions and subagents
+--rules / --system-prompt-override   persona and standing instructions
+--max-turns <N>                      the retry ceiling §16 records as unimplemented
+-r/--resume, -c/--continue, --fork-session, `grok sessions`   session persistence and restore
+`grok mcp` `grok memory` `grok plugin` `grok export` `grok trace` `grok inspect` `grok dashboard`
+```
+
+The failure this prevents already happened. A boundary subsystem was specified and begun on the
+finding that "boundaries are enforced nowhere at write time" — true of *our* code, and never checked
+against `--sandbox`, which is exactly that enforcement, written by the people who own the runtime.
+The same is true of capability: it is `--tools`, not a table we maintain.
+
+So the honest shape of most features here is **a screen, a default, and a flag**:
+
+- a **screen** a non-technical user understands,
+- a **default** that means they never see the flag,
+- the **flag** passed to `grok`.
+
+When a surface believes it needs to build a mechanism, it must first write down which `grok` flag or
+subcommand it considered and why that is insufficient. "I did not check" is not an answer, and a
+mechanism built without that note is rework waiting to be found.
+
 ### 3.3.1 Every agent is a Grok Build agent — this is not negotiable
 
 **A-0. An agent in this product is a real `grok` process, spoken to over ACP, retaining Grok Build's
