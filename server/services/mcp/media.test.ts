@@ -12,6 +12,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -88,17 +89,24 @@ function respondWith(body: unknown, init: ResponseInit = {}) {
 const IMAGE_OK = { data: [{ b64_json: b64(PNG), mime_type: "image/png" }], model: "grok-imagine-image" };
 
 /**
- * A plausible `/v1/tts` reply. **The field names here are a guess** — docs.x.ai does not state the
- * response shape (§5.3/§5.4), which is exactly why `speech.ts` searches for the audio rather than
- * indexing one key, and why the timings are stored verbatim rather than reshaped.
+ * A `/v1/tts` reply, in the shape the live endpoint actually returns — captured on 2026-08-08 and
+ * reproduced here field for field, with only the audio shortened.
+ *
+ * `graph_chars` and `graph_times` are parallel arrays, one entry per input character, times in
+ * seconds as `[start, end]`. Note what is **not** here: no `usage`, so `/v1/tts` reports no
+ * `cost_in_usd_ticks` and speech can only ever be priced from the published rate.
  */
 const TTS_OK = {
   audio: b64(MP3),
-  mime_type: "audio/mpeg",
-  timestamps: [
-    { character: "H", start_ms: 0, end_ms: 60 },
-    { character: "i", start_ms: 60, end_ms: 110 },
-  ],
+  content_type: "audio/mpeg",
+  audio_timestamps: {
+    graph_chars: ["H", "i"],
+    graph_times: [
+      [0.08, 0.1],
+      [0.14, 0.16],
+    ],
+  },
+  duration: 2.64,
 };
 
 beforeEach(() => {
@@ -360,6 +368,9 @@ describe("MEDIA-4: narrate stores audio and keeps its per-character timings", ()
       // Not `input`/`voice`: /v1/tts is not OpenAI's /v1/audio/speech.
       text: "Hi",
       voice_id: "ara",
+      // Required, whatever §5.3 implies by starring only `text`: without it the live endpoint
+      // answers HTTP 422 `missing field \`language\`` in a text/plain body.
+      language: "auto",
       // No call site can omit this. It is free, and reacquiring it means paying for the audio again.
       with_timestamps: true,
     });
@@ -379,14 +390,42 @@ describe("MEDIA-4: narrate stores audio and keeps its per-character timings", ()
     expect(audio.mime).toBe("audio/mpeg");
     expect(new Uint8Array(readFileSync(join(store.assetDir(asset.id), audio.path)))).toEqual(MP3);
 
+    // The endpoint reports the spoken length, so the page never has to decode the file to show it.
+    expect(audio.durationSec).toBe(2.64);
+    expect(data.durationSec).toBe(2.64);
+
     expect(timings.role).toBe("timings");
     const kept = JSON.parse(readFileSync(join(store.assetDir(asset.id), timings.path), "utf8"));
-    expect(kept.timestamps).toEqual(TTS_OK.timestamps);
-    // The audio is not duplicated into the timings file; everything else is kept verbatim, because
-    // the field names are unverified and a reshaping that guesses wrong discards what it cost to
-    // learn.
+    expect(kept.audio_timestamps).toEqual(TTS_OK.audio_timestamps);
+    // The audio is not duplicated into the timings file; everything else is kept verbatim, so a
+    // field this parser does not yet know about survives anyway rather than being dropped.
     expect(kept.audio).toBeUndefined();
+    // One entry per character — found at audio_timestamps.graph_chars, a level below where the
+    // first guess looked for it.
     expect(data.characterTimingCount).toBe(2);
+  });
+
+  test("the timings file is the timings, not persistFile's sidecar wearing its name", async () => {
+    // `persistFile` writes bytes to `<id>.<ext>` and its provenance sidecar to `<id>.json`, so an
+    // ext of exactly "json" makes the sidecar overwrite the file it describes — leaving a file with
+    // a correct sha256 in the envelope and its own metadata as its contents. media.ts asks for
+    // "timings.json" to step around that; handoff R-3 is the real fix.
+    respondWith(TTS_OK);
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "workflow", title: "W" });
+    const { data } = await call(client, "narrate", { assetId: created.assetId, text: "Hi" });
+
+    const asset = store.getAsset(created.assetId);
+    const timings = asset.files.find((f) => f.id === data.timingsFileId)!;
+    const onDisk = readFileSync(join(store.assetDir(asset.id), timings.path), "utf8");
+    const parsed = JSON.parse(onDisk);
+
+    // A descriptor has these; the timings do not. If the sidecar had won, both would be present.
+    expect(parsed.sha256).toBeUndefined();
+    expect(parsed.assetId).toBeUndefined();
+    expect(parsed.audio_timestamps).toBeDefined();
+    // And the envelope's own hash must describe what is actually on disk.
+    expect(createHash("sha256").update(onDisk).digest("hex")).toBe(timings.sha256);
   });
 
   test("the charge is per character at the published rate", async () => {

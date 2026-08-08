@@ -449,6 +449,9 @@ export function registerMediaTools(server: McpServer, ctx: MediaToolContext): vo
               role: "narration",
               mime: mimeType,
               bytes,
+              // The endpoint reports the spoken length; recording it means the page can say how
+              // long the narration runs without decoding the file to find out.
+              ...(spoken.durationSec !== null ? { durationSec: spoken.durationSec } : {}),
               producedByAgentId: ctx.agentId,
               capability: capabilityPreset(capabilities).id,
               model: spoken.modelId,
@@ -497,6 +500,7 @@ export function registerMediaTools(server: McpServer, ctx: MediaToolContext): vo
             ...summary,
             voice: spoken.voice,
             characters: spoken.characters,
+            durationSec: spoken.durationSec,
             timingsFileId: timings.id,
             characterTimingCount: spoken.characterTimings?.length ?? null,
             charge,

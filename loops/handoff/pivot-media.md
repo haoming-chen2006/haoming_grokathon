@@ -10,10 +10,11 @@ Requests against hot files. Append; do not rewrite.
 `server/services/xai/speech.ts`; extensions to `server/services/xai/client.ts`,
 `server/services/xai/assets.ts` and `server/services/projectMcpServer.ts`.
 
-`bun run typecheck` clean. 81 tests across `server/services/xai` and `server/services/mcp`, all
-passing, none of which spends anything. The four suites this touches from outside its own row —
-`projectMcpServer.test.ts`, `boundary.test.ts`, `routes/mcp.test.ts`, `routes/mcpTools.test.ts` —
-are green unchanged, plus `assetStore.test.ts` and `routes/library.test.ts`: 207 tests.
+`bun run typecheck` clean. 82 tests across `server/services/xai` and `server/services/mcp`, all
+passing, none of which spends anything — the TTS fixture in `media.test.ts` is the live envelope
+reproduced field for field, so the offline tests now assert the real shape rather than a guess. The
+four suites this touches from outside its own row — `projectMcpServer.test.ts`, `boundary.test.ts`,
+`routes/mcp.test.ts`, `routes/mcpTools.test.ts` — are green unchanged, plus `assetStore.test.ts`.
 
 Five tools:
 
@@ -34,46 +35,72 @@ named `generate_speech` would be a voice endpoint the capability table does not 
 therefore one it cannot withhold. `boundary.ts` is outside this worktree's row, so the tool takes
 the name the table already grants. Renaming it later is a two-line change in both files at once.
 
-## What is proven, and what is not
+## Proven live
 
-**Proven live, against the real store and the real route** (2026-08-08):
-
-```
-project    proj_live_media          (a scratch project id, not a real one)
-assets     asset_mskzfdnr14ssg1s    pivot/media live proof — document, 1 file
-           asset_mskzir1l1cz8nqp    pivot/media live proof — document, 1 file
-route      GET /api/assets?projectId=proj_live_media → HTTP 200, both listed
-file       files/file_mskzir1m2rv0w9y.md, 84 bytes, text/markdown,
-           sha256 5613163923357549…, producedByAgentId agent_live_media
-```
-
-Both were created by an agent-shaped caller through the MCP tools and nothing else. They live in
-the default data directory (`~/.openui/assets`) and can be deleted; they are left in place as the
-evidence for MEDIA-1 and MEDIA-2.
-
-**Not proven: the one real image.** §4 asked for a single $0.02 generation. It did not happen,
-because **the credential in `.env` is not an api.x.ai key.** api.x.ai answers it with:
+All of it, on 2026-08-08, through the MCP tools and nothing else. Total spend **$0.0218**: one
+$0.02 image and three narrations at $0.000585 (two of the five TTS attempts were 422s and free).
 
 ```
-HTTP 400  {"code":"invalid-argument","error":"Incorrect API key provided. You can obtain an
-           API key from https://console.x.ai."}
+project  proj_live_media   (a scratch project id, not a real one)
+
+MEDIA-1/2  asset_msl0g24x1wnpx6g   document · "pivot/media live proof"
+MEDIA-3    └ file_msl0g5b53wx93x5.jpg   114,258 bytes · image/jpeg
+             grok-imagine-image · prompt "a flat grey calibration square on a white background"
+             sha256 8c88ff073b00ac33…
+             charge $0.02 · costSource "billed" · rateKey grok-imagine-image
+           └ file_msl0g24y2syvzel.md      84 bytes · text/markdown
+           GET /api/assets?projectId=proj_live_media → HTTP 200, listed
+
+MEDIA-4    asset_msl0licn16ujfje   workflow · "pivot/media live narration"
+           └ file_msl0lj9d29y9qqc.mp3    41,088 bytes · audio/mpeg · durationSec 2.57
+             frame sync ff f3 → a real MPEG frame; 41,088 B at 128 kbps = 2.57 s, which is the
+             duration the endpoint reported, so the audio is complete and not truncated
+             charge $0.000585 · costSource "estimated" · 39 characters
+           └ file_msl0lj9h3b92m55.timings.json   39 character timings, one per input character
 ```
 
-`xai_api_key` is a 36-character value; issued keys begin `xai-` and are far longer. `x_api_key` is
-the literal string `None`. Neither authenticates, and `GET /v1/models` refuses both, so this is the
-credential and not the request shape. **Nothing downstream of the HTTP call is verified against a
-live response** — in particular:
+The image is a flat grey square on white — it is the picture that was asked for, not a placeholder.
+These assets are in the default data directory (`~/.openui/assets`) and can be deleted; they are
+left in place as the evidence. Two earlier `pivot/media live proof` documents
+(`asset_mskzfdnr14ssg1s`, `asset_mskzir1l1cz8nqp`) are from the credential-blocked attempts and
+hold text only.
 
-- whether `/v1/images/generations` honours `response_format: "b64_json"`, or answers with a URL;
-- the entire `/v1/tts` response shape. `speech.ts` searches for the base64 audio under five
-  plausible names and, finding none, fails with the keys that *did* arrive. **The first live TTS
-  call settles this** — record the response verbatim in `VERIFICATION.md`, per §5.4;
-- whether `/v1/tts` reports `cost_in_usd_ticks` at all (§5.4 lists it as unverified). Until it
-  does, speech is charged from the published per-character rate and labelled `estimated`, never
-  `billed`.
+### What the live calls settled that the docs did not
 
-Put a real key in `.env` as `xai_api_key` (or `XAI_API_KEY`; both are read) and `generate_image`
-should work unchanged — but "should" is the right word, and the run is owed.
+**`/v1/tts` requires `language`.** §5.3 stars only `text`, but a body without `language` is refused
+with `HTTP 422 · missing field \`language\`` — in a `text/plain` body, which is a *third* error
+envelope beside the documented nested one and the flat one the images endpoint uses. `speech.ts`
+now sends `language: "auto"` and takes an override.
+
+**The `/v1/tts` response shape**, which docs.x.ai does not document at all:
+
+```json
+{ "audio": "<base64 mp3>",
+  "content_type": "audio/mpeg",
+  "audio_timestamps": { "graph_chars": ["D","e","l",…],
+                        "graph_times": [[0.08,0.10],[0.14,0.16],…] },
+  "duration": 2.64 }
+```
+
+`graph_chars` and `graph_times` are parallel arrays, one entry per input character, times in
+**seconds** as `[start, end]`. This is the per-character timing §5.3 calls the most valuable field
+on the surface. Two things the first guess got wrong and the live call corrected: the mime is under
+`content_type`, not `mime_type`; and the timings are nested under `audio_timestamps`, a level below
+where a flat scan looks — so they were being stored but reported as "none found".
+
+**`/v1/tts` returns no `usage` block**, so it does not report `cost_in_usd_ticks`. §5.4 lists that
+as the one thing not to assume; it is now answered. Speech can only ever be priced from the
+published per-character rate, and `costSource: "estimated"` is the honest label, not a gap to close
+later. Record this in `VERIFICATION.md`.
+
+**`/v1/images/generations` does report ticks.** The image charge came back `costSource: "billed"`,
+and no cost-disagreement warning was logged, so the billed figure agreed with the published $0.02
+to within 1%. Two independent derivations of one charge, agreeing.
+
+Still unverified: whether the images endpoint honoured `response_format: "b64_json"` or answered
+with a URL. Both paths are implemented and both verify the body before storing, so the outcome is
+the same either way — but which one ran was not captured, and a one-line log in `images.ts` would
+settle it on the next call.
 
 ## Two defects found in files this worktree may not edit
 
@@ -179,9 +206,10 @@ owed.
   is refused in *exactly* the words used for one that does not exist, so an agent cannot probe
   another project's ids one refusal at a time.
 - **`with_timestamps` is always on.** It is not a parameter of `generateSpeech`, so no call site can
-  omit it. The timings are stored as a file of their own, verbatim, because the field names are
-  unverified and reshaping them on a guess throws away what it cost to learn — reacquiring them
-  means paying for the audio again.
+  omit it. The timings are stored as a file of their own, **verbatim** — the whole envelope minus
+  the audio. That is what saved them: the parser was looking for the character array in the wrong
+  place, and because the file is stored as it arrives rather than reshaped, nothing was lost while
+  the parser was wrong. Reacquiring them means paying for the audio again.
 - **Out of scope, deliberately.** Slides and video. There is no xAI slide API and `.pptx` rendering
   is a separate job; video is an async poll with a different lifecycle. `generateImage` also makes
   exactly one image rather than the ten the endpoint allows, because a batch path nothing calls is

@@ -13,13 +13,29 @@
  * call site is given the option to omit it. `withTimestamps` is not a parameter of this function
  * on purpose.
  *
- * ── What is verified and what is not ──────────────────────────────────────────────────────────
- * The price ($15.00 / 1M characters), the voices, the 15,000-character REST ceiling and the
- * parameter names are verified against docs.x.ai (§5.3). The **response shape is not**: the docs do
- * not say what the JSON envelope calls the audio, nor whether `/v1/tts` reports
- * `cost_in_usd_ticks` at all (§5.4). So the extraction below tries the plausible field names and,
- * when none matches, fails with the response's actual top-level keys in the message — one live call
- * then settles the question for good instead of leaving a guess in the code.
+ * ── The response shape, settled by a live call on 2026-08-08 ──────────────────────────────────
+ * docs.x.ai does not document it. This is what came back, verbatim but for the audio:
+ *
+ * ```json
+ * { "audio": "<base64 mp3>",
+ *   "content_type": "audio/mpeg",
+ *   "audio_timestamps": { "graph_chars": ["D","e","l",…],
+ *                         "graph_times": [[0.08,0.10],[0.14,0.16],…] },
+ *   "duration": 2.64 }
+ * ```
+ *
+ * `graph_chars` and `graph_times` are parallel arrays, one entry per character of the input, times
+ * in **seconds** as `[start, end]`. That is the per-character timing §5.3 calls the most valuable
+ * field on the surface, and it is why `with_timestamps` is never optional here.
+ *
+ * **There is no `usage` block**, so `/v1/tts` does not report `cost_in_usd_ticks` — the question
+ * §5.4 flags as unverified, now answered. Speech is therefore priced from the published
+ * per-character rate and labelled `estimated`, never `billed`, and that is not a shortcoming to fix
+ * later: there is no billed figure to prefer.
+ *
+ * The extraction below still *searches* rather than indexing one key. The shape above is one
+ * observation of an undocumented envelope, and a parser that hard-codes it would fail silently the
+ * day a field is renamed. When nothing matches it fails with the keys that did arrive.
  */
 
 import { XaiError, type CostEvent } from "./types";
@@ -52,6 +68,8 @@ export const TTS_DEFAULT_MIME = "audio/mpeg";
 export interface GenerateSpeechArgs {
   text: string;
   voice?: string;
+  /** BCP-47, or "auto" to let the endpoint decide from the text. Required by the API; defaults here. */
+  language?: string;
   /** Who the charge belongs to. Never inferred here. */
   context: XaiCallContext;
   /** Tests only. */
@@ -74,8 +92,10 @@ export interface GeneratedSpeech {
    * endpoint, and the audio would have to be bought again to get it back.
    */
   timings: Record<string, unknown>;
-  /** The per-character array, when it arrived under a name we recognise. Null when it did not. */
+  /** The characters the timings are indexed by, when they arrived in a shape we recognise. */
   characterTimings: unknown[] | null;
+  /** Spoken length in seconds, when the response reported one. Recorded on the audio file. */
+  durationSec: number | null;
   costEvent: CostEvent | null;
   costUsd: number | null;
 }
@@ -83,8 +103,22 @@ export interface GeneratedSpeech {
 /** Field names that could plausibly carry the base64 audio, most likely first. */
 const AUDIO_KEYS = ["audio", "audio_base64", "audio_content", "b64_json", "audio_b64"] as const;
 
-/** Field names that could plausibly carry the per-character timing array. */
+/** Field names that could carry the per-character timing array at the top level. */
 const TIMING_KEYS = ["timestamps", "character_timestamps", "characters", "alignment", "timings"] as const;
+
+/**
+ * The character array, wherever it is.
+ *
+ * `audio_timestamps.graph_chars` is where the live endpoint actually puts it, nested one level
+ * below the shapes the flat scan would find. Both are tried, nested first, because the nested one
+ * is the observed truth and the flat ones are the guesses that preceded it.
+ */
+function findCharacterTimings(payload: Record<string, unknown>): unknown[] | null {
+  const nested = payload.audio_timestamps as { graph_chars?: unknown } | undefined;
+  if (nested && Array.isArray(nested.graph_chars)) return nested.graph_chars;
+  const key = TIMING_KEYS.find((k) => Array.isArray(payload[k]));
+  return key ? (payload[key] as unknown[]) : null;
+}
 
 export async function generateSpeech(args: GenerateSpeechArgs): Promise<GeneratedSpeech> {
   const text = args.text;
@@ -113,7 +147,12 @@ export async function generateSpeech(args: GenerateSpeechArgs): Promise<Generate
     path: "/tts",
     // `output_format` is omitted so the documented default applies. Sending a shape we have not
     // verified risks a 400 on a call that would otherwise have worked.
-    body: { text, voice_id: voice, with_timestamps: true },
+    //
+    // `language` is NOT optional, whatever §5.3 implies by starring only `text`. The live endpoint
+    // answers a body without it with `HTTP 422 … missing field \`language\``, in a text/plain body
+    // rather than either JSON envelope. "auto" is the documented value for "work it out from the
+    // text", which is the right default for narration an agent wrote.
+    body: { text, voice_id: voice, language: args.language ?? "auto", with_timestamps: true },
     context: args.context,
     billing: {
       operation: "tts",
@@ -150,10 +189,19 @@ export async function generateSpeech(args: GenerateSpeechArgs): Promise<Generate
     if (key !== audioKey) timings[key] = value;
   }
 
-  const timingKey = TIMING_KEYS.find((k) => Array.isArray(payload[k]));
-  const characterTimings = timingKey ? (payload[timingKey] as unknown[]) : null;
+  const characterTimings = findCharacterTimings(payload);
 
-  const mimeType = typeof payload.mime_type === "string" ? payload.mime_type : TTS_DEFAULT_MIME;
+  // `content_type` is what the live endpoint calls it; `mime_type` is what the images endpoint
+  // calls the same thing. Both are read rather than one being assumed, and the documented MP3
+  // default stands behind them.
+  const mimeType =
+    typeof payload.content_type === "string"
+      ? payload.content_type
+      : typeof payload.mime_type === "string"
+        ? payload.mime_type
+        : TTS_DEFAULT_MIME;
+
+  const duration = payload.duration;
 
   return {
     b64: payload[audioKey] as string,
@@ -163,6 +211,7 @@ export async function generateSpeech(args: GenerateSpeechArgs): Promise<Generate
     characters: text.length,
     timings,
     characterTimings,
+    durationSec: typeof duration === "number" && Number.isFinite(duration) ? duration : null,
     costEvent: response.costEvent,
     costUsd: response.costUsd,
   };
