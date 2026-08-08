@@ -166,6 +166,50 @@ describe("session/new actually receives them", () => {
     expect(call.opts.rules).toContain("Read twice.");
   });
 
+  test("a session opened for an agent mid-task states the task in it", async () => {
+    // The remedy the product offers for an agent that stopped short is "open the session and ask it
+    // to continue". Sessions do not survive a restart (§17), and a reopened one was given the
+    // persona and the tools and nothing about the work — so, asked to submit its finished task, a
+    // real agent replied by asking which requirements it covered, which branch it was on and which
+    // files it had changed. All of it already known to the product, and already told to a session
+    // that no longer existed.
+    const store = getProjectStore();
+    store.addRequirement(projectId, { id: "S-1", description: "totalWithTax adds 8% tax" }, { kind: "user", id: "user" });
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "s1", objective: "Implement totalWithTax", requirementId: "S-1" }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    store.updateTask(projectId, "s1", { status: "working" }, { kind: "user", id: "user" });
+
+    const agent = getAgentRegistry().create({ projectId, name: "Backend", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "s1");
+
+    const { mgr, calls } = recordingManager();
+    await mgr.open(agent.id);
+
+    const rules = calls[0].opts.rules ?? "";
+    expect(rules, "the session was opened knowing nothing about the task").toContain("s1");
+    expect(rules).toContain("Implement totalWithTax");
+    // The two things it had to ask a human for.
+    expect(rules).toContain("S-1");
+    expect(rules).toContain("submit_code_for_review");
+  });
+
+  test("a finished task is not restated in a later session", async () => {
+    const store = getProjectStore();
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "s2", objective: "Done already" }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    store.updateTask(projectId, "s2", { status: "working" }, { kind: "user", id: "user" });
+    store.updateTask(projectId, "s2", { status: "complete" }, { kind: "user", id: "user" });
+
+    const agent = getAgentRegistry().create({ projectId, name: "Idle", role: "Reviewer" });
+    getAgentRegistry().assignTask(agent.id, "s2");
+
+    const { mgr, calls } = recordingManager();
+    await mgr.open(agent.id);
+    expect(calls[0].opts.rules ?? "").not.toContain("Done already");
+  });
+
   test("an agent with no persona or skills still gets the MCP server", async () => {
     const agent = getAgentRegistry().create({ projectId, name: "Plain", role: "Reviewer" });
     const { mgr, calls } = recordingManager();

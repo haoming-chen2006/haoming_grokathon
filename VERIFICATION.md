@@ -5244,6 +5244,64 @@ bun run verify → exit 0, 938 pass / 0 fail across 50 files, four audits clean
 
 ---
 
+## The remedy the product recommends led to an interview (iteration 85)
+
+The product tells a user whose agent stopped short to "open the session and ask it to continue".
+Following that advice on the live shop project, the agent replied:
+
+```text
+To call the `submit_code_for_review` tool, I'll need to provide specific information
+about the task and its progress. Here's what I need from you:
+  1. Requirement IDs: Which requirements are related to task `t1`?
+  2. Branch Name: Is the current branch `agent/t1` the one you want to submit?
+  3. Changed Files: Can you confirm which files have been modified
+```
+
+Every one of those is known to the product, and had already been given to an earlier session.
+
+`open()` supplies the persona and the MCP tools and **nothing about the work**. That is invisible at
+launch, where the briefing is sent immediately afterwards as the opening prompt — but sessions do
+not survive a restart (§17, deliberately), so the *reopened* session is the one the user is told to
+open, and it had amnesia. Offering a remedy that lands the user in an interview about their own
+project is worse than offering none.
+
+The task briefing is now part of the rules any session is opened with, whenever the agent has an
+unfinished task. One place, so launch and the drawer cannot diverge.
+
+```text
+control: session opened without task context again → 28 pass / 1 fail
+live, same agent, after the fix: reads server/pricing.ts and tests/shop.test.ts and
+  reports on totalWithTax — no questions asked
+```
+
+### What this did not fix, and the decision it needs
+
+The agent still did not submit. It described its finished work and stopped, and `statusDetail` said
+so correctly — the product is behaving; the agent is the limit.
+
+A correction to the tally I reported last iteration: it is **two of four**, not three of three.
+
+```text
+cart  t1 backend    2 pass / 2 fail     stopped short — task left "working"
+cart  t2 backend    4 pass / 0 fail     submitted unprompted
+shop  t1 backend    red (other task)    stopped short — marked needs_review
+shop  t2 frontend   1 pass / 1 fail     submitted unprompted
+```
+
+No pattern survives the sample: `shop t2` submitted with a red suite, so "agents stall on failing
+tests" is not it. Half of four is not a rate.
+
+The obvious product response — have the server prompt the agent once automatically when it goes
+idle with an unsubmitted task — **spends the user's budget without being asked**, which §6 of this
+document lists among the things not to work around. It is a decision for the owner, and is put to
+them rather than built.
+
+```text
+bun run verify → exit 0, 940 pass / 0 fail across 50 files, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

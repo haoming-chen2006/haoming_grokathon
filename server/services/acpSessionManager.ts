@@ -4,7 +4,9 @@ import { getControlRoomBus } from "./controlRoomEvents";
 import { estimateCost } from "./usageAccounting";
 import { getProjectStore } from "./projectStore";
 import { getPromptLibrary, rulesForAgent } from "./promptLibrary";
+import { buildTaskBriefing } from "./taskBriefing";
 import { projectMcpUrl } from "../routes/mcp";
+import type { CodingAgent } from "../types/agent";
 
 const QUIET = !!process.env.OPENUI_QUIET;
 const log = QUIET ? () => {} : console.log.bind(console);
@@ -101,7 +103,42 @@ export class AcpSessionManager {
    */
   private rulesFor(agentId: string): string | undefined {
     try {
-      return rulesForAgent(getAgentRegistry().get(agentId), getPromptLibrary());
+      const agent = getAgentRegistry().get(agentId);
+      const persona = rulesForAgent(agent, getPromptLibrary());
+      const task = this.currentTaskBriefing(agent);
+      if (!task) return persona;
+      return persona ? `${persona}\n\n${task}` : task;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The agent's current task, stated in the session it is about to work in.
+   *
+   * A session opened from the drawer got the persona and the MCP tools and nothing about the work.
+   * That is invisible at launch, where the briefing is sent as the opening prompt — but a session
+   * is not kept across a server restart (§17), so the *reopened* one had no idea what it was doing.
+   * Asked to submit its finished task, an agent replied by asking which requirements the task
+   * covered, which branch it was on and which files it had changed: all things the product knows
+   * and had already told an earlier session.
+   *
+   * It matters because "open the session and ask it to continue" is the remedy the product itself
+   * offers for an agent that stopped short. Offering a remedy that lands the user in an interview
+   * about their own project is worse than offering none.
+   */
+  private currentTaskBriefing(agent: CodingAgent): string | undefined {
+    if (!agent.currentTaskId) return undefined;
+    try {
+      const project = getProjectStore().getProject(agent.projectId);
+      const task = project.tasks.find((t) => t.id === agent.currentTaskId);
+      if (!task || task.status === "complete") return undefined;
+
+      return buildTaskBriefing({
+        project,
+        task,
+        requirement: project.requirements.find((r) => r.id === task.requirementId),
+      });
     } catch {
       return undefined;
     }
