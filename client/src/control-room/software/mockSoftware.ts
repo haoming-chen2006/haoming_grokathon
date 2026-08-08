@@ -60,7 +60,79 @@ export const MOCK_PREVIEW_HTML = `<!doctype html>
   </table>
 </body></html>`;
 
+/**
+ * A second stand-in, for the asset 02-assets already has in its own mock set.
+ *
+ * `client/src/control-room/assets/mockAssets.ts` carries `asset_configurator`, a chair configurator,
+ * and its `AssetPreview` draws it as a framed rectangle with the comment "a framed 'app', drawn
+ * rather than run: 05-software owns the real preview surface". This is that surface. Keying an app
+ * here to *their* asset id is what makes the integration a single line with no id mapping — and
+ * when both services are real, both sides use the same server-issued assetId and the alias stops
+ * mattering. It disappears with this file.
+ */
+export const MOCK_CONFIGURATOR_HTML = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  :root { color-scheme: light }
+  * { box-sizing: border-box }
+  body { margin:0; font: 14px/1.5 Inter, system-ui, sans-serif; background:#faf9f7; color:#1c1917;
+         display:flex; min-height:100vh }
+  .stage { flex:1; display:flex; align-items:center; justify-content:center; padding:32px }
+  .chair { width:180px }
+  .back { height:120px; border-radius:14px 14px 4px 4px; background:var(--fabric,#7c6a58) }
+  .seat { height:26px; margin-top:8px; border-radius:6px; background:var(--fabric,#7c6a58) }
+  .legs { display:flex; justify-content:space-between; padding:0 18px }
+  .leg { width:10px; height:64px; border-radius:0 0 4px 4px; background:var(--wood,#a8763e) }
+  aside { width:236px; border-left:1px solid #e7e5e4; background:#fff; padding:20px }
+  h1 { margin:0 0 2px; font-size:15px; font-weight:600 }
+  .muted { color:#78716c; font-size:12px }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#78716c; margin:18px 0 8px }
+  .swatches { display:flex; gap:8px }
+  .sw { width:30px; height:30px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px #d6d3d1 }
+  .sw.on { box-shadow:0 0 0 2px #1c1917 }
+  .price { margin-top:20px; padding-top:14px; border-top:1px solid #e7e5e4; display:flex;
+           justify-content:space-between; align-items:baseline }
+  .price b { font-size:19px }
+  button { margin-top:14px; width:100%; padding:9px; border:0; border-radius:8px; background:#1c1917;
+           color:#fff; font:inherit; font-size:13px; cursor:pointer }
+</style></head><body>
+  <div class="stage"><div class="chair" style="--fabric:#7c6a58;--wood:#a8763e">
+    <div class="back"></div><div class="seat"></div>
+    <div class="legs"><div class="leg"></div><div class="leg"></div></div>
+  </div></div>
+  <aside>
+    <h1>Ellis lounge chair</h1><div class="muted">Made to order</div>
+    <h2>Fabric</h2>
+    <div class="swatches">
+      <span class="sw on" style="background:#7c6a58"></span>
+      <span class="sw" style="background:#4a5c52"></span>
+      <span class="sw" style="background:#8f4a3c"></span>
+    </div>
+    <h2>Legs</h2>
+    <div class="swatches">
+      <span class="sw on" style="background:#a8763e"></span>
+      <span class="sw" style="background:#3f3a36"></span>
+    </div>
+    <div class="price"><span class="muted">Total</span><b>£1,240</b></div>
+    <button>Add to basket</button>
+  </aside>
+</body></html>`;
+
 export const MOCK_APPS: SoftwareAppView[] = [
+  {
+    // The id 02-assets uses in its own mock set, so opening that asset lands here.
+    assetId: "asset_configurator",
+    name: "chair_configurator",
+    state: "ready-for-review",
+    preview: { state: "running", previewHtml: MOCK_CONFIGURATOR_HTML },
+    summary: [
+      "The finish picker is wired to the price list.",
+      "Choosing a fabric or a leg finish updates the total straight away.",
+      "The chair redraws in the chosen finish rather than showing a swatch.",
+    ],
+    changedFiles: ["the finish picker", "the price list"],
+    workedFor: "6 min",
+    costUsd: 4.06,
+  },
   {
     assetId: "deck-picker",
     name: "Deck picker",
