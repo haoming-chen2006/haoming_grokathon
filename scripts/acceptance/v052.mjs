@@ -274,8 +274,24 @@ log("Agent implemented the feature in its worktree");
 const committed = await api("POST", "/api/repository/commit", {
   worktree: wt.json.path, message: "Implement greet(name)", author: "backend-agent",
 });
-must(committed.status === 200 && committed.json.committed, "commit failed", committed.text.slice(0, 200));
-detail(`committed ${committed.json.commit.slice(0, 12)} — ${committed.json.files.join(", ")}`);
+must(committed.status === 200, "commit call failed", committed.text.slice(0, 200));
+
+// What matters is that the work IS committed, not that this call is what committed it.
+//
+// Submitting for review now commits the agent's worktree, because an agent has no way to do it
+// itself. So this call legitimately reports "No changes to commit" when the agent has already
+// submitted, and asserting `committed === true` failed on the product working correctly.
+const branchStatus = await api("GET", `/api/repository/info?path=${encodeURIComponent(wt.json.path)}`);
+must(branchStatus.status === 200, "could not read the agent branch", branchStatus.text.slice(0, 200));
+must(
+  committed.json.committed || branchStatus.json.isClean,
+  `the agent's work is neither committed here nor already committed: ${committed.text.slice(0, 200)}`,
+);
+detail(
+  committed.json.committed
+    ? `committed ${committed.json.commit.slice(0, 12)} — ${committed.json.files.join(", ")}`
+    : "already committed by the agent when it submitted",
+);
 
 // 8b ──────────────────── the agent uses a Project MCP tool through its own session
 //

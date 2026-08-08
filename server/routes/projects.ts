@@ -19,6 +19,7 @@ import { estimateCost } from "../services/usageAccounting";
 import { getPromptLibrary, rulesForAgent } from "../services/promptLibrary";
 import { existsSync } from "fs";
 import { createAgentWorktree } from "../services/repository";
+import { buildTaskBriefing } from "../services/taskBriefing";
 
 export const projectRoutes = new Hono();
 
@@ -460,7 +461,26 @@ projectRoutes.post("/:id/tasks/:taskId/launch", async (c) => {
 
     const session = await getAcpSessionManager().open(task.assignedAgentId);
     store.updateTask(projectId, taskId, { status: "working" }, { kind: "user", id: "user" });
-    return c.json({ taskId, agentId: task.assignedAgentId, session }, 201);
+
+    // Tell the agent what it is here to do.
+    //
+    // Launching opened a session and said nothing, so the agent started in its worktree and sat
+    // idle — the user clicked Launch and nothing launched. Sent without awaiting, because a turn
+    // takes minutes and the Launch request must return; the work streams into the session drawer.
+    // A failure is pushed into that transcript rather than lost.
+    const briefing = buildTaskBriefing({
+      project,
+      task,
+      requirement: project.requirements.find((r) => r.id === task.requirementId),
+    });
+    void getAcpSessionManager()
+      .send(task.assignedAgentId, briefing)
+      .catch(() => {
+        // send() already records the failure on the session and marks the agent; nothing further
+        // to do here, but the rejection must not go unhandled.
+      });
+
+    return c.json({ taskId, agentId: task.assignedAgentId, session, briefed: true }, 201);
   } catch (err) {
     return fail(c, err);
   }

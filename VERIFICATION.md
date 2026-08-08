@@ -4549,6 +4549,74 @@ bun run verify → exit 0, 735 pass / 0 fail, four audits clean
 
 ---
 
+## Launch did not launch anything (iteration 75)
+
+Walking the user path again, with nothing prepared, found the largest remaining gap: **launching a
+task opened a session and never told the agent what to do.** The agent started in its worktree and
+sat idle. Every test and the acceptance script typed an instruction by hand afterwards, which is
+why it survived — the product never did what the scripts around it did.
+
+Three gaps in one chain, each hidden behind the last:
+
+```text
+1. Launch sent no instruction        the agent idled
+2. …so it never committed anything   there is no commit tool, and commitAgentWork is HTTP-only
+3. …so the merge refused             "no commits ahead of main" — correctly, and unfixably
+```
+
+**Launch now briefs the agent.** `buildTaskBriefing` states what §10 says an agent receives: its
+objective, the requirement and every acceptance criterion it is held to, the expected files and
+required tests, that its worktree is isolated, which MCP tools to report through, and — stated up
+front — that a submission is rejected without evidence. An agent that learns that by being rejected
+wastes a turn. Sent without awaiting, because a turn takes minutes and Launch must return; the work
+streams into the session drawer.
+
+**Submitting captures the work as a commit.** An agent has no way to commit: there is no commit
+tool, and `commitAgentWork` is reachable only over HTTP, which the acceptance script calls and an
+agent cannot. So `submit_code_for_review` now commits the agent's worktree first. A failure there
+is not fatal — the submission still records what happened, and the merge refuses as before rather
+than merging something that was never committed.
+
+### The whole loop, unattended
+
+A fresh repository with one failing test, a design document, and no manual steps after Launch:
+
+```text
+create → generate plan → approve → Launch
+  agent implemented addTodo, ran the tests, recorded 1 passed,
+  committed ee16d75 on agent/t1, and submitted for review
+  task → needs_review, requirement → submitted, cost $0.18
+approve → merge 56b9b13d
+  main holds the implementation and its own test suite passes
+```
+
+Before this, that sequence stopped dead at Launch.
+
+### Two stale checks the change exposed
+
+**The acceptance script asserted the wrong thing.** It required its own commit call to report
+`committed: true`, and now legitimately gets `"No changes to commit"` because the agent has already
+committed. It asserted *who* committed rather than *that the work is committed*. Fixed — and a dead
+`ahead` variable I wrote while fixing it, which computed `1 : 1`, was removed rather than left.
+
+**The quality audit matched the word "todo".** `TODO` was matched case-insensitively, so a project
+whose domain *is* a todo list flagged every `todo.ts`, `addTodo` and "todo service" — nine findings,
+all false. `TODO`, `FIXME` and `HACK` are markers by convention and the convention is uppercase, so
+they are case-sensitive now, and `TODO-01` is excluded as a requirement id. Six controls:
+
+```text
+// TODO: finish this   exit 1      const f = "todo.ts";    exit 0
+// FIXME: broken       exit 1      const id = "TODO-01";   exit 0
+// HACK: luck          exit 1      function addTodo() {}   exit 0
+```
+
+```text
+bun run verify → exit 0, 743 pass / 0 fail, four audits clean
+bun run acceptance → all 20 steps
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4645,7 +4713,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 98 ahead of main
+commits 100 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller

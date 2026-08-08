@@ -44,9 +44,15 @@ function candidateFiles() {
 
 /** The indicators §22.18 names. */
 const PATTERNS = {
-  TODO: /\bTODO\b/i,
-  FIXME: /\bFIXME\b/i,
-  HACK: /\bHACK\b/i,
+  // Case-SENSITIVE, and not followed by "-<digits>".
+  //
+  // These three are markers by convention, and the convention is uppercase. Matching them
+  // case-insensitively meant the ordinary word "todo" tripped the audit — a project with a todo
+  // list as its domain flagged every mention of `todo.ts`, `addTodo` and "todo service". The
+  // "-<digits>" exclusion covers requirement ids like TODO-01, which projects legitimately use.
+  TODO: /\bTODO\b(?!-\d)/,
+  FIXME: /\bFIXME\b/,
+  HACK: /\bHACK\b/,
   placeholder: /\bplaceholder\b/i,
   "mock data": /mock data/i,
   "not implemented": /not implemented/i,

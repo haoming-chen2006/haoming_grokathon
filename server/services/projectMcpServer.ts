@@ -1,13 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getProjectStore, PermissionDeniedError } from "./projectStore";
-import { getAgentRegistry } from "./agentRegistry";
 import { openRepository, agentChangedFiles, getDiff, listWorktrees } from "./repository";
 import { detectTestCommand } from "./testRunner";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { getControlRoomBus } from "./controlRoomEvents";
 import type { Actor } from "../types/project";
+import { commitAgentWork } from "./repository";
+import { getAgentRegistry } from "./agentRegistry";
 
 /**
  * The Project MCP server (product-design.md §13).
@@ -263,8 +264,27 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
       },
     },
     async (a) =>
-      guard(() =>
-        store().submitCode(ctx.projectId, {
+      guard(() => {
+        // Capture the work as a commit before recording the submission.
+        //
+        // An agent edits files in its worktree and has no way to commit them: there is no commit
+        // tool, and `commitAgentWork` is only reachable over HTTP, which the acceptance script
+        // calls and an agent cannot. So a submission described work that existed only as
+        // uncommitted changes, and the merge afterwards refused — correctly — with "no commits
+        // ahead of main". The review gate was reachable and the merge behind it was not.
+        //
+        // A failure here is not fatal: the submission still records what the agent did, and the
+        // merge will refuse as before rather than merging something that was never committed.
+        try {
+          const agent = registry().get(ctx.agentId);
+          if (agent?.worktree) {
+            commitAgentWork(agent.worktree, `${a.summary} (task ${a.taskId})`, ctx.agentId);
+          }
+        } catch {
+          // Nothing to commit, or the worktree is gone; submitCode still runs.
+        }
+
+        return store().submitCode(ctx.projectId, {
           taskId: a.taskId,
           agentId: ctx.agentId,
           requirementIds: a.requirementIds,
@@ -275,8 +295,8 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
           diff: a.diff,
           testResults: { passed: a.testsPassed, failed: a.testsFailed, total: a.testsTotal },
           costUsd: a.costUsd,
-        }),
-      ),
+        });
+      }),
   );
 
   // ------------------------------------------- agent communication tools (V-031)

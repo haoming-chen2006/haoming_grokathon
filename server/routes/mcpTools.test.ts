@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { mcpRoutes } from "./mcp";
 import { ProjectStore } from "../services/projectStore";
 import { getAgentRegistry } from "../services/agentRegistry";
+import { createAgentWorktree } from "../services/repository";
 import { PROJECT_MCP_TOOLS } from "../services/projectMcpServer";
 import type { Actor } from "../types/project";
 
@@ -404,5 +405,41 @@ describe("code submission carries evidence (V-037)", () => {
     expect(isError).toBe(false);
     expect(data.state).toBe("pending");
     expect(store.getProject(projectId).submissions).toHaveLength(1);
+  });
+});
+
+describe("submitting captures the work as a commit", () => {
+  test("an agent's uncommitted worktree changes are committed on submission", async () => {
+    // An agent has no way to commit: there is no commit tool, and commitAgentWork is only
+    // reachable over HTTP, which the acceptance script calls and an agent cannot. So a submission
+    // described work that existed only as uncommitted changes, and the merge behind the review
+    // gate refused with "no commits ahead of main" — the gate reachable, the merge not.
+    const wt = createAgentWorktree(repo, { agentId: BACKEND, branch: "agent/submit", baseBranch: "main" });
+    getAgentRegistry().assignTask(BACKEND, "t-auth", { branch: "agent/submit", worktree: wt.path });
+    writeFileSync(join(wt.path, "a.ts"), "export const x = 2;\n");
+
+    const before = execSync("git rev-list --count main..agent/submit", { cwd: repo }).toString().trim();
+    expect(before).toBe("0");
+
+    const res = await call(BACKEND, "submit_code_for_review", {
+      taskId: "t-auth", requirementIds: ["AUTH-01"], branch: "agent/submit",
+      changedFiles: ["a.ts"], summary: "Implement it", knownLimitations: "None",
+      testsPassed: 1, testsFailed: 0, testsTotal: 1, costUsd: 0.05,
+    });
+    expect(res.isError).toBe(false);
+
+    const after = execSync("git rev-list --count main..agent/submit", { cwd: repo }).toString().trim();
+    expect(Number(after), "the agent's work was not committed").toBeGreaterThan(0);
+  });
+
+  test("an agent with no worktree still submits, rather than failing", () => {
+    // Committing is a convenience, not a precondition: a submission recorded without one is worse
+    // than none, but refusing the submission would be worse still.
+    const other = getAgentRegistry().create({ projectId, name: "NoTree", role: "Reviewer" });
+    return call(other.id, "submit_code_for_review", {
+      taskId: "t-auth", requirementIds: ["AUTH-01"], branch: "agent/none",
+      changedFiles: ["a.ts"], summary: "s", knownLimitations: "None",
+      testsPassed: 1, testsFailed: 0, testsTotal: 1, costUsd: 0.01,
+    }).then((r) => expect(r.isError).toBe(false));
   });
 });
