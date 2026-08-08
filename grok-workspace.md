@@ -8,8 +8,10 @@ a control room for coding agents — and is being retired.
 | Document | Role |
 |---|---|
 | `grok-workspace.md` | This file. The product contract, §1–§20. What the system must become. |
-| `loopdesign.md` | The operating document for one iteration of one area loop. |
-| `VERIFICATION.md` | The evidence ledger. Current status of every checklist item, with reproducible proof. |
+| `loopdesign.md` | The house form: the voice, the loop procedure, and the evidence standards every loop document inherits. |
+| `VERIFICATION.md` | The evidence ledger. Current status of every item, with reproducible proof. |
+| `loops/` | Eight area loop documents, one per worktree. The partition that assigns them is §18.2 and this file is its authority. |
+| `docs/USER-GUIDE.md` | The user-facing guide. Owned by the `guide` worktree, which touches no code. |
 | `product-design.md` | **Retired.** The coding-agent contract. Read §16 before deleting it — six backticked citations go dangling and the docs audit exits 1. |
 | `verifiables.md` | **Retired with it.** V-001…V-052 are checkable statements about the retired product. |
 
@@ -17,7 +19,10 @@ Section numbers are load-bearing. `product-design.md` owned §1–21 and `verifi
 roughly 120 bare `§N` citations in `server/`, `client/`, `shared/` and `scripts/` resolve against
 that split and will silently point at the wrong text after this replacement. Renumbering is not
 free. This file deliberately reuses §1–§20 so that the majority of those citations land on a
-section about the same subject, and §16 lists the ones that do not.
+section about the same subject, and §16 lists the ones that do not. One section has changed
+subject in this revision and it is the most important one: **§4 was "the four media" and is now
+"the design document is the interface"**. The asset types moved to §5.2. Anything citing a bare
+`§4` for a definition of done now wants `§5.2`.
 
 ---
 
@@ -29,18 +34,30 @@ This worktree owns exactly one file:
 grok-workspace.md
 ```
 
+**You are in a git worktree, on your own branch, and you are not in the main checkout.** Seven
+other agents are working at the same time on sibling branches, each on the slice of the repository
+assigned to it in §18.2. This file has no row in that partition because it is not code: like the
+`guide` worktree, which owns `docs/USER-GUIDE.md` and nothing else, this worktree owns one document
+and produces no source change at all.
+
 You may **read** anything in the repository, and you must — every claim in this document is
 supposed to be checkable against source. You may **write** nothing else. Not `README.md`, not
-`loopdesign.md`, not a sibling area document, not a source file whose behaviour this document
-describes as wrong.
+`loopdesign.md`, not a sibling loop document in `loops/`, not a source file whose behaviour this
+document describes as wrong. In particular you may not touch a hot file (§18.3); you have nothing
+to change in one, because you ship no code.
 
-The sibling area documents are being written at the same time, in their own worktrees, by other
-agents. If you believe one of them is wrong, or that a fact in this file contradicts one in
+If you believe a sibling loop document is wrong, or that a fact in this file contradicts one in
 theirs, do not edit theirs and do not quietly soften yours. Raise it the way the product itself
 requires an agent to raise a cross-boundary concern (§8): write the disagreement down, name the
 file and line on both sides, and hand it to the user. A suggestion carries the original wording,
 the proposed wording, and the reason. A silent edit carries none of those, which is why the
 product forbids it.
+
+**What this worktree leaves behind for reconciliation:** this file, at the revision the
+reconciliation pass reads to settle any disagreement between two loop documents. No branch merge,
+no handoff request, no public code contract. If this worktree ever does need a hot-file change it
+writes `loops/handoff/contract.md` and changes nothing itself — but needing one means it has
+started writing code, which is out of bounds.
 
 The rule exists because this product is about boundaries. A document family in which every author
 edits every file is the failure mode the whole design is meant to prevent, demonstrated on itself.
@@ -50,24 +67,47 @@ edits every file is the failure mode the whole design is meant to prevent, demon
 ## 1. What the product is, and who it is for
 
 grok-workspace is the common-user face of Grok Build. It is an interface layer over the `grok`
-CLI, reached from the terminal with a flag, in which a non-technical person describes a piece of
-work and watches a small team of agents produce it.
+CLI, reached from the terminal with a flag, in which a non-technical person writes a design
+document, hands it to a small team of agents, and watches them work through it.
 
-> A visual workspace where a salesperson, marketer or operator assembles a team of Grok agents,
-> gives them one shared brief, and watches documents, slides, experiences and software land back
-> in one place — with every dollar accounted for.
+> A visual workspace where a salesperson, marketer or operator writes down what they want in a
+> design document, assembles a team of Grok agents against it, and watches documents, slides,
+> tables, workflows and software land back in one place — with every dollar accounted for.
 
-Who it is for:
+### 1.1 The thesis: the design document is the interface
+
+This is the product. Everything else in this contract serves it.
+
+> The design document is not a description of the work. It is the surface on which the work is
+> declared, assigned and watched. You do not open a task board and then consult a document; you
+> open the document, and the work is in it.
+
+Three consequences, and each one is a rule the rest of this contract enforces:
+
+* **a design document is not an asset.** A document *asset* — §5.2 — is an output: a thing an agent
+  produced and a human will read, send or print. A *design document* is the interactive interface.
+  They render differently, live in different stores, obey different write rules, and appear on
+  different pages. Conflating them is the single most likely way to build the wrong product;
+* **documents are the only type that declares work.** Slides are PPTX rendering. Tables are
+  spreadsheet rendering. Neither declares anything. A project is defined in exactly one place, and
+  that place is a design document (§4);
+* **the differentiation is here, not in generation.** Anyone can call an image endpoint. Nobody
+  else shows you a document with four agents' cursors moving through it, each in its own colour,
+  each bound to the part it is allowed to change.
+
+### 1.2 Who it is for
 
 * sales — decks, one-pagers, follow-up material, prospect research;
 * marketing — campaign copy, image and video assets, X posts;
 * operations — process documents, internal handbooks, small internal tools.
 
-Who it is **not** for. This product is deliberately less rich than the control room it replaces.
-It is not for engineers, it does not show diffs, branches, worktrees or test counts, and the words
-"requirement", "merge" and "worktree" do not appear in its interface. The coding capability
-survives (§4.4) but is repositioned as one of four things the workspace can make, not the thing it
-is about.
+### 1.3 Who it is not for
+
+This product is deliberately less rich than the control room it replaces. It is not for engineers,
+it does not show diffs, branches, worktrees or test counts, and the words "requirement", "merge"
+and "worktree" do not appear in its interface. The coding capability survives as **software**
+(§5.2.5) but is repositioned as one of five things the workspace can make, not the thing it is
+about.
 
 The retired contract named "general-purpose white-collar workflows" as its very first non-goal
 (`product-design.md` §20). That is now the product. §2 and §20 of that document are inverted, not
@@ -75,14 +115,14 @@ amended.
 
 ---
 
-## 2. Relationship to Grok Code, and the Xcode idiom
+## 2. Relationship to Grok Build, and the Xcode idiom
 
 ### 2.1 What we are on top of
 
-grok-workspace is an add-on to Grok Code — the `grok` CLI, shipped as **Grok Build** by xAI. It is
-not a fork of OpenUI. That lineage is being unwound: `package.json` still names `@fallom/openui`
-with a `bin` of `openui`, the state directory is `~/.openui`, the env prefix is `OPENUI_`, three
-HTTP headers are `x-openui-*`, and agent commits are authored by `openui-agent`
+grok-workspace is an add-on to the `grok` CLI, shipped as **Grok Build** by xAI. It is not a fork
+of OpenUI. That lineage is being unwound: `package.json` still names `@fallom/openui` with a `bin`
+of `openui`, the state directory is `~/.openui`, the env prefix is `OPENUI_`, three HTTP headers
+are `x-openui-*`, and agent commits are authored by `openui-agent`
 (`server/services/repository.ts`). A second, older lineage is worse: `claude-code-plugin/`,
 `server/services/sessionManager.ts` and `server/services/conversationIndex.ts` exist only to serve
 Claude Code, a product this repository does not drive at all.
@@ -107,11 +147,11 @@ The visual idiom is Apple Xcode, borrowed for its shape, not its subject matter:
 ┌──────────────┬────────────────────────────────────┬──────────────┐
 │  NAVIGATOR   │            EDITOR                   │  INSPECTOR   │
 │              │                                     │              │
-│  projects    │  the thing being made:              │  the selected│
-│  work areas  │    a document, a deck, a clip,      │  thing:      │
-│  agents      │    a running app preview            │   who owns it│
-│  files       │                                     │   what it    │
-│              │                                     │    cost      │
+│  projects    │  the thing being made, or the       │  the selected│
+│  documents   │  document the work is declared in:   │  thing:      │
+│  work areas  │    a design document with live      │   who owns it│
+│  agents      │      agent highlighting,             │   what it    │
+│  assets      │    a deck, a table, an app preview   │    cost      │
 │              │                                     │   its state  │
 └──────────────┴────────────────────────────────────┴──────────────┘
                     Tools panel — overlays any page (§6)
@@ -120,8 +160,8 @@ The visual idiom is Apple Xcode, borrowed for its shape, not its subject matter:
 Three properties of the idiom are the reason for choosing it, and each one is a rule:
 
 * **the editor area shows the artifact, never a report about the artifact.** A slide is a slide, a
-  clip plays, a document renders. The retired product showed a unified diff and a test tally in
-  this position, and §2.3 of the UI research is blunt about who that reads for;
+  table is a grid, an app renders, a design document reads like a document. The retired product
+  showed a unified diff and a test tally in this position;
 * **the inspector is single-selection and always reflects the navigator.** No panel invents its
   own subject;
 * **the overlay is enabled by a flag, it does not replace the underlying tool.** Closing
@@ -129,9 +169,9 @@ Three properties of the idiom are the reason for choosing it, and each one is a 
 
 The current shell is a six-tab layout (`client/src/control-room/ControlRoomApp.tsx`) with a 288px
 left rail, a tabbed centre and a 320px right rail, no responsive breakpoints, and up to six red
-banners stacked above the content. The tabs go. The three-column skeleton, the WebSocket data
-layer in `client/src/control-room/useControlRoom.ts`, and the alert stack — collapsed to one
-notification surface — stay.
+banners stacked above the content. The tabs go, replaced by the three pages of §5. The three-column
+skeleton, the WebSocket data layer in `client/src/control-room/useControlRoom.ts`, and the alert
+stack — collapsed to one notification surface — stay.
 
 ---
 
@@ -149,48 +189,58 @@ It is not a separate application you install. It is the common-user face of Grok
 a flag. In the owner's words: pivoting back to this idea of Grok Build for common users.
 
 The honest mechanism, because it matters and is easy to get wrong: **`grok` itself cannot learn a
-new flag.** `.refs/grok-build` is a read-only mirror. `--common_version` is therefore owned by a
-wrapper executable of ours, installed on PATH ahead of the real binary, which:
+new flag.** The `grok` binary is a separate Rust program, mirrored read-only at `.refs/grok-build`,
+which this repository does not build and cannot change. `--common_version` is therefore owned by a
+wrapper executable of **ours**, installed on PATH ahead of the real binary, which:
 
 * recognises `--common_version` and only that, starting our server and opening the browser;
 * forwards every other argv, verbatim and in order, to the resolved `grok` binary via
   `server/services/grokDetect.ts`, and exits with its exit code;
 * never mutates the arguments it forwards.
 
-To the user this is indistinguishable from a `grok` flag, which is the requirement. To us it is a
-launcher, which is the truth. Today there is no argument parser worth the name — `bin/openui.ts`
-handles `--no-update` and `--dev` — and `client/src/main.tsx` selects the surface from a URL query
-parameter (`?view=control-room`). That URL switch is the seed of the launch path, not a
-replacement for it.
+Who owns which process, stated once so no loop document has to guess: **we own the wrapper, the Bun
+server and the browser client. xAI owns `grok`. We spawn it; we never patch it.** To the user the
+flag is indistinguishable from a `grok` flag, which is the requirement. To us it is a launcher,
+which is the truth.
 
-### 3.2 A project defines what type of work is done in it
+Today there is no argument parser worth the name — `bin/openui.ts` handles `--no-update` and
+`--dev` — and `client/src/main.tsx` selects the surface from a URL query parameter
+(`?view=control-room`). That URL switch is the seed of the launch path, not a replacement for it.
+
+### 3.2 A project follows one or more design documents
 
 A project carries:
 
-* a **capability category** — documents, slides, experiences, or software — chosen at creation;
+* **one or more followed design documents** — the declaration of what is to be made (§4);
 * an **overall project description**: one brief, in the user's own words, that *every* agent in the
   project follows;
-* a workspace root on disk where deliverables land;
+* a workspace root on disk where assets land;
 * a budget.
 
-Choosing the type of work is what tailors the workspace. A sales-deck project does not look like a
-software project: different navigator sections, different default team, different editor, a
-different set of tools offered in the Tools panel. Same shell, different furniture.
+**Project creation no longer asks for a capability category.** The previous revision of this
+contract had the user pick documents / slides / experiences / software at creation and tailored the
+workspace from that choice. §1.1 removes it: the design document declares the work, so the type of
+work is a property of the document, not of the project. A project whose document asks for a deck
+and a follow-up one-pager is one project with two output types, and forcing a category at creation
+would have made that unrepresentable.
 
 The project description is the single shared brief. It reaches every agent's session as part of
 `rules` at `session/new` (`server/services/acpSessionManager.ts`), alongside the agent's persona
 and its work area. There is exactly one shared brief and one per-agent boundary; anything else an
-agent knows, it discovered.
+agent knows, it discovered or read out of the design document.
 
 Today `client/src/control-room/NewProjectPanel.tsx` asks for a repository path, a base branch and
-a pasted markdown design document. All three are wrong for this product.
+a pasted markdown design document. The first two are wrong for this product. The third is the right
+idea attached to the wrong object — a pasted blob with no identity cannot be followed, cannot be
+highlighted, and cannot enforce §4's cardinality.
 
 ### 3.3 The agent team
 
-One click assembles a team appropriate to the project description. The user may also create agents
-by hand. `server/services/agentTeam.ts` already does the assembling — `seedDefaultTeam` and
-`resolveAgentForRole` with its exact → normalised → family → fallback matching survive as code;
-its roster data (Planner, Backend Engineer, Frontend Engineer, Test Engineer, Reviewer) does not.
+One click assembles a team appropriate to the project description and the followed documents. The
+user may also create agents by hand. `server/services/agentTeam.ts` already does the assembling —
+`seedDefaultTeam` and `resolveAgentForRole` with its exact → normalised → family → fallback
+matching survive as code; its roster data (Planner, Backend Engineer, Frontend Engineer, Test
+Engineer, Reviewer) does not.
 
 Agent creation is where **capability** is chosen, and capability is the important idea (§9).
 
@@ -215,86 +265,218 @@ plain "Start work" confirmation rather than a table.
 
 ---
 
-## 4. The four media, and what done means for each
+## 4. The design document is the interface
 
-The workspace produces four kinds of thing. Each has a definition of done, and every definition
-obeys one rule:
+This section is the product. Read it before any other.
 
-> Done is verified against the artifact, never taken from the agent's report of it.
+### 4.1 What a design document is, and what it is not
 
-The provenance for that rule is in this repository. `submitCode` in
-`server/services/projectStore.ts` checks the agent's claimed file list against what git actually
-says and records `claimedChangedFiles` only when the two disagree — written after a real run in
-which an agent listed a test file it had never touched. Git goes away; the discipline does not.
+A **design document** is a structured, versioned, line-addressable document that declares a piece
+of work and is watched while that work happens. Opening one is opening the project.
 
-### 4.1 Documents
+A **document asset** is an output: a deliverable an agent produced under the instruction of a
+design document. It lives on the ASSETS page (§5.2.1), it is versioned, it can be exported, and
+nothing is declared in it.
 
-Done when:
+They are different objects with different stores, and no code may treat one as the other:
 
-* the file exists under the project workspace root, has non-zero bytes, and its mtime is after the
-  task started;
-* every section named in the project brief has content;
-* no placeholder markers remain (`Lorem`, `TODO`, `{{`, "coming soon");
-* `server/services/secrets.ts` finds no secret in it — a shared document leaks further than a
-  private repository, and that scanner already runs on every document and message write;
-* a named human approver is recorded.
+| | design document | document asset |
+|---|---|---|
+| Purpose | declares and watches work | is the work's output |
+| Page | DESIGN DOCUMENTS (§5.3) | ASSETS (§5.2) |
+| Who writes it | the user; agents may only suggest (§8) | agents, directly |
+| Cardinality | at most one project follows it (D-2) | any number of anything may reference it |
+| Live agent presence | yes, line-level (§4.4) | agent-on-deliverable only, no line ranges |
+| Store | `server/services/designDoc.ts` (03-design-docs) | `server/services/assetStore.ts` (02-assets) |
 
-### 4.2 Slides
+### 4.2 The rules, numbered
 
-Done when everything in §4.1 holds, plus:
+These are requirements. A loop document may add to them; it may not weaken them.
 
-* the slide count matches the approved outline;
-* every image slot resolves to a **persisted local asset**, not to a returned generation URL
-  (§13.4 — those expire);
-* if narrated, total narration duration is within ±20% of the target.
+**D-1. A design document has a stable id, a version chain, and stable line addressing.** Every
+edit produces a new version; a presence report (§4.4) and a suggestion (§8) both name the version
+they were written against, and a report against a superseded version is shown as stale rather than
+silently remapped. `DesignDocumentVersion` (`server/types/project.ts:49-58`) and
+`VersionConflictError` (`server/services/projectStore.ts:67-73`) already implement the chain and
+the optimistic-concurrency refusal. Reuse them; do not write a second one.
 
-There is no xAI slide API (§13.5). Slide assembly is our code end to end.
+**D-2. Cardinality, exactly: one project may follow MULTIPLE documents. One document may be
+followed by AT MOST ONE project. Never two projects on one document.** This is not a UI
+convention. It is enforced in the store, at write time, by the same discipline as §9.1: the API
+refuses, and the refusal names the project that already follows the document. A second project
+attempting to follow raises a typed `DocumentAlreadyFollowedError` carrying `{documentId,
+owningProjectId}`; the client renders "Q3 Enterprise Deck already follows this document" with a
+link, and offers exactly one remedy — release it from the owning project first, as an explicit
+human act, recorded with who did it and when. Hiding the button is not enforcement, for the same
+reason that hiding an image tool is not a capability check.
 
-### 4.3 Experiences (voice + video)
+*Why this rule and not the obvious many-to-many:* the document is where work is declared. Two
+projects declaring against one document means two teams, two budgets and two approval identities
+acting on one set of lines, with no way for a reader of the document to know which team a
+highlighted range belongs to. The one-way multiplicity is what keeps a highlight unambiguous.
 
-Done when:
+**D-3. Agents never write a design document. They suggest.** This rule already exists and is
+already correct in the code — `client/src/control-room/DesignDocumentPanel.tsx:14-17` states it and
+`updateDocument` refuses an agent write unless `actor.canWriteDocument`. §8 is the mechanism.
 
-* every generation job reached `done` — not `pending`, not `expired`, not `failed`;
-* every returned media URL was downloaded and persisted on receipt;
-* clip durations match what was requested;
-* the cost of every asset is recorded with its model id and unit count (§9).
+**D-4. A design document declares work; slides and tables declare nothing.** Any feature that lets
+a deck or a spreadsheet define a project is out of scope (§17).
 
-An experience is the only medium where "the agent said it finished" and "the artifact exists" can
-diverge for minutes, because video generation is asynchronous. Treat every clip as a job with a
-state, not as a function call.
+**D-5. Opening a design document shows, in one view: which project follows it, the agent
+conversation, and live highlighting of what each agent is reading or working on.** §4.3.
 
-### 4.4 Software
+**D-6. Presence is best-effort and must be labelled as such.** §4.4 and §4.5. No product decision,
+no boundary check and no gate may read presence.
 
-Lovable-style: a common user describes a web interface or an app, and agents build it. The
-existing coding agent is **not deleted**; it is repositioned as one capability among four, offered
-when the user picks the software category at project creation.
+### 4.3 What you see when you open one
 
-Done when:
+```text
+┌───────────────────────────────────────────────────────────────────────────┐
+│ Q3 Enterprise Deck  ·  followed by 1 project  ·  v14  ·  4 agents inside   │
+├──────────────────────────────────────────────┬────────────────────────────┤
+│  1  # Q3 Enterprise Deck                     │  ● Research   reading      │
+│  2                                           │    lines 41-58 · 6s ago    │
+│  3  ## Audience                              │                            │
+│ ▌4  Enterprise buyers, 200-2000 seats.       │  ● Slides     working      │
+│ ▌5  They have seen the Q2 deck.              │    lines 60-74 · 2s ago    │
+│  6                                           │                            │
+│  7  ## What the deck must cover              │  ● X          working      │
+│ ▐8  - the migration story                    │    lines 4-5 · 1m ago      │
+│ ▐9  - three customer proofs                  │                            │
+│ 10  - pricing, without a price list          │  ○ Video      last seen    │
+│ …                                            │    lines 80-92 · 6m ago    │
+│                                              │    presence stale          │
+├──────────────────────────────────────────────┴────────────────────────────┤
+│ Slides: I have drafted 8 of 12 image prompts against lines 60-74.         │
+│ Research: three proofs found; one is under NDA — see my suggestion.        │
+└───────────────────────────────────────────────────────────────────────────┘
+```
 
-* the app builds and a preview renders — the preview is the evidence a non-technical user reads,
-  not a passing test count;
-* the checks the agent claims ran are confirmed against the artifact store;
-* no secret is present;
-* a named human approver is recorded.
+* the header names **the one project that follows this document** (D-2), its version, and how many
+  agents are inside it;
+* the gutter carries one coloured bar per agent, in that agent's work-area colour, over the lines
+  it last reported. Two agents on overlapping lines stack their bars; they do not blend into a
+  third colour nobody can name;
+* the right rail lists every agent with its mode (`reading` / `working`), its range, and **how long
+  ago it said so**. That last field is not decoration — it is the honesty requirement of D-6;
+* the conversation is the agents' thread for this document, not a global log
+  (`client/src/control-room/ConversationView.tsx` is reusable as-is);
+* colour is never the only carrier. Every agent row states its mode in text, per the rule at the
+  top of `server/types/agent.ts` and enforced by `client/src/control-room/uiChecklist.test.tsx`.
 
-Diffs, branch names, worktree paths and test tallies may exist in the data model. They must not
-reach this product's default interface. `client/src/control-room/DiffView.tsx` does not survive as
-a user-facing surface.
+### 4.4 Line-level presence: the mechanism, in full
+
+Highlighting is only as good as the signal underneath it. The signal is an emission the agent is
+required to make, and the whole design of it has to assume the agent will sometimes not make it.
+
+**The tool.** One MCP tool on the project MCP server:
+
+```text
+report_document_focus({
+  documentId:  string,
+  baseVersion: number,               the document version the agent is looking at
+  mode:        "reading" | "working",
+  startLine:   number,               1-indexed, inclusive
+  endLine:     number,               1-indexed, inclusive
+  note?:       string                one short sentence, shown in the rail
+})  ->  { accepted: true, currentVersion: number, stale: boolean }
+```
+
+It follows the property that makes the existing MCP server safe: **the identity is not a
+parameter.** Every tool in `server/services/projectMcpServer.ts` is bound to one project and one
+agent at construction (`ProjectMcpContext`), so an agent cannot report presence for another agent
+or another project. `documentId` is validated against the documents the agent's project follows;
+anything else is refused, not recorded.
+
+**The briefing instruction.** The task briefing that opens every session
+(`server/services/taskBriefing.ts` — it exists precisely because, before it, launching an agent
+opened a session, said nothing, and the agent sat idle) must carry, verbatim in substance:
+
+> Before you read part of the design document, and again whenever you move to a different part,
+> call `report_document_focus` with the line range you are on and whether you are reading it or
+> working from it. If you are still on the same range after several tool calls, call it again so
+> the humans watching know you have not stalled. Do not batch these; a report after the fact is
+> worthless.
+
+**The cadence.** Three triggers, no timer inside the agent:
+
+* on entry to a document, before the first read;
+* on every change of range;
+* at least once every **10 turns or 90 seconds of wall clock**, whichever comes first, while the
+  agent remains in the document.
+
+**The TTL and what the UI shows as presence ages.** This is the part that must not be papered over:
+
+```text
+< 90s          fresh      solid gutter bar, agent listed as reading/working, range shown
+90s - 10m      stale      hatched bar at reduced opacity, rail reads "last reported 4m ago",
+                          the mode word is greyed and prefixed "last seen"
+> 10m          expired    bar removed. The rail keeps the agent, and reads
+                          "in this document, location unknown". It does NOT say idle.
+session ends   cleared    bar removed, agent leaves the rail
+```
+
+**What happens when an agent stops emitting.** Nothing punitive, and nothing invented:
+
+* the bar decays through the states above. It never freezes solid, because a frozen solid bar is a
+  lie that gets more wrong every minute;
+* the agent is **not** paused, **not** marked failed, and **not** refused a write. Presence is not
+  a lock;
+* after two consecutive expiries within one session the server records a `presence_lapsed` note on
+  the agent so the pattern is visible in the ledger and to whoever tunes the briefing. It is
+  diagnostic data about our prompt, not a fault attributed to the user;
+* a fallback, cheaper and weaker: the ACP transcript already carries `tool_call` updates
+  (`server/services/acpClient.ts`). If a tool call names the document's backing file, the server may
+  mark **document-level** presence — "Research is in this document" — with no range at all. That
+  keeps the rail honest when the model forgets the tool, and it must never be drawn as a line
+  range. **Unverified:** whether Grok's read tool reports a line range in its `tool_call` payload
+  at all. The exact thing to check is one live ACP session: log the raw `session/update` frames for
+  a read of a large file and look for a range field. Until someone does, assume it carries a path
+  only.
+
+**Say the honest thing in the interface.** A model can forget to call a tool. It will. The rail
+therefore always shows an age, never a bare status; and the page's help text says, in plain words,
+that highlighting shows where agents last said they were, not where they provably are.
+
+### 4.5 What presence must never do
+
+* it must never gate a write. The boundary is enforced by §7's mechanisms, which do not depend on
+  the model's cooperation. An agent that never once called `report_document_focus` is still
+  confined;
+* it must never be used to resolve D-2 or any other cardinality or ownership question;
+* it must never be persisted as a fact about the document. Presence is a live, expiring
+  observation, stored beside the document and not inside its version chain;
+* it must never be shown without its age.
+
+### 4.6 What exists today to build on
+
+* the version chain, the conflict error and the agents-never-write rule (D-1, D-3) are built and
+  tested;
+* the suggestion mechanism (§8) is complete and is the only path an agent has into the document;
+* what does not exist: document *identity* as a first-class object with its own store and route,
+  the follow relation and its enforcement, the presence record, the tool, the briefing clause, and
+  every pixel of the gutter. `shared/designDocument.ts` parses `- AUTH-01: description` bullet items
+  into requirements — a deliberately strict regex whose comment records that a loose pattern turns
+  prose into phantom requirements. Keep the discipline; the atom for this product is a heading and a
+  line range, not a bullet with an id.
 
 ---
 
-## 5. The four pages
+## 5. The three pages, and the two secondary ones
+
+Three headline surfaces. Two secondary pages that exist but do not define the product.
 
 ### 5.1 AGENTS
 
-The current control room, re-founded. Colour-coded work areas, boundaries, environment, cost.
+The OpenUI visual panel, re-founded: multi-agent, colour-coded work areas, boundaries, environment,
+the Tools panel (§6) for prompt / skill / workflow injection, and cost tracking (§9).
 
 ```text
  grok-workspace · Q3 Enterprise Deck · 4 agents · 1 waiting          $2.41 / $25.00
-▌● Research      Doc Hub · reading 6 sources          working    12m      $0.38
- ● X             @acme timeline · drafting 3 posts    working     9m      $0.11
- ● Slides        Imagine · 8 of 12 images             working     4m      $1.62
- ○ Video         voice + Imagine · waiting on script  waiting     —       $0.30
+▌● Research      doc lines 41-58 · reading 6 sources   working    12m      $0.38
+ ● X             @acme timeline · drafting 3 posts     working     9m      $0.11
+ ● Slides        Imagine · 8 of 12 images              working     4m      $1.62
+ ○ Video         voice + Imagine · waiting on script   waiting     —       $0.30
 ```
 
 Each row is one agent bound to one work area, in that area's colour, with its capability named,
@@ -305,24 +487,128 @@ trade that away.
 
 The card must not fabricate. `client/src/control-room/AgentCard.tsx` omits every field the server
 did not supply rather than defaulting it, and that rule stands: no invented percentage, no
-placeholder dollar figure.
+placeholder dollar figure. A cost figure whose rate is unknown reads *unknown*, never `$0.00`
+(§9.2).
 
-### 5.2 DOC HUB
+### 5.2 ASSETS
 
-A Google-Workspace-like home for everything the workspace has made — documents, slides,
-experiences and software — showing visually which agent is reading or working on what.
+Every asset in one place. The unit is a deliverable, not a file path; every artifact an agent
+produces lands here without a manual step; the agent working on a deliverable is shown on it in its
+area colour; versions are visible and restorable.
 
-* the unit is a deliverable, not a file path;
-* every artifact an agent produces lands here (§14);
-* an agent currently reading or writing a deliverable is shown on it, in its area colour;
-* versions are visible and restorable.
-
-This is the page the canonical demo ends on, and it is the reason the artifact store must be real
+This is the page the canonical demo ends on, and it is the reason the asset store must be real
 rather than a directory listing. `server/services/repository.ts` lists files with `git ls-files`,
 which shows only tracked files — a freshly generated PNG would be invisible. That is a correctness
 bug for a generation product, not a cosmetic one.
 
-### 5.3 USERS
+**There are five asset types**, and they replace the four media of the previous revision:
+
+```text
+documents · slides · tables · workflows · software
+```
+
+Each has a definition of done, and every definition obeys one rule:
+
+> Done is verified against the artifact, never taken from the agent's report of it.
+
+The provenance for that rule is in this repository. `submitCode` in
+`server/services/projectStore.ts` checks the agent's claimed file list against what git actually
+says and records `claimedChangedFiles` only when the two disagree — written after a real run in
+which an agent listed a test file it had never touched. Git goes away; the discipline does not.
+
+**Generated media is not a sixth type.** Images, clips and narration are *component assets*: they
+are persisted on receipt (§13.4), listed, costed and attributed like everything else, and they are
+referenced by a deliverable of one of the five types. They are never a deliverable on their own,
+because "a PNG" is not something a salesperson asked for. This is why video generation is
+scheduled with workflow generation in §18.1 rather than as its own page.
+
+#### 5.2.1 Documents
+
+The most worked-on type, and the only type whose *design* counterpart declares work (§4). Done
+when:
+
+* the file exists under the project workspace root, has non-zero bytes, and its mtime is after the
+  task started;
+* every section named in the design document has content;
+* no placeholder markers remain (`Lorem`, `TODO`, `{{`, "coming soon");
+* `server/services/secrets.ts` finds no secret in it — a shared document leaks further than a
+  private repository, and that scanner already runs on every document and message write;
+* a named human approver is recorded.
+
+#### 5.2.2 Slides
+
+**Slides are PPTX rendering.** They present content; they declare nothing.
+
+Done when everything in §5.2.1 holds, plus:
+
+* the slide count matches the approved outline;
+* every image slot resolves to a **persisted local asset**, not to a returned generation URL
+  (§13.4 — those expire);
+* the produced `.pptx` opens in a real renderer and its slide count read back matches;
+* if narrated, total narration duration is within ±20% of the target.
+
+**Slide generation cannot be delegated to Grok.** §13.5. We generate slide *content* with the chat
+API as structured JSON and render the `.pptx` ourselves with a Node library.
+
+#### 5.2.3 Tables
+
+**Tables are spreadsheet rendering.** Same relationship to work as slides: they present, they do
+not declare.
+
+Done when everything in §5.2.1 holds, plus:
+
+* the sheet opens and its column headers match the schema the design document asked for;
+* every cell that claims a computed value has one — no formula written as text, no `#REF!`;
+* row count is reported and matches the source the agent cited.
+
+The renderer is ours, for the same reason as slides: there is no xAI spreadsheet API either.
+**Unverified:** which Node library. `exceljs` is the obvious candidate; the 04-generation worktree
+picks one, records the exact version, and proves a produced file opens.
+
+#### 5.2.4 Workflows
+
+A workflow asset is reusable agent control logic, saved and runnable: a loop, an evolve-loop, a
+loop that edits its own goal document (§10). Done when:
+
+* the script carries a valid `meta` block and passes upstream validation before any run;
+* one recorded run reached a terminal state, with its phase history and its child-agent count;
+* the run's spend is on the ledger like any other spend.
+
+Do not build a second workflow engine (§10.2, §17).
+
+#### 5.2.5 Software
+
+**Software means websites and apps built for a non-technical user, in the manner of Lovable.** The
+existing coding agent is not deleted; it is repositioned as one of five outputs.
+
+Done when:
+
+* the app builds and **a preview renders** — the preview is the evidence a non-technical user
+  reads, not a passing test count;
+* the preview is verified by fetching it and confirming it is the user's app and not the
+  scaffold's default page;
+* the checks the agent claims ran are confirmed against the asset store;
+* no secret is present;
+* a named human approver is recorded.
+
+The reference implementation is cloned at `.refs/open-lovable` (github.com/firecrawl/open-lovable).
+Read it before writing about software generation; §13.9 records what it actually does and the three
+places it is not a drop-in.
+
+Diffs, branch names, worktree paths and test tallies may exist in the data model. They must not
+reach this product's default interface. `client/src/control-room/DiffView.tsx` does not survive as
+a user-facing surface.
+
+### 5.3 DESIGN DOCUMENTS
+
+The interactive interface (§4). The page lists every design document the user can see, which
+project follows each (D-2), and its version; clicking one opens the reading surface of §4.3.
+
+The page is the product's front door. If a new user opens grok-workspace and does not understand
+within one screen that this is where work is declared, the page has failed regardless of how
+correct the rest is.
+
+### 5.4 USERS — secondary
 
 User management. Named humans, their projects, and who may approve what. The approval identity is
 already load-bearing elsewhere: publication refuses without a named approver, and
@@ -331,11 +617,13 @@ already load-bearing elsewhere: publication refuses without a named approver, an
 agent cannot approve its own work. That principle transfers unchanged, and USERS is where the
 identity behind it becomes visible.
 
-### 5.4 X (optional fourth page)
+Secondary means: the product is coherent without this page, it is not a headline surface, and it is
+merged last (§18.4). It does not mean half-built.
 
-X API integration: X-native generation, video, and posting. Optional means the product is complete
-without it; it does not mean half-built. If the page ships, posting is an outward-facing action and
-therefore requires human approval every time (§20).
+### 5.5 X — secondary
+
+X API integration: X-native generation, video, and posting. If the page ships, posting is an
+outward-facing action and therefore requires human approval every time (§20).
 
 **Unverified.** No X API details are established in the research for this pivot — no endpoint, no
 auth flow, no rate limit, no price. Anything a loop document writes about X beyond "the page
@@ -346,10 +634,11 @@ first, and marked unverified until it is.
 
 ## 6. The Tools panel
 
-Openable over any page. It holds prompts, skills and workflows, editable in place.
+Openable over any page; its home is AGENTS. It holds prompts, skills and workflows, editable in
+place, and it is how a prompt, a skill or a workflow is injected into a running agent.
 
-The panel is an overlay, not a seventh page, because its contents are used *while* doing something
-else: you open it over the deck you are building, adjust a skill, and close it.
+The panel is an overlay, not a fourth page, because its contents are used *while* doing something
+else: you open it over the document you are watching, adjust a skill, and close it.
 
 The backend is already there and has never been called. `server/routes/library.ts` mounts nine
 endpoints under `/api/library` — skills, prompts and workflows, list and create, plus compose,
@@ -374,11 +663,17 @@ A work area is:
 WorkArea {
   id, name, colour,
   boundaryPaths: string[]     the only places this area's agent may write
+  documentRange?              the part of the followed design document this area answers to
   ownerAgentId,
   deliverableId,
   milestoneId
 }
 ```
+
+`documentRange` is what makes §4.3's highlighting meaningful — an agent's reported focus can be
+compared against the range its area is responsible for, and a rail entry can read "outside its
+section". It is **not** a write boundary, because agents never write the design document at all
+(D-3). The write boundary is `boundaryPaths` and nothing else.
 
 `server/types/agent.ts` already declares `color` and `avatar` on an agent. Both are written by
 nothing and read by nothing. The colour-coding field exists and is inert.
@@ -421,26 +716,29 @@ Two mechanisms, not one:
   `{projectId, agentId, areaId}` by construction.
 
 A structured deliverable is therefore a safety decision as much as a product one. That is the
-strongest argument for slides being a deck object rather than a directory of loose files.
+strongest argument for a deck being a deck object rather than a directory of loose files.
 
 ---
 
 ## 8. The suggestion mechanism across boundaries
 
-An agent that believes something outside its area is wrong writes a suggestion. A suggestion
-carries the original text, the proposed text, the reason, and the version it was written against.
-The user accepts, edits, rejects, or asks for a revision.
+An agent that believes something outside its area is wrong — including anything in a design
+document, which it may never write (D-3) — writes a suggestion. A suggestion carries the original
+text, the proposed text, the reason, and the version it was written against. The user accepts,
+edits, rejects, or asks for a revision.
 
 **This half already works, and it is the best-preserved thing in the repository.** `DesignSuggestion`
 (`server/types/project.ts:95-118`) carries `baseVersion` for conflict detection, `originalText` /
 `proposedText`, `reason`, `risks`, and `originalProposedText` — the agent's wording retained after
 a user amends it, so provenance is not lost. The `submit_design_suggestion` MCP tool
-(`server/services/projectMcpServer.ts:245`) is the agent's end. `client/src/control-room/ReviewQueues.tsx`
-is the human's end, with accept / edit / reject / request-revision and stale detection.
+(`server/services/projectMcpServer.ts:245`) is the agent's end.
+`client/src/control-room/ReviewQueues.tsx` is the human's end, with accept / edit / reject /
+request-revision and stale detection.
 
-It is exactly "may suggest outside its area". Reuse it as-is. The only change required is a
-`targetAreaId` alongside `requirementId`, so a suggestion can name the area it concerns rather
-than only the document section.
+It is exactly "may suggest outside its area". Reuse it as-is. Two additive changes are required and
+no more: a `targetAreaId` alongside `requirementId`, so a suggestion can name the area it concerns;
+and a line range, so a suggestion against a design document lands in the gutter next to the lines
+it is about.
 
 One thing to raise, and it is a policy change rather than a rename: today, an out-of-bounds edit is
 noticed only after the fact, by `unrelated_changes` in `server/services/designReview.ts`, at
@@ -497,8 +795,7 @@ Also verified absent:
 * **there is no ledger.** `server/services/agentRegistry.ts:359` does `agent.costUsd += …` and
   `server/services/projectStore.ts:1217` does the same for a task. Nothing anywhere persists an
   individual charge with a timestamp, a model id and an operation label. Consequence: no time
-  series, no drill-down, no "where did the money go", no export — and no source data for any chart
-  the owner is imagining;
+  series, no drill-down, no "where did the money go", no export — and no source data for any chart;
 * the input / output / cache / reasoning token split is computed in
   `server/services/usageAccounting.ts` and collapsed to a single total at every call site;
 * `approvalThreshold` and `maxRetries` are unimplemented — zero occurrences in code, one occurrence
@@ -513,9 +810,9 @@ stale on that one point.
 ### 9.3 What cost must become
 
 * **a cost ledger**: an append-only, queryable record of individual charges, carrying project,
-  area, deliverable, task, agent, operation, model id, rate key, token split or unit count, dollar
-  amount, whether it is billed or estimated, and a timestamp. Everything else in this section is a
-  grouping over that table;
+  document, area, deliverable, task, agent, operation, model id, rate key, token split or unit
+  count, dollar amount, whether it is billed or estimated, and a timestamp. Everything else in this
+  section is a grouping over that table;
 * **a rate table that can express units, not only tokens.** Images are priced per image, video per
   second, speech per character, transcription per hour. The current `ModelRate` is
   per-million-tokens only and cannot express any of them;
@@ -523,7 +820,7 @@ stale on that one point.
   on chat, image and video responses (1 USD = 10¹⁰ ticks), and `estimated`, derived from published
   rates. The docs do not state whether TTS, STT or realtime carry `cost_in_usd_ticks`; treat voice
   as estimated until a live response proves otherwise;
-* **budget scopes** at area, deliverable and project, not only agent and task;
+* **budget scopes** at document, area, deliverable and project, not only agent and task;
 * **an approval threshold**: spend above a set figure requires a human click. `ApprovalQueue`
   already has `budget_increase` in `RESTRICTED_ACTIONS` and a complete request / resolve /
   assert lifecycle. Wiring it is the cheapest large win in this workstream.
@@ -591,8 +888,8 @@ systems exist, agents receive every skill twice.
 
 Two corollaries:
 
-* `rules` should carry the persona, the shared project brief and the work-area boundary. Nothing
-  else. Skills reach the agent through disk discovery;
+* `rules` should carry the persona, the shared project brief, the work-area boundary and the
+  presence instruction of §4.4. Nothing else. Skills reach the agent through disk discovery;
 * writing a skill directory into one agent's own area makes it local to that agent alone. That is a
   mechanical fit for "an agent spawns inside one work area", and it costs no new discovery code.
 
@@ -637,8 +934,10 @@ The required shape:
   rather than inventing a palette — it is the cheapest way to look like the same product.
 
 Two things a light theme must not break: every status keeps its **text** label, and the `sr-only`
-caveat spans survive the redesign. Test risk is otherwise near zero — of eleven control-room test
-files, exactly two assert on a class name and neither asserts a colour.
+caveat spans survive the redesign. The agent colours of §4.3 must stay distinguishable on both
+grounds; check the four default area colours against a light gutter before shipping either theme.
+Test risk is otherwise near zero — of eleven control-room test files, exactly two assert on a class
+name and neither asserts a colour.
 
 ---
 
@@ -647,9 +946,11 @@ files, exactly two assert on a class name and neither asserts a colour.
 Two distinct things, and the difference matters:
 
 * **a first-run greeting** — shown once, on first launch, before any project exists. It asks what
-  kind of work the user does and offers to create the first project;
+  kind of work the user does and offers to create the first design document, which is what creating
+  the first project now means (§3.2);
 * **a welcome guide** — a re-openable explanation of every section, available forever from the
-  chrome. Not a one-shot tour that marks itself complete and hides.
+  chrome. Not a one-shot tour that marks itself complete and hides. It lives at `docs/USER-GUIDE.md`
+  and is owned by the `guide` worktree.
 
 What exists: `client/src/components/OnboardingTour.tsx` is a two-phase overlay with a genuinely
 reusable spotlight mechanism — steps name a target, the tour resolves it in the DOM, and it skips
@@ -705,7 +1006,7 @@ Audio is generated by default on all modes.
 ```
 
 Every video is a long-lived server-side job with a poll loop, a persisted `request_id` and a
-terminal state that includes **expired**. A work area that renders video needs a job table, not a
+terminal state that includes **expired**. A surface that renders video needs a job table, not a
 request/response.
 
 ### 13.3 Voice
@@ -730,20 +1031,44 @@ optimisation:
 
 * no deliverable may store a returned generation URL as its reference to an image or a clip;
 * persistence happens at the moment of receipt, in the same code path, before anything else;
-* an asset store is therefore mandatory day-one infrastructure, not a later addition.
+* an asset store is therefore mandatory day-one infrastructure, not a later addition, and it is
+  owned by 02-assets — which is why 02 is in the first wave and 04-generation is not (§18.1).
 
 Any design that references a generated URL from a document or a deck is broken by construction.
 
-### 13.5 There is no xAI document or slide generation API
+### 13.5 Slides cannot be delegated to Grok
 
-None. Not for PPTX, DOCX, PDF or slides. The neighbouring APIs are input-side only.
+There is **no xAI document, slide, PPTX, DOCX or PDF generation API**. None. The neighbouring APIs
+(Files, Collections) are input-side only.
 
-Slide assembly and document generation are **100% our own code**. The realistic shape: a Grok text
-model produces structured JSON under a schema — an outline, per-slide copy, image prompts — our
-renderer turns that JSON into the artifact, Imagine fills the image slots, video fills motion
-slots, and TTS narrates with per-character timestamps for sync. Say this plainly in every loop
-document that touches slides, or an agent will spend an iteration looking for an endpoint that does
-not exist.
+Two surfaces appear to generate decks, and neither is callable from a server:
+
+* **"Grok for PowerPoint"**, the Microsoft 365 add-in. An add-in is a task pane rendered inside
+  Office, driven by the user's clicks in a desktop application. There is no server-side entry
+  point, no bearer-authenticated endpoint, and no way for our Bun process to invoke it;
+* **grok.com generating a downloadable `.pptx`.** That is the consumer chat product — a user
+  interface, behind a consumer session, not the developer platform. A product that drove it would
+  be scripting someone's website.
+
+Therefore, and state this plainly wherever slides are discussed:
+
+> We generate slide **content** with the chat API as structured JSON under a schema, and we render
+> the `.pptx` **ourselves** with a Node library.
+
+The realistic shape: a Grok text model produces structured JSON — an outline, per-slide copy, image
+prompts; our renderer turns that JSON into the artifact; Imagine fills the image slots; video fills
+motion slots; TTS narrates with per-character timestamps for sync. `pptxgenjs` is the obvious
+library for `.pptx` and `docx` for `.docx`; 04-generation picks and pins them, and adding a
+dependency means a `package.json` change, which is a hot file (§18.3) and therefore a handoff
+request, not an edit.
+
+Video is the opposite case and the contrast is worth keeping in mind: the Imagine video API is
+real, documented, priced and callable from a server (§13.2). "xAI can obviously do X in the app"
+is not evidence that X has an API. Check `docs.x.ai` and nothing else.
+
+**What to check before anyone revisits this:** whether `docs.x.ai` has added a slides or documents
+endpoint, and whether the Microsoft 365 add-in has published anything beyond a task pane. Until
+both are answered on the record, the rendering is ours.
 
 ### 13.6 There is no HTTP client to api.x.ai today
 
@@ -776,6 +1101,35 @@ For a product sold to non-technical users, the direct API path with our own key 
 defensible architecture. Treat the CLI's media tools as a developer convenience, never as the
 product's media engine.
 
+### 13.9 Software generation, and what `.refs/open-lovable` actually is
+
+Read it before designing §5.2.5. What it does, verified in the clone:
+
+* the model emits **whole files** inside `<file path="…">…</file>` blocks, parsed by a regex at
+  `app/api/apply-ai-code/route.ts:32`. That code exists mostly to cope with a stream that stopped
+  mid-file: it tracks whether a block had a closing tag, prefers the complete version, prefers the
+  longer of two incompletes, and warns on an ellipsis that suggests truncation. **Truncated
+  generations are the normal case, not the edge case** — design for them;
+* the pipeline is: create sandbox → generate code (stream) → apply files → detect and install
+  packages → run the dev server → monitor logs → report errors back into the next prompt. Those are
+  literally the route names under `app/api/`;
+* **done is a rendered preview, verified by fetching it.** `lib/build-validator.ts` fetches the
+  sandbox URL and fails the validation if the HTML still looks like the scaffold's default page
+  ("Vite + React", no `id="root"`). That is exactly the discipline of §5.2 — verify the artifact,
+  do not believe the report — arrived at independently by another team.
+
+Three places it is **not** a drop-in, and each is a decision 05-software must make and record:
+
+1. **it runs the app in a remote sandbox.** `config/app.config.ts` configures Vercel Sandbox
+   (default, 15-minute timeout, workdir `/app`) or E2B (30 minutes, workdir `/home/user/app`).
+   That is a third-party dependency and a credential — a §20 stop, not an implementation detail.
+   Running the preview locally under the project workspace root is the cheaper first answer;
+2. **there is no xAI provider in it.** Its model list is OpenAI, Anthropic, Google and Groq
+   (`config/app.config.ts`). Using its model layer means adding a provider; using ours means taking
+   the pipeline shape and leaving the model layer;
+3. **it also depends on Firecrawl** (`FIRECRAWL_API_KEY`, required) for the scrape-a-site-and-clone
+   -its-style path. That path is optional for us and should be dropped rather than credentialed.
+
 ---
 
 ## 14. The canonical demo
@@ -785,22 +1139,25 @@ to it.
 
 ```text
 The user creates a project: "I need to do this sales presentation."
+The brief becomes a design document; the project follows it.
 
 The team is assembled:
-  Research  — base Grok            researching in the user's Grok Doc Hub
-  X         — base Grok            working against the user's X account
-  Slides    — Grok + images        generating the slides with Imagine
+  Research  — base Grok             researching, reading the document's brief section
+  X         — base Grok             working against the user's X account
+  Slides    — Grok + images         generating the slides with Imagine
   Video     — Grok + voice + images generating video assets
 
-Every asset the agents produce lands back in the Doc Hub.
+The user watches four coloured bars move down the design document.
+Every asset the agents produce lands on the ASSETS page.
 ```
 
-Read against the rest of this contract, the demo exercises: project creation with a capability
-category (§3.2); one-click team assembly (§3.3); capability chosen per agent, two of four agents
-deliberately unable to spend media money (§9.1); four coloured work areas with enforced boundaries
-(§7); the Doc Hub as the place everything lands (§5.2); asset persistence on receipt, because two
-agents are producing media behind temporary URLs (§13.4); and a running cost figure that is not
-$0.00 (§9.2).
+Read against the rest of this contract, the demo exercises: project creation as document creation
+(§3.2); the follow relation and its cardinality (D-2); one-click team assembly (§3.3); capability
+chosen per agent, two of four agents deliberately unable to spend media money (§9.1); four coloured
+work areas with enforced boundaries (§7); line-level presence driving the highlighting, with an age
+on every row (§4.4); the ASSETS page as the place everything lands (§5.2); asset persistence on
+receipt, because two agents are producing media behind temporary URLs (§13.4); slides rendered by
+us because there is no slide API (§13.5); and a running cost figure that is not $0.00 (§9.2).
 
 If a design decision makes that story harder to tell, it is the wrong decision.
 
@@ -817,8 +1174,9 @@ no product called X Code.
 *Consequence:* the wordmark is "built on xAI's Grok Build". Do not print a product name that
 cannot be cited.
 
-**2. `grok --common_version` cannot be a flag inside `grok`.** `.refs/grok-build` is a read-only
-upstream mirror that refuses external contributions.
+**2. `grok --common_version` cannot be a flag inside `grok`.** The `grok` binary is a separate Rust
+program; `.refs/grok-build` is a read-only upstream mirror that refuses external contributions, and
+this repository does not build it.
 *Consequence:* §3.1. The flag is delivered by our wrapper on PATH, which forwards everything else
 verbatim. The user experience is unchanged; the architecture is not.
 
@@ -837,8 +1195,9 @@ job store, not a function call.
 URL (§13.4). This invalidates the obvious implementation of "put the generated image in the deck".
 
 **6. There is no xAI document or slide generation API.** None.
-*Consequence:* slide and document generation are entirely our code (§13.5). Any plan that budgets
-this as an integration is wrong by an order of magnitude.
+*Consequence:* slide, table and document generation are entirely our code (§13.5). Any plan that
+budgets this as an integration is wrong by an order of magnitude. See entry 22 for the two
+surfaces that make it look otherwise.
 
 **7. Custom voice cloning via API is Enterprise-only, US excluding Illinois.**
 *Consequence:* no "clone your voice" feature. Built-in voices only (§13.7).
@@ -864,15 +1223,15 @@ call cost must not appear in any checklist.
 *Consequence:* do not rebuild it.
 
 **12. Boundaries are enforced nowhere at write time.** `assertAgentCanWrite` and the entire
-`ApprovalQueue` have zero production callers; `server/hooks/shellSafetyHook.ts` is never installed by this
-repository and only sees shell commands.
+`ApprovalQueue` have zero production callers; `server/hooks/shellSafetyHook.ts` is never installed
+by this repository and only sees shell commands.
 *Consequence:* §7.2. Worktrees made out-of-bounds edits recoverable, never impossible. Removing git
 removes the safety net, and the enforcement has to be built for the first time.
 
 **13. The suggestion half already works.** `DesignSuggestion`, `submit_design_suggestion`,
-baseVersion/stale conflict detection and `client/src/control-room/ReviewQueues.tsx` are the boundary-suggestion mechanism,
-complete.
-*Consequence:* reuse it; add `targetAreaId` (§8). Do not design a new one.
+baseVersion/stale conflict detection and `client/src/control-room/ReviewQueues.tsx` are the
+boundary-suggestion mechanism, complete.
+*Consequence:* reuse it; add `targetAreaId` and a line range (§8). Do not design a new one.
 
 **14. The resources backend exists and has never been called.** `server/services/promptLibrary.ts`
 and `server/routes/library.ts` serve skills, prompts and workflows; no client code has ever called
@@ -913,6 +1272,29 @@ OpenAI and HuggingFace endpoints, and `grok models` reports "You are not authent
 *Consequence:* nothing in §13 works until an xAI credential exists. This will bite on day one, and
 it is a credential question for the user, not a task (§20).
 
+**22. The two surfaces that appear to generate decks are user interfaces, not APIs.** The "Grok for
+PowerPoint" Microsoft 365 add-in is a task pane inside Office, driven by a human clicking in a
+desktop application. grok.com producing a downloadable `.pptx` is the consumer chat product behind
+a consumer session. Neither is a bearer-authenticated endpoint and neither can be called from a
+server; nothing on `docs.x.ai` generates a slide.
+*Consequence:* §13.5. Slide content is generated as structured JSON through the chat API and the
+`.pptx` is rendered by our own Node code. Any loop document that says "delegate the deck to Grok"
+is describing something that cannot be built. Contrast video, where the API is real (§13.2) — the
+existence of a capability in xAI's products says nothing about the existence of an endpoint.
+
+**23. A design document is not a document asset, and the difference is the product.** The brief
+uses "document" for both. They are different objects with different stores, pages and write rules
+(§4.1).
+*Consequence:* one page for each (§5.2, §5.3), and no shared model between them. Slides and tables
+are rendering targets and declare nothing; only a design document defines a project.
+
+**24. `.refs/open-lovable` is a reference, not a dependency.** It runs generated apps in a remote
+Vercel or E2B sandbox on a 15–30 minute timeout, has no xAI provider in its model list, and
+requires a Firecrawl key.
+*Consequence:* take the pipeline shape and the preview-is-the-evidence discipline (§13.9); take
+neither its sandbox nor its model layer without an explicit decision, because both are credentials
+and one is an outward-facing third party (§20).
+
 ---
 
 ## 16. What the retired product proved, and what carries over
@@ -924,11 +1306,13 @@ proved is worth more than what it built.
 What it proved, and what carries over unchanged:
 
 * **an agent will report work it did not do.** The submission path verifies the claim against the
-  artifact and records the discrepancy. That discipline becomes §4's rule about done;
+  artifact and records the discrepancy. That discipline becomes §5.2's rule about done;
 * **colour is never the sole carrier of meaning.** Every status has a text label, enforced by a
-  test. A more visual product does not get to trade this away;
+  test. A product whose headline feature is coloured highlighting does not get to trade this away —
+  which is why every row in §4.3 carries a word and an age, not just a hue;
 * **never fabricate a value in the UI.** An absent field is omitted, never defaulted to something
-  plausible. This is the reason `$0.00 (estimated)` is a bug rather than a cosmetic complaint;
+  plausible. This is the reason `$0.00 (estimated)` is a bug rather than a cosmetic complaint, and
+  the reason stale presence is drawn differently from fresh presence;
 * **a suggestion mechanism with provenance works.** Accept / edit / reject / request-revision, with
   the agent's original wording retained after a user amends it (§8);
 * **one human approval gate before work starts is the right amount of ceremony.** The plan approval
@@ -936,16 +1320,20 @@ What it proved, and what carries over unchanged:
 * **deterministic review beats model-generated review for anything that gates publication.** A
   reviewer that returns a different verdict each run cannot gate anything;
 * **a briefing must exist on day one.** Before `server/services/taskBriefing.ts` existed, launching
-  an agent opened a session, said nothing, and the agent sat idle;
+  an agent opened a session, said nothing, and the agent sat idle. §4.4's presence instruction lives
+  in that same briefing, and inherits the same lesson: an instruction that is not delivered is not
+  an instruction;
 * **path canonicalisation is subtle and already solved here.** `assertManagedPath` closes both a
   false-refusal and a false-approval failure mode, each found by a real test;
 * **secrets leak further from a shared deck than from a private repository.** The scanner stays,
   and matters more;
 * **the identity is not a parameter.** MCP tools bound to one project and one agent at construction
-  are why an agent cannot impersonate another, and are the natural home for the boundary rule;
+  are why an agent cannot impersonate another, and are the natural home for both the boundary rule
+  and `report_document_focus`;
 * **coverage of a surface is not coverage of its behaviour.** Modules were reachable but unwired,
   endpoints declared but uncalled, MCP tools advertised but never invoked, events published and
-  dropped. Every new surface in this product needs the same question asked of it.
+  dropped. Every new surface in this product needs the same question asked of it — including the
+  presence tool, which is exactly the shape of thing that gets registered and never called.
 
 What carries over as code: the ACP transport, the agent registry, the task graph, the event bus,
 the secret scanner, the messaging layer with its link validation and loop guard, the permissioned
@@ -974,6 +1362,9 @@ The product will not include:
 * voice cloning from user-supplied audio — Enterprise-plan only, US excluding Illinois (§13.7);
 * a second skill runtime or a second workflow engine (§10.2);
 * a visual workflow builder — workflows are scripts, and a self-mutating live loop is not supported;
+* a deck or a spreadsheet that defines a project — only a design document declares work (D-4);
+* two projects on one design document, and any UI that implies it is possible (D-2);
+* presence as a lock, a lease, or an input to any gate (§4.5);
 * diffs, branch pickers, worktree paths, test tallies or merge-conflict resolution in the default
   interface;
 * deep agent hierarchies, or any orchestration heavier than conversation plus a visible team (§3.4);
@@ -987,51 +1378,129 @@ The product will not include:
 
 ---
 
-## 18. The order to build it in
+## 18. The build order, the worktree partition, and reconciliation
 
-Each numbered item is one worktree with one loop document and one boundary. The order is a
-dependency order, not a priority order.
+### 18.1 The order is fixed by the owner
+
+The three pages are built and **robustly tested** first. Generation comes after. This is not a
+suggestion and no loop document may reorder it.
 
 ```text
-1  Domain re-founding
-   Vocabulary, WorkArea, Deliverable, capability on the agent record.
-   Touches the type modules and the mutation store. Deletes nothing,
-   breaks everything downstream. Do it first and alone.
+WAVE 0  Shell and domain re-founding                       07-shell
+        Three-column skeleton, routing, the token layer, the vocabulary,
+        WorkArea and the capability field. Deletes nothing, breaks
+        everything downstream. Do it first and alone.
+        Dead-code amputation rides here: the PTY session stack, the Claude
+        Code index, the cost cache, the GitHub client, the legacy shell.
+        ~4,000 lines, and every later estimate is wrong until it is done.
 
-2  Dead-code amputation
-   The PTY session stack, the Claude Code index, the cost cache, the
-   GitHub client, the legacy API surface, the legacy client shell.
-   ~4,000 lines. Early, because every later estimate is wrong until it
-   is done, and the reachability audit keeps it honest.
+WAVE 1  The three pages, built and robustly tested
+        01-agents        AGENTS, work areas, and boundary enforcement.
+                         Nothing above the boundary line is safe until the
+                         PreToolUse hook is installed and denying (§7.2).
+        02-assets        ASSETS, the asset store, download-on-receipt.
+                         The store lands before anything that references an
+                         asset — which is why it precedes 04 (§13.4).
+        03-design-docs   DESIGN DOCUMENTS: identity, the follow relation and
+                         its cardinality (D-2), presence and highlighting.
 
-3  Boundary enforcement
-   PreToolUse hook extended to file writes AND installed at startup;
-   areaId in the MCP context; unrelated_changes raised to blocking.
-   Nothing above this line is safe until this ships.
+        This wave is finished when the three pages are green under the full
+        gate, not when they render. "Robustly tested" is the owner's word and
+        it means the §19 items for these pages carry evidence, not screenshots.
 
-4  Cost ledger
-   FIRST TASK: observe what modelId a live Grok turn reports.
-   Then the ledger, the unit-aware rate table, billed-vs-estimated,
-   rateKey surfaced, ApprovalQueue wired to approvalThreshold.
+WAVE 2  Everything that makes something
+        06-tools-cost    The Tools panel over the existing library API, the
+                         cost ledger, the unit-aware rate table, rateKey
+                         surfaced, ApprovalQueue wired.
+                         FIRST TASK: observe what modelId a live Grok turn
+                         reports (§9.2).
+        04-generation    The HTTP client, the video job store and poller, the
+                         TTS bridge, and OUR pptx/xlsx/docx renderers (§13.5).
+                         Slide generation and video generation both live here
+                         and both come after wave 1.
+        05-software      Software generation, against .refs/open-lovable's
+                         pipeline shape and nothing of its infrastructure
+                         without a decision (§13.9).
 
-5  Generation backends
-   HTTP client, video job store and poller, asset store, TTS bridge.
-   The asset store lands before anything that references an asset.
-
-6  The four media
-   Document and slide renderers, the checklist evaluator replacing the
-   test runner, artifact-on-disk verification.
-
-7  Pages and shell
-   Xcode three-column skeleton, AGENTS, DOC HUB, USERS, the Tools panel
-   over the existing library API, the file tree.
-
-8  Theming, onboarding, greeting
-   Token layer and light mode; the guide and the first-run greeting.
-
-9  X page
-   Optional. Blocked on verified X API facts (§5.4).
+WAVE 3  08-users-x       USERS and X. Secondary pages, merged last.
+                         X stays blocked on verified X API facts (§5.5).
 ```
+
+The dependency that this ordering deliberately accepts: **wave 1 ships before the cost ledger
+exists.** The AGENTS page will therefore show cost figures it cannot price. It must show them as
+*unknown*, with the model id, and never as `$0.00` (§9.2). That is the honest rendering of the
+truth in wave 1, and it becomes a real number in wave 2 without a UI change.
+
+### 18.2 The file partition — this is the authority
+
+Each row is one worktree, one branch, one loop document. Copy your row into your §0.
+
+| id | branch | owns |
+|---|---|---|
+| 01-agents | `pivot/agents` | `server/services/workArea.ts`, `server/services/boundary.ts`, `server/services/agentTeam.ts`, `server/services/agentRegistry.ts`, `server/routes/agents.ts`, `client/src/control-room/agents/**` |
+| 02-assets | `pivot/assets` | `server/services/assetStore.ts`, `server/routes/assets.ts`, `client/src/control-room/assets/**` |
+| 03-design-docs | `pivot/design-docs` | `server/services/designDoc.ts`, `server/services/presence.ts`, `server/routes/designDocs.ts`, `client/src/control-room/designdoc/**` |
+| 04-generation | `pivot/generation` | `server/services/xai/**`, `server/services/render/**`, `server/routes/generation.ts` |
+| 05-software | `pivot/software` | `server/services/software/**`, `client/src/control-room/software/**` |
+| 06-tools-cost | `pivot/tools-cost` | `server/services/promptLibrary.ts`, `server/routes/library.ts`, `server/services/usageAccounting.ts`, `server/services/costLedger.ts`, `client/src/control-room/tools/**` |
+| 07-shell | `pivot/shell` | `client/src/main.tsx`, `client/src/index.css`, `client/tailwind.config.js`, `client/src/control-room/shell/**` |
+| 08-users-x | `pivot/users-x` | `server/services/auth.ts`, `server/routes/users.ts`, `server/services/x/**`, `client/src/control-room/users/**` |
+| guide | `pivot/guide` | `docs/USER-GUIDE.md` only, and no code at all |
+
+### 18.3 The hot-file protocol
+
+These files are shared by everyone and **no worktree may edit them directly**, because eight-way
+conflicts in them would cost more than all the feature work:
+
+```text
+client/src/control-room/useControlRoom.ts
+client/src/control-room/ControlRoomApp.tsx
+server/services/projectStore.ts
+server/types/*.ts
+server/index.ts
+package.json
+```
+
+When your work needs a change in one of them, you do **not** make it. You append a precise request
+to `loops/handoff/<your-branch>.md` — a file only you own — stating the file, the exact change, the
+reason, and the signature or event shape other worktrees will depend on. A single reconciliation
+pass applies every request at the end.
+
+Design your own code so it can be wired in by someone else in **one edit**: export a clean entry
+point rather than reaching into the shell. A route module exports a router the mount line names
+once. A page exports one component. A set of MCP tools exports one `registerX(server, ctx)`.
+
+Two practical consequences of `server/types/*.ts` being hot:
+
+* declare new types **inside the service file you own** and export them from there. Only a type two
+  worktrees both need goes to `server/types/`, through a handoff request;
+* a new dependency is a `package.json` change and therefore a handoff request. This catches
+  `pptxgenjs`, any xlsx library, and anything 05-software wants for a sandbox.
+
+**Files the partition does not assign.** Several files everybody needs are in no row above:
+`server/services/projectMcpServer.ts`, `server/services/acpSessionManager.ts`,
+`server/services/taskBriefing.ts`, `server/services/controlRoomEvents.ts`,
+`server/routes/projects.ts`, `server/routes/api.ts`, `shared/**`, `scripts/audit/**`. **Treat an
+unassigned shared file as hot.** Request the change in your handoff file, name the exact tool,
+event member or briefing clause you need, and keep your own side behind an entry point that one
+edit can call. This is how `report_document_focus` (§4.4) reaches `projectMcpServer.ts` and how the
+presence instruction reaches `taskBriefing.ts` without two worktrees writing the same file.
+
+### 18.4 Reconciliation
+
+Every loop document ends by stating what its worktree hands back: the branch name, the handoff
+file, the public contract it added (types, endpoints, events, MCP tools), and anything it had to
+assume about another worktree's work.
+
+Merge order:
+
+```text
+07-shell  →  01-agents, 02-assets, 03-design-docs  →  04, 05, 06  →  08-users-x
+```
+
+The three pages merge before everything that makes something, because the pages are tested first
+(§18.1). A worktree in a later wave that assumed a shape from an earlier one and got it wrong
+finds out at merge, which is the cheapest place available.
 
 ---
 
@@ -1058,15 +1527,16 @@ Forwarded argv observed:
 Exit code:
 ```
 
-#### P-002: A project carries one shared brief
+#### P-002: A project follows a design document and carries one shared brief
 
 Required result:
 
-* project creation asks for a capability category and a description;
-* the description reaches every agent's session rules;
+* project creation produces or links a design document, and the project follows it;
+* the project description reaches every agent's session rules;
 * an agent created after the project can quote the brief without being told it.
 
 ```text
+Document id:
 Project description set:
 Agents launched:
 Marker observed in each session:
@@ -1106,14 +1576,14 @@ Absolute path case:
 
 Required result:
 
-* an agent may submit a suggestion naming an area it does not own;
+* an agent may submit a suggestion naming an area it does not own, or a range of a design document;
 * the suggestion carries original text, proposed text, reason and base version;
 * the user can accept, edit, reject or request revision;
 * an edited suggestion retains the agent's original wording.
 
 ```text
 Suggestion id:
-Target area:
+Target area / line range:
 Resolution:
 Original wording retained:
 ```
@@ -1139,7 +1609,7 @@ Trust tier shown:
 Required result:
 
 * every charge is persisted individually with a timestamp, an operation and a scope;
-* spend can be broken down by agent, by area and by day;
+* spend can be broken down by agent, by area, by document and by day;
 * the breakdown is exportable;
 * the totals reconcile with the project figure shown in the header.
 
@@ -1182,30 +1652,33 @@ Terminal state:
 UI state shown:
 ```
 
-#### P-010: Each medium reaches done by verification
+#### P-010: Each asset type reaches done by verification
 
 Required result:
 
-* a document, a deck, an experience and a software preview each reach done;
-* each satisfies its §4 clauses;
+* a document, a deck, a table, a workflow and a software preview each reach done;
+* each satisfies its §5.2 clauses;
 * in each case the evidence is the artifact, not the agent's report;
 * a named human approver is recorded on each.
 
 ```text
 Document:
 Slides:
-Experience:
+Table:
+Workflow:
 Software:
 Approver:
 ```
 
-#### P-011: Everything lands in the Doc Hub
+#### P-011: Everything lands on the ASSETS page
 
 Required result:
 
-* every artifact produced by any agent appears in the Doc Hub without a manual step;
-* the Doc Hub shows which agent is reading or working on each deliverable;
-* an artifact created but not committed to version control still appears.
+* every artifact produced by any agent appears on the page without a manual step;
+* the page shows which agent is reading or working on each deliverable;
+* an artifact created but not committed to version control still appears;
+* a component asset (an image, a clip, a narration) is listed with the deliverable that references
+  it and with its own cost.
 
 ```text
 Artifacts produced:
@@ -1237,6 +1710,7 @@ Required result:
 * the whole workspace renders in light and in dark;
 * the theme follows the operating system by default and a user override wins in both directions;
 * every status still carries a text label in both themes;
+* the agent colours in the document gutter remain distinguishable on both grounds;
 * no hard-coded dark value survives in the stylesheet.
 
 ```text
@@ -1250,7 +1724,7 @@ Remaining hard-coded values:
 
 Required result:
 
-* first launch shows a greeting that leads to a first project;
+* first launch shows a greeting that leads to a first design document;
 * every section has a re-openable explanation;
 * the guide's completion state is namespaced to this product;
 * nothing in the greeting names a retired product.
@@ -1266,9 +1740,10 @@ Brand strings checked:
 
 Required result:
 
-* the §14 scenario runs from project creation to assets in the Doc Hub;
+* the §14 scenario runs from project creation to assets on the ASSETS page;
 * four agents with the stated capabilities are assembled by one click;
 * boundaries hold throughout;
+* the design document shows all four agents moving through it;
 * a non-zero, itemised cost figure is shown at the end.
 
 ```text
@@ -1278,6 +1753,98 @@ Boundary violations:
 Final cost:
 ```
 
+#### P-016: A document is followed by at most one project
+
+Required result:
+
+* one project follows two documents, and both appear under it;
+* a second project attempting to follow an already-followed document is **refused by the API**, not
+  by a disabled button;
+* the refusal names the project that already follows it;
+* releasing the document from the first project is an explicit human action, and is recorded with
+  who did it;
+* after release, the second project can follow it.
+
+```text
+Project A documents:
+Refusal observed (endpoint, status, body):
+Owning project named:
+Release actor recorded:
+Follow after release:
+```
+
+#### P-017: Presence is line-level, live, and honest when it is not
+
+Required result:
+
+* an agent calling `report_document_focus` moves a coloured bar to the reported lines within one
+  refresh;
+* two agents on overlapping ranges are both visible and both identifiable;
+* an agent that stops reporting decays fresh → stale → expired on the §4.4 schedule, and the rail
+  shows an age at every stage;
+* an expired agent reads "location unknown", never "idle";
+* a report against a superseded document version is shown as stale, not silently remapped;
+* no write is refused, and no gate changes, because presence is stale.
+
+```text
+Tool calls observed:
+Range rendered:
+Overlap case:
+Decay timings observed:
+Stale-version case:
+Write attempted while presence expired:
+```
+
+#### P-018: Slides are rendered by us
+
+Required result:
+
+* slide content is produced as structured JSON under a schema by the chat API;
+* the `.pptx` is produced by our renderer, with the library and version recorded;
+* the file opens in a real renderer and its slide count matches the outline;
+* no code path attempts to call an xAI slide or document endpoint.
+
+```text
+Schema used:
+Renderer library and version:
+Slide count in outline / in file:
+grep for a slide endpoint:
+```
+
+#### P-019: Software is done when a preview renders
+
+Required result:
+
+* a generated app builds and serves;
+* the preview is fetched and confirmed to be the user's app, not the scaffold's default page;
+* a truncated generation is detected and re-requested rather than written half-formed;
+* no secret is present, and a named human approver is recorded;
+* where a remote sandbox is used, its credential was granted by the user under §20 and is recorded.
+
+```text
+Preview URL:
+Validation result:
+Truncation case:
+Sandbox decision and credential:
+Approver:
+```
+
+#### P-020: The build order held
+
+Required result:
+
+* the three pages were green under the full gate before any generation surface merged;
+* the merge order of §18.4 was followed;
+* every hot-file change arrived through a handoff file, and no worktree edited one directly;
+* every worktree's loop document states what it handed back.
+
+```text
+Gate run for wave 1 (date, result):
+Merge order observed:
+Handoff files applied:
+Direct hot-file edits found:
+```
+
 ---
 
 ## 20. Stop and ask the user when
@@ -1285,16 +1852,19 @@ Final cost:
 Do not work around any of these. Report the blocker with evidence and stop.
 
 * an action needs credentials that were not provided — including the xAI credential this machine
-  does not currently have (§15.21), which blocks every generation surface;
+  does not currently have (§15.21), which blocks every generation surface, and any third-party
+  sandbox or scraping credential §13.9 would require;
 * an irreversible or outward-facing operation needs approval: posting to X, sending anything to a
-  third party, publishing a deliverable, deploying, or spending above the approval threshold;
+  third party, publishing a deliverable, deploying, running generated code on someone else's
+  infrastructure, or spending above the approval threshold;
 * deleting tracked files — including `product-design.md` and `verifiables.md`. That decision is the
   repository owner's, and §16 lists what breaks;
 * requirements contradict one another, including a contradiction between this contract and a
-  sibling area document;
+  sibling loop document in `loops/`;
 * a required external service is unavailable, or a documented endpoint behaves differently from
   §13;
 * completing one requirement would violate another;
-* a change would fall outside your work area (§0). File a suggestion; do not edit.
+* a change would fall outside your work area (§0), or would touch a hot file (§18.3). File a
+  handoff request; do not edit.
 
 A blocker restated across iterations is wasted work. State it once, with evidence, and stop.

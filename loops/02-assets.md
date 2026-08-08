@@ -1,72 +1,127 @@
-# Doc Hub — Loop Operating Document
+# Assets — Loop Operating Document
 
-This is the instruction set for one iteration of the Doc Hub loop. Read this file first, act, then
+This is the instruction set for one iteration of the Assets loop. Read this file first, act, then
 stop. It is deliberately short; the files it points at hold the detail.
 
 | Document | Role |
 |---|---|
-| `loops/02-dochub.md` | This file. The Doc Hub contract, the build order, and the checklist DH-001…DH-016. |
-| `VERIFICATION.md` | The evidence ledger. Current status of every item, with reproducible proof. |
+| `loops/02-assets.md` | This file. The Assets contract, the build order, and the checklist AS-001…AS-016. |
+| `grok-workspace.md` | The product contract. What the system must become. |
 | `loopdesign.md` | The house form and the evidence standards every loop document inherits. |
+| `VERIFICATION.md` | The evidence ledger. Current status of every item, with reproducible proof. |
 
-The Doc Hub is the page a salesperson opens first. It is a Google-Workspace-like home for the four
-media grok-workspace produces — documents, slides, experiences, software — showing which agent is
-reading what and which agent is writing what, live.
+ASSETS is one of the three headline pages, alongside AGENTS and DESIGN DOCUMENTS. It is every asset
+in one place, in five types: **documents · slides · tables · workflows · software**.
 
-> The Doc Hub is both the destination every agent writes into and the source every agent reads
-> from. Anything that is only one of those is not the Doc Hub.
+> The Assets page holds outputs. It never declares work. The only thing that declares work is a
+> design document, and a design document is not an asset.
 
-**What this surface contributes to the canonical demo.** The research agent reads the user's
-existing material *out of* the hub. The X agent, the Imagine agent and the voice+Imagine agent
-write slides, images, clips and narration *into* it. The user watches four coloured dots move over
-a grid of slides. Every asset carries which agent made it, with which capability, and what it cost.
-If the hub is missing, the demo is four agents talking into a void.
+Read that sentence twice. It is the single distinction this surface exists to keep straight, and §2
+is nothing but that distinction.
+
+**What this surface contributes to the canonical demo.** The user says "I need to do this sales
+presentation." Four agents are assembled. The research agent reads existing material *out of* the
+asset store. The X agent, the Imagine agent and the voice+Imagine agent write documents, slides and
+clips *into* it. At the end the user opens ASSETS and sees every artifact with the agent that made
+it, the capability that agent held, what it cost, and the lines of the design document that
+declared it. If this page is missing, four agents produced work into a void.
 
 ---
 
 ## 0. Your boundary
 
-This worktree owns the Doc Hub and nothing else. The other loop documents in `loops/` are assigned
-to other worktrees and are being written and implemented in parallel.
-
-**Files and directories you own — create, edit, delete freely:**
-
-```text
-server/types/dochub.ts          new — Deliverable, DeliverableSection, Asset, CheckRun
-server/services/docHub.ts       new — the store; synchronous, versioned, atomic
-server/services/assetStore.ts   new — download-on-receipt persistence + provenance sidecars
-server/services/docHubChecks.ts new — the deterministic check evaluator (acceptance evidence)
-server/routes/dochub.ts         new — HTTP surface, mounted at /api/dochub
-client/src/dochub/**            new — the page, the grid, the deliverable view, the quick tree
-loops/02-dochub.md              this file
-```
-
-**Files you may read but must not edit.** Each is owned by another worktree; an edit here is a
-merge conflict at best and a silent contradiction at worst:
+**You are in a git worktree, on your own branch, in a checkout that is not the main one.** Seven
+sibling worktrees are running at the same time on sibling branches, editing files right now. You
+will not see their changes and they will not see yours until a single reconciliation pass at the
+end. Everything below exists so that pass is possible.
 
 ```text
-server/services/agentRegistry.ts      agents loop — agent identity, status, budgets
-server/services/acpSessionManager.ts  agents loop — sessions, transcripts, cost recording
-server/services/usageAccounting.ts    cost loop — rate tables, the ledger
-server/hooks/**                       boundary loop — PreToolUse interception
-client/src/control-room/**            agents loop — except the one mount point named below
+loop:    02-assets
+branch:  pivot/assets
+handoff: loops/handoff/pivot-assets.md
 ```
 
-**Shared files that need a cross-boundary request before you touch them:**
+**The files you own.** Create, edit and delete these freely. Nothing else.
 
 ```text
-server/services/controlRoomEvents.ts  the event union — additive members ONLY, never a rename
-server/types/project.ts               the domain model — the agents loop renames it; wait
-server/services/projectMcpServer.ts   the tool surface — you add tools, you rename none
-server/routes/api.ts:32-area          the mount line for /api/dochub — one line, coordinate it
+server/services/assetStore.ts     the store: envelope, files, versions, persistence, provenance
+server/routes/assets.ts           the HTTP surface, mounted at /api/assets
+client/src/control-room/assets/** the page: the grid, the five type views, previews, the file tree
+loops/02-assets.md                this file
+loops/handoff/pivot-assets.md     your handoff file; only you write it
 ```
+
+You may create additional files *inside* `client/src/control-room/assets/`, and tests beside the
+two server files (`server/services/assetStore.test.ts`, `server/routes/assets.test.ts`). Those are
+yours. Anything outside that list is not.
+
+**The files you must not touch, and why.** Each is another worktree's row in the partition. An edit
+here is a merge conflict at best and a silent contradiction at worst — two worktrees implementing
+the same idea with different field names, discovered at reconciliation when neither can be backed
+out.
+
+```text
+server/services/workArea.ts, boundary.ts, agentTeam.ts, agentRegistry.ts   01-agents
+server/routes/agents.ts, client/src/control-room/agents/**                 01-agents
+server/services/designDoc.ts, presence.ts                                  03-design-docs
+server/routes/designDocs.ts, client/src/control-room/designdoc/**          03-design-docs
+server/services/xai/**, server/services/render/**, server/routes/generation.ts   04-generation
+server/services/software/**, client/src/control-room/software/**           05-software
+server/services/promptLibrary.ts, usageAccounting.ts, costLedger.ts        06-tools-cost
+server/routes/library.ts, client/src/control-room/tools/**                 06-tools-cost
+client/src/main.tsx, index.css, tailwind.config.js, control-room/shell/**  07-shell
+server/services/auth.ts, x/**, server/routes/users.ts, control-room/users/**  08-users-x
+docs/USER-GUIDE.md                                                         guide
+```
+
+Read any of them. You must, in fact — every claim in this document is meant to be checkable against
+source, and several depend on 03's and 04's shapes.
+
+**The hot-file protocol.** These files are shared by everyone and **no worktree may edit them
+directly**, because an eight-way conflict in any one of them costs more than all the feature work
+put together:
+
+```text
+client/src/control-room/useControlRoom.ts
+client/src/control-room/ControlRoomApp.tsx
+server/services/projectStore.ts
+server/types/*.ts
+server/index.ts
+package.json
+```
+
+When your work needs a change in one of them, **you do not make it.** You append a precise request
+to `loops/handoff/pivot-assets.md` — a file only you own — stating the file, the exact change, the
+reason, and the signature or event shape other worktrees will depend on. One reconciliation pass
+applies every request at the end.
+
+Design your own code so someone else can wire it in with one edit. Export a clean entry point;
+never reach into the shell. Concretely, for this loop:
+
+* the `Asset` types cannot live in `server/types/asset.ts` — `server/types/*.ts` is hot. Export them
+  from `server/services/assetStore.ts` and request the re-export in your handoff;
+* your MCP tools cannot be registered by editing `server/services/projectMcpServer.ts`. Export
+  `registerAssetTools(server, ctx)` from a file you own and request the one-line call;
+* your routes cannot be mounted by editing `server/routes/api.ts`. Export the Hono router from
+  `server/routes/assets.ts` and request the one-line `apiRoutes.route("/assets", assetRoutes)`;
+* your events cannot be added by editing the `ControlRoomEvent` union in
+  `server/services/controlRoomEvents.ts`. Request the additive members. Three worktrees need
+  members on that union; whoever edits it first makes the other two conflict.
+
+`server/services/projectMcpServer.ts`, `server/routes/api.ts` and
+`server/services/controlRoomEvents.ts` are **not** in the partition and **not** in the hot list.
+That is a gap in the partition, not a licence. Treat all three as hot. Record the gap in your
+handoff so reconciliation knows it was deliberate.
 
 **How to raise a cross-boundary concern.** Do not edit. File a suggestion — this is the mechanism
 the product itself is built on and it already works: `DesignSuggestion`
 (`server/types/project.ts:95-118`), the `submit_design_suggestion` MCP tool, and `SuggestionQueue`
-in `client/src/control-room/ReviewQueues.tsx`. Outside the running product, say it in your
-iteration report with the file, the line and what you believe is wrong, and stop. A worktree that
-"just fixed" a file it does not own is the exact failure this whole product exists to prevent.
+in `client/src/control-room/ReviewQueues.tsx`. Outside the running product, write it in your
+handoff file with the file, the line and what you believe is wrong, and stop. A worktree that "just
+fixed" a file it does not own is the exact failure this whole product exists to prevent,
+demonstrated on itself.
+
+**What you leave behind for reconciliation.** See §9. Write it as you go, not at the end.
 
 ---
 
@@ -86,16 +141,58 @@ bun run audit                        # expect: 0 orphans, every endpoint covered
 
 Capture verify's output to a file, never `>/dev/null`. **A red gate is always the highest-priority
 work, ahead of any checklist item** — including a gate you did not turn red. `bun run audit`
-includes the endpoint audit, and every endpoint you add to `server/routes/dochub.ts` must have a
+includes the endpoint audit, and every endpoint you add to `server/routes/assets.ts` must have a
 caller in the same iteration or the gate goes red on you.
 
 There is no xAI credential on this machine. `~/.grok/config.toml` points at `api.openai.com` and
 `grok models` reports "You are not authenticated." Nothing that calls `api.x.ai` can be tested here
-until that is fixed — see §6.
+until that is fixed — see §7. This does not block you: uploaded assets, agent-written text assets,
+listing, preview, versioning and provenance are all testable without a credential, which is why
+this loop is in the first build wave.
 
 ---
 
-## 2. State as of iteration 0
+## 2. The distinction this page exists to keep straight
+
+A **design document** and a **document asset** are different objects, on different pages, owned by
+different worktrees. Readers will confuse them. Users will confuse them. The interface must not.
+
+| | DESIGN DOCUMENT | DOCUMENT ASSET |
+|---|---|---|
+| What it is | the interactive interface where work is declared and watched | an output the work produced |
+| Page | DESIGN DOCUMENTS | ASSETS |
+| Owned by | `03-design-docs`, `server/services/designDoc.ts` | this loop, `server/services/assetStore.ts` |
+| Declares work | **yes — the only thing that does** | **never** |
+| Addressed by | line number; agents emit the lines they are reading and the UI highlights them | file; it has no line-level presence |
+| Cardinality | one project may follow several design documents; **one design document is followed by at most one project** | one asset belongs to exactly one project |
+| Live view | the agent conversation and what each agent is reading, per line | who last wrote it, and a write lease if someone holds it now |
+| Deleting it | orphans a project's declaration of what it is doing | removes one output |
+
+Three rules follow, and each is enforceable:
+
+1. **The Assets page offers no action that starts work.** No "build from this", no "make a plan from
+   this document". If a user wants work declared, they open a design document. The provenance for
+   this rule is in the repository: `Requirement.designSection` (`server/types/project.ts:79`) is a
+   free-text link between a requirement and a document section, accepted by the API, stored, and
+   mirrored client-side — and **set by nothing**, after 52 passing checklist items. Two surfaces
+   that both look like "the doc" produce exactly that: a link that looks real and is never
+   populated.
+2. **The link runs one way.** An asset carries `declaredBy` — a back-pointer to the design document
+   and the line range that declared it. A design document does not carry a list of assets; it is
+   derived by querying assets by `declaredBy.designDocId`. One writer, one direction, no two records
+   that can disagree about the same fact.
+3. **A document asset that looks like a spec is still an output.** An agent may write a document
+   asset titled "Q3 plan" full of imperatives. It declares nothing. If it should declare something,
+   the user promotes its text into a design document, by hand, on the other page. Promotion is a
+   user action. It is never an agent tool.
+
+Slides and tables are further from confusion but the same rule holds: **only documents-on-the-
+design-documents-page declare work.** Slides are PPTX rendering, tables are spreadsheet rendering,
+and neither has ever declared anything.
+
+---
+
+## 3. State as of iteration 0
 
 ```text
 0 PASS · 0 FAIL · 0 BLOCKED · 16 NOT TESTED
@@ -103,390 +200,463 @@ Gate: inherited from the control room — 715 tests across 42 suites, both typec
       production build, four audits. Nothing in this checklist has been attempted.
 ```
 
-What exists today that this loop builds on, with the line numbers to read before you change
-anything:
+What exists today that this loop builds on, with the lines to read before changing anything:
 
 ```text
-server/services/projectStore.ts:294-332   updateDocument — optimistic concurrency, stale sweep
+server/services/projectStore.ts:148-162   the synchronous-mutation invariant. Read this twice.
 server/services/projectStore.ts:67-73     VersionConflictError {baseVersion, currentVersion}
-server/services/projectStore.ts:148-159   the synchronous-mutation invariant. Read this twice.
-server/types/project.ts:49-65             DesignDocumentVersion / DesignDocument
+server/services/projectStore.ts:294-332   updateDocument — optimistic concurrency, stale sweep
+server/types/project.ts:49-57             DesignDocumentVersion — the version record to copy
 server/types/project.ts:95-118            DesignSuggestion with baseVersion/stale
-server/types/project.ts:130-141           TaskTestRun, including `parsed: boolean`
 server/types/project.ts:234-258           ArtifactKind / CodeArtifact — the weak ancestor of Asset
-server/types/project.ts:318-329           changedFiles verified vs claimedChangedFiles
-server/services/controlRoomEvents.ts:9-48 the event union (11 members)
-server/services/controlRoomEvents.ts:83-99 publish(); :67 the 50-event replay history
-server/index.ts:82-90                     /ws/control-room upgrade, projectId required
-server/index.ts:109-124                   subscribe + replay on open; :211-215 unsubscribe
+server/types/project.ts:321-329           changedFiles verified vs claimedChangedFiles
+server/services/controlRoomEvents.ts:9-46 the event union (11 members); :67 the 50-event history
+server/services/controlRoomEvents.ts:83   publish()
+server/index.ts:82-89                     /ws/control-room upgrade, projectId required
+server/index.ts:108-123                   subscribe + replay on open
 server/routes/repository.ts:44-73         canonical() and assertManagedPath() — reuse verbatim
-server/routes/repository.ts:153           GET /api/repository/changed-files
 server/services/repository.ts:403-419     listRepositoryFiles — git ls-files, flat, capped at 500
-server/services/projectMcpServer.ts:14-30 ProjectMcpContext — identity is not a parameter
-server/services/projectMcpServer.ts:164-176 the list_repository_files tool
-server/services/projectMcpServer.ts:594-628 create_artifact / attach_artifact_to_requirement
-server/services/projectMcpServer.ts:695-703 DELIBERATELY_USER_ONLY — do not weaken it
+server/services/projectMcpServer.ts:20-35  ProjectMcpContext — "the identity is not a parameter"
+server/services/projectMcpServer.ts:594    create_artifact; :614 attach_artifact_to_requirement
+server/services/projectMcpServer.ts:696    DELIBERATELY_USER_ONLY — do not weaken it
 server/services/secrets.ts:113            assertNoSecrets, called on every document write
-server/services/designReview.ts:5-10      why review must be deterministic
+.refs/open-lovable/config/app.config.ts:8  Vercel sandbox timeout 15 minutes
+.refs/open-lovable/config/app.config.ts:34 E2B sandbox timeout 30 minutes
+.refs/open-lovable/types/sandbox.ts:1-27   SandboxFileCache — held in a process global, lost on restart
 ```
 
 Open, and not a checklist failure:
 
 ```text
-X-1   whether the "Google-Workspace-like" home means an actual Google Docs integration or only
-      the look and feel. This document assumes the latter. See §6.
-X-2   the cost ledger does not exist yet (cost loop). Until it does, an Asset carries its own
-      costUsd. That is a temporary duplication, recorded here so it is removed, not forgotten.
+X-1   what a `workflow` ASSET is. §8.3. This document takes the reading that survives both
+      answers and says which parts change under the other.
+X-2   the cost ledger does not exist yet (06-tools-cost). Until it does, an asset carries its own
+      charge records. That is a temporary duplication, written down here so it is removed rather
+      than forgotten.
+X-3   `server/services/projectMcpServer.ts`, `server/routes/api.ts` and
+      `server/services/controlRoomEvents.ts` are in no worktree's row and in no hot list. This
+      loop treats them as hot. Reconciliation must confirm that.
 ```
 
 ---
 
-## 3. What must be built
+## 4. What must be built
 
-### 3.1 The object model — one envelope, four kinds
+### 4.1 One envelope, five types
 
-All four media are the same record with a different `kind`. Resist four parallel models: the
-presence indicator, the version history, the boundary check, the check run and the cost roll-up are
-identical work four times over if the kinds diverge.
-
-```text
-Deliverable {
-  id, projectId, kind: "document" | "deck" | "experience" | "software",
-  title, origin: "generated" | "uploaded" | "x",
-  sections: DeliverableSection[],       // ordered
-  manifestVersion: number,              // bumps on add/remove/reorder of sections only
-  createdAt, updatedAt
-}
-
-DeliverableSection {
-  id, deliverableId, index, title,
-  anchor,                    // stable, minted at creation, NEVER derived from the title
-  areaId?,                   // the single link to a colour-coded work area
-  requirementId?, ownerAgentId?,
-  body,                      // text: prose, slide copy, narration script, or a file manifest
-  currentVersion: number, versions: SectionVersion[],
-  assetIds: string[],
-  checkRun?: SectionCheckRun,
-  status: "empty" | "drafting" | "submitted" | "checks_passing" | "reviewed" | "published"
-}
-
-SectionVersion { version, body, createdAt, authorId, changeSummary?, fromSuggestionId? }
-```
-
-`SectionVersion` is `DesignDocumentVersion` (`server/types/project.ts:49-58`) with the field names
-unchanged. Keep them unchanged: `authorId` and `fromSuggestionId` are what make a version history
-readable as provenance rather than as a diff.
-
-**`anchor` is minted, never derived.** A heading-derived anchor breaks the instant a user renames a
-slide, and the area mapping silently detaches. The repository already has the scar:
-`Requirement.designSection` (`server/types/project.ts:79`) is a free-text section name, accepted by
-the API, stored, mirrored client-side — and set by nothing, in a product that shipped 52 checklist
-items. A link nobody can populate is a link nobody can trust.
-
-What a section *is*, per kind:
-
-| kind | a section is | its assets |
-|---|---|---|
-| `document` | a heading-anchored block of prose | images, attached files |
-| `deck` | exactly one slide | background/illustration, narration audio + timings, thumbnail render |
-| `experience` | one shot or segment | source image, mp4 clip, narration audio + per-character timings |
-| `software` | one screen or route | source files under the workspace, screenshot render |
-
-### 3.2 Storage — structured, not a free filesystem
-
-There is no xAI document or slide API. None. Assembly is entirely our code, which means the on-disk
-format is entirely our decision — so choose the one that makes boundaries enforceable.
+All five types are the same record with a different `type`. Resist five parallel models: listing,
+preview, versioning, provenance, the write lease, the cost roll-up and the boundary check are
+identical work five times over if the types diverge.
 
 ```text
-<workspace>/deliverables/<deliverableId>/
-  deliverable.json          the manifest: kind, title, ordered section ids, manifestVersion
-  sections/<sectionId>.json the section, with its full version array
-  assets/<assetId>.<ext>    the persisted bytes
-  assets/<assetId>.json     the provenance sidecar
+Asset {
+  id, projectId,
+  type: "document" | "slides" | "table" | "workflow" | "software",
+  title,
+  origin: "generated" | "uploaded" | "imported",
+
+  declaredBy?: {                     // §2 rule 2 — the one link to a design document
+    designDocId,
+    designDocVersion,                // the version the range was read against
+    lineStart, lineEnd,
+    stale: boolean                   // set when the document moves past designDocVersion
+  },
+
+  producedByAgentId?,                // absent for a user upload; never defaulted to a fake agent
+  capability?: "base" | "images" | "voice" | "voice+images",
+
+  files: AssetFile[],                // the bytes of record, ordered
+  preview?: AssetPreview,
+  charges: AssetCharge[],            // §4.5 — individual charges, never a running total
+
+  currentVersion: number,
+  versions: AssetVersion[],
+  writeLease?: { agentId, since, expiresAt },
+
+  createdAt, updatedAt, deletedAt?
+}
+
+AssetFile {
+  id, assetId, role,                 // role is type-specific: "body" | "slide" | "narration" | …
+  path, bytes, sha256, mime, durationSec?,
+  producedByAgentId?, capability?,
+  model?, requestId?, prompt?,       // present for generated files, absent for uploaded ones
+  createdAt
+}
+
+AssetVersion { version, createdAt, authorId, changeSummary?, fileIds: string[] }
+AssetPreview { kind: "image" | "text" | "none", path?, text?, reason?, generatedAt }
 ```
 
-**Agents never write these files.** Every mutation goes through an MCP tool that carries
+`AssetVersion` is `DesignDocumentVersion` (`server/types/project.ts:49-57`) with the field names
+unchanged, plus `fileIds`. Keep them unchanged: `authorId` and `changeSummary` are what make a
+version history readable as provenance rather than as a diff.
+
+**`preview.kind: "none"` carries a `reason`.** "Renderer not built yet", "file too large",
+"generation failed". A preview pane that is empty and silent is indistinguishable from a broken
+one, and this page ships before three of the five renderers exist (§4.8). Never render an empty
+box.
+
+What differs per type — and this is the whole of the per-type surface:
+
+| type | the bytes of record | preview | listing shows | rendered by |
+|---|---|---|---|---|
+| `document` | one text file (`role: "body"`), plus embedded image files | first ~400 chars, rendered | word count, last writer | nobody — an agent writes text through this store |
+| `slides` | a deck manifest JSON, one image per slide, narration audio + timings, and the rendered `.pptx` | one PNG per slide, in order | slide count, narrated y/n | **04-generation**, in our own code (§8.1) |
+| `table` | a `.csv` and/or `.xlsx`, plus a sheet manifest | first 10 rows × 8 columns, as text | rows × columns | 04-generation |
+| `workflow` | the step sequence as JSON, plus any rendered media | the step list; the first frame if video exists | step count, duration | 04-generation |
+| `software` | the source tree under the asset directory, plus a zip export and a screenshot | the screenshot | file count, framework | **05-software** |
+
+`document` is the only type that needs no renderer, which is why it is the type this loop can carry
+to PASS on its own. Say that in the build order and mean it.
+
+### 4.2 Storage — structured, not a free filesystem
+
+There is no xAI document, slide or table generation API. None. Assembly is entirely our code, which
+means the on-disk format is entirely our decision — so choose the one that makes boundaries
+enforceable.
+
+```text
+<workspace>/assets/<assetId>/
+  asset.json                    the envelope: type, title, origin, provenance, versions
+  files/<fileId>.<ext>          the persisted bytes
+  files/<fileId>.json           the per-file provenance sidecar
+  files/<fileId>.timings.json   per-character TTS timings, when the file is narration
+  preview/<...>                 generated previews — thumbnails, first-page render, screenshot
+  src/                          software assets only: the source tree the agent edits
+```
+
+**The listing index is derived, never authoritative.** A `assets/index.json` may exist as a cache,
+and it must be rebuildable from the directories by a command anyone can run. The incident that
+earns this rule is in the repository: `listRepositoryFiles`
+(`server/services/repository.ts:403-419`) answers "what files are here" with `git ls-files`, which
+lists **tracked files only** — so a PNG an agent generated ten seconds ago is invisible, and the
+answer looks authoritative. An index that can disagree with disk will disagree with disk, and the
+lie is always in the direction of the thing that was just created.
+
+**Agents never write these files directly.** Every mutation goes through a tool that carries
 `{projectId, agentId, areaId}` bound at server construction — `ProjectMcpContext`
-(`server/services/projectMcpServer.ts:14-30`): "the identity is not a parameter". That is the whole
-reason to make the deliverable structured. The alternative — agents writing markdown wherever they
-like — cannot be policed, because boundaries are enforced nowhere at write time today:
+(`server/services/projectMcpServer.ts:20-35`): "the identity is not a parameter". That is the whole
+reason to make the asset structured. The alternative — agents writing files wherever they like —
+cannot be policed, because **boundaries are enforced nowhere at write time today**:
 `assertAgentCanWrite` (`server/services/repository.ts:261`) and the entire `ApprovalQueue`
 (`server/services/approvals.ts`) have zero production callers, and `server/hooks/shellSafetyHook.ts`
 is not installed by this repository and only classifies shell commands, so a direct file-write tool
 walks straight past it. Git worktrees made an out-of-bounds edit *recoverable*; they never
-*prevented* one. Remove git and you remove the safety net, not the enforcement.
+*prevented* one.
 
-**The one exception, stated plainly:** a `software` deliverable's sections point at real files in
-the workspace, because `grok` edits code with its own tools. For that kind only, path-level
-enforcement is required and it belongs to the boundary loop — a PreToolUse hook that canonicalises
-every path argument and calls `process.exit(2)`, because a deny in stdout JSON is ignored under
-`--always-approve`. Do not build it here. Do record on the software deliverable that its sections
-are file-backed, so the UI does not claim a guarantee it does not have.
+**The one exception, stated plainly:** a `software` asset's `src/` holds real files that `grok`
+edits with its own tools. For that type only, path-level enforcement is required, it belongs to
+`01-agents` (`server/services/boundary.ts`), and it is a PreToolUse hook that canonicalises every
+path argument and calls `process.exit(2)` — a deny in stdout JSON is ignored under
+`--always-approve`. Do not build it here. Do record on a software asset that its files are
+directly-written, so the UI does not claim a guarantee it does not have.
 
-**`docHub.ts` must stay synchronous.** Read `server/services/projectStore.ts:148-159` before writing
-a line of it. A mutation is read-file → change in memory → write-file, and atomicity of the *write*
-is not atomicity of the *sequence*. It is safe only because no `await` occurs inside it, so the
-event loop cannot interleave two agents' updates and lose one. Several agents writing at once is
+**`assetStore.ts` must stay synchronous.** Read `server/services/projectStore.ts:148-162` before
+writing a line of it. A mutation is read-file → change in memory → write-file, and atomicity of the
+*write* is not atomicity of the *sequence*. It is safe only because no `await` occurs inside it, so
+the event loop cannot interleave two agents' updates and lose one. Several agents writing at once is
 this product's normal state. Add an invariant test that fails if any method on the store becomes
-`async`, mirroring `projectStoreInvariants.test.ts`.
+`async`, mirroring `server/services/projectStoreInvariants.test.ts` — and make it fail if the
+explanation is deleted from the source, because a rule whose reason is gone gets "cleaned up" in six
+months.
 
-### 3.3 Sections map to work areas
+Persistence of bytes is the one place `await` is unavoidable. Keep it outside the store: a
+`persistFile()` free function downloads or writes bytes and returns a descriptor; the synchronous
+store method then attaches the descriptor. Downloading inside a mutation is how the invariant dies.
 
-`section.areaId` is the only link, and it is stored on the section, not on the area. Two reasons,
-both concrete: reordering or retitling the deliverable cannot lose it; and a boundary check is a
-single lookup on the object being mutated, with no traversal and no ambiguity about which of two
-records is authoritative.
-
-Rules:
-
-- one area may own many sections; a section has at most one owning area;
-- a mutation is refused when `ctx.areaId !== section.areaId`, and the refusal names the suggestion
-  path in its error text — a refusal that does not say what to do instead produces a stuck agent;
-- a section with no `areaId` is user-writable only; an agent gets a suggestion, not a write;
-- reassigning a section between areas is a user action. It is never an agent tool.
-
-The suggestion half already works and is the best-preserved thing in the repo. `DesignSuggestion`
-(`server/types/project.ts:95-118`) carries `baseVersion`, goes `stale` automatically when the
-document moves on (`server/services/projectStore.ts:324-329`), retains `originalProposedText` when
-the user edits the agent's wording, and has a working accept/edit/reject/request-revision queue.
-Reuse it as-is and add `targetSectionId`. Do not write a second suggestion system.
-
-### 3.4 Assets — the URL is not the asset
+### 4.3 The URL is not the asset
 
 Returned media URLs from `api.x.ai` are temporary. Images come back from
-`POST https://api.x.ai/v1/images/generations`; video is asynchronous — `POST /v1/videos/generations`
-returns a `request_id` polled at `GET /v1/videos/{request_id}` with status
-`pending | done | expired | failed`, and the finished URL is on `vidgen.x.ai`. Both expire.
+`POST https://api.x.ai/v1/images/generations`. Video is asynchronous —
+`POST /v1/videos/generations` returns a `request_id` polled at `GET /v1/videos/{request_id}` with
+status `pending | done | expired | failed`. Both expire.
 
-**An asset does not exist until its bytes are on disk.** `assetStore.persist()` accepts bytes, a
-base64 payload, or a URL it downloads *before* the record is created. There is no code path that
-stores a remote URL as a section's reference. A deck that renders from remote URLs is broken by
-construction and the breakage appears days later, in front of a customer.
+**An asset does not exist until its bytes are on disk.** `persistFile()` accepts bytes, a base64
+payload, or a URL it downloads *before* any record is created. There is no code path that stores a
+remote URL as a file's reference. A deck that renders from remote URLs is broken by construction and
+the breakage appears days later, in front of a customer.
+
+**Agents cannot hand the store a URL at all.** `persistFile()` is an internal server API used by
+`04-generation` and `05-software`. It is not an MCP tool, and no MCP tool takes a URL argument. An
+agent that could pass a URL could persist anything on the network into a user's asset store.
+
+**This applies to software previews too, and that is not obvious.** In the reference implementation
+at `.refs/open-lovable`, the preview is a live sandbox URL whose lifetime is
+**15 minutes** on Vercel (`config/app.config.ts:8`) and **30 minutes** on E2B (`:34`). The file
+cache backing it lives in a process global (`types/sandbox.ts:1-27`,
+`declare global { var activeSandbox }`) and is lost on restart. So a software asset whose reference
+is its preview URL is dead in fifteen minutes, exactly like a generated image whose reference is its
+generation URL. The asset of record for `software` is the source tree plus a zip export plus a
+screenshot; the sandbox URL is a transient view with an expiry the UI must show.
+
+**Store the TTS timings.** `with_timestamps` on `POST https://api.x.ai/v1/tts` returns
+per-character timing; write it beside the audio as `<fileId>.timings.json`. It is how narration
+syncs to a slide build deterministically, and it is how a duration check runs without
+re-synthesising. Re-calling TTS to learn how long a clip is means paying for the clip twice.
+
+### 4.4 Provenance — four questions, answered on every asset
+
+Every asset answers, without the user asking:
+
+1. **Which agent made this.** `producedByAgentId`, from the bound MCP context, never from anything
+   the agent wrote in prose. A string a model wrote is not a lookup key: the control room stored
+   four unowned tasks by matching a model's phrasing of a role with `===` (iteration 81).
+2. **With which capability.** `capability` is one of `base | images | voice | voice+images`, chosen
+   at agent creation by `01-agents`, and it decides which `api.x.ai` endpoints the agent may call. A
+   `base` agent cannot have produced an image; if a file's `model` says `grok-imagine-image` and its
+   agent's capability is `base`, that is a contradiction and the store refuses the write rather than
+   recording it. Capability is a budget control at least as much as it is a feature flag.
+3. **What it cost.** §4.5.
+4. **Which design document declared it.** `declaredBy`, with the version the line range was read
+   against.
+
+**`declaredBy` goes stale honestly.** Line numbers move. When the design document advances past
+`designDocVersion`, set `stale: true` and show it as "declared by lines 40–52 of *Q3 deck brief*,
+as of version 7 — the document has since changed". Do **not** silently re-anchor the range: a
+re-anchored range that guesses wrong is worse than a stale one that says so. This is the
+`baseVersion` / `stale` behaviour of `DesignSuggestion` (`server/types/project.ts:95-118`, swept at
+`server/services/projectStore.ts:324-329`), reused rather than reinvented, and it is the single
+best-preserved mechanism in the repository.
+
+**Verified, not claimed.** When an agent's submission lists files it says it produced, check the
+list against what is on disk and record the agent's version separately when they disagree. That is
+`claimedChangedFiles` (`server/types/project.ts:321-329`), whose comment says it exactly: its
+presence means the agent misreported its own work, which is a signal about every other claim in the
+submission, all of which are unverifiable. Keep the field name; keep the reason.
+
+### 4.5 Cost on an asset, without a ledger yet
+
+`06-tools-cost` owns `server/services/costLedger.ts`. It does not exist yet. Until it does, an asset
+carries its own charges — and the shape must be the ledger's row shape so that adopting the ledger
+is a move, not a rewrite:
 
 ```text
-Asset {
-  id, deliverableId, sectionId?, kind: "image" | "video" | "audio" | "file",
-  path, bytes, sha256, mime, durationSec?,
-  producedByAgentId, capability: "text" | "image" | "voice" | "voice+image",
-  model, requestId?, prompt,
-  costUsd, costSource: "actual" | "estimated", rateKey,
-  createdAt
+AssetCharge {
+  id, assetId, fileId?,
+  agentId, operation,              // "image_generation" | "video_generation" | "tts" | "turn" | …
+  modelId, rateKey: string | null,
+  units?: { kind: "images" | "video_seconds" | "characters" | "tokens"; count: number },
+  costUsd: number | null,
+  costSource: "billed" | "estimated" | "unknown",
+  at
 }
 ```
 
-`costSource: "actual"` means the figure came from `usage.cost_in_usd_ticks` on the generation
-response (1 USD = 10^10 ticks), which covers images and video. `"estimated"` means it was derived
-from a published rate: TTS at $15.00 per 1M characters. **It is not verified that the TTS, STT or
-realtime endpoints return `cost_in_usd_ticks` at all** — treat voice cost as estimated until a live
-response proves otherwise, and label it that way in the UI. Never show a number without its
-`costSource`; a user who sees `$0.00` reads "cheap", not "we do not know".
+* `billed` means the figure came from `usage.cost_in_usd_ticks` on the generation response
+  (1 USD = 10¹⁰ ticks), which covers chat, image and video;
+* `estimated` means it was derived from a published rate — TTS at $15.00 per 1M characters, STT at
+  $0.10/hr;
+* `unknown` means `costUsd` is `null`. **It is not zero.** It is not verified that the TTS, STT or
+  realtime endpoints return `cost_in_usd_ticks` at all; treat voice as `estimated` until a live
+  response proves otherwise, and label it that way.
 
-Rates, for the check evaluator and the forecast: `grok-imagine-image` $0.02/image,
+**Never render a cost without its source, and never render `null` as `$0.00`.** Today every figure
+in the shipping product is very likely `$0.00`, because `DEFAULT_RATES`
+(`server/services/usageAccounting.ts:31`) has exactly three keys — `gpt-4o`, `gpt-4o-mini`,
+`gpt-4.1` — and no Grok model, so an unknown model returns `costUsd: 0` with `rateKey: null`
+(`:79`), and `rateKey: null` is surfaced nowhere. A user reads `$0.00` as "cheap", not as "we do not
+know the price of this model". An asset with a `null` charge shows `cost unknown`, with the model id
+that could not be priced.
+
+Rates, for the forecast and the checks: `grok-imagine-image` $0.02/image,
 `grok-imagine-image-quality` $0.05/image, up to 10 images per request, 5 RPS flat across all spend
 tiers; `grok-imagine-video` $0.050/sec, `grok-imagine-video-1.5` $0.080/sec, duration 1–15 s default
-8, 480p/720p/1080p, audio generated by default, 10 RPS flat. A 60-second experience is about $5.52
-in media alone — three orders of magnitude more than a text turn, and one careless retry loop is a
-$50 mistake. That is why every asset carries its cost at creation rather than waiting for an
-aggregate somewhere else.
+8, 480p/720p/1080p, audio generated by default, 10 RPS flat. A 60-second generated experience is
+about **$5.52 in media alone** — three orders of magnitude more than a text turn, and one careless
+retry loop is a $50 mistake. That is why the charge is recorded at the moment the file is persisted,
+not waited for from an aggregate somewhere else.
 
-**Store the TTS timings.** `with_timestamps` on `POST https://api.x.ai/v1/tts` returns per-character
-timing; write it beside the audio as `<assetId>.timings.json`. It is how narration syncs to a slide
-build deterministically, and it is how the duration check runs without re-synthesising. Re-calling
-TTS to learn how long a clip is means paying for the clip twice.
+**Per-tool-call attribution is structurally impossible** on the current transport: ACP returns one
+usage object per *turn*, and `tool_call` updates carry no usage. A text-writing agent's turn cost
+can only be *apportioned* across whatever that turn touched. Label an apportioned figure as
+apportioned. Per-task cost *is* tracked (`server/services/projectStore.ts:1217`); do not rebuild it.
 
-### 3.5 The Doc Hub as a source
+### 4.6 Reading assets — the cheap path first
 
 Two read paths, and the difference between them is money.
 
-**Local read — the default.** `search_dochub(query, kinds?, deliverableIds?)` and
-`read_section(sectionId)` MCP tools over the structured store. Deterministic, free, no upload, and
-available to a base-Grok agent with no media capability at all. Start here. Substring and title
-matching over sections is enough for a workspace of tens of documents; do not reach for embeddings
-before a user has complained.
+**Local read — the default.** `list_assets(type?, q?)` and `read_asset(assetId)` MCP tools over the
+structured store. Deterministic, free, no upload, and available to a `base` agent with no media
+capability at all. Substring and title matching is enough for a workspace of tens of assets; do not
+reach for embeddings before a user has complained.
 
 **Remote read — semantic search over uploaded material.** xAI ships a Files API (upload documents,
 **max 48 MB each**; text, markdown, code, CSV, JSON, PDF) and Collections for persistent
 multi-document semantic search. Attaching a file to a chat implicitly enables the server-side
-`attachment_search` tool, which turns the request agentic, **is charged per tool invocation**, and
-requires an agentic model. Three consequences, all of which belong in the UI, not in a comment:
+`attachment_search` tool, which turns the request agentic and **is charged per tool invocation**.
+Three consequences, all of which belong in the UI, not in a comment:
 
-1. uploading a user's document to xAI is an outward-facing operation on someone else's material.
-   It requires an explicit per-deliverable consent, recorded on the deliverable as
-   `xaiFileId` + `uploadedAt` + `uploadedBy`. Never upload as a side effect of a search.
-2. a research agent working through Collections spends money per query; the same agent working
-   through `search_dochub` spends nothing. Show which one it used.
+1. uploading a user's asset to xAI is an outward-facing operation on someone else's material. It
+   requires explicit per-asset consent, recorded on the asset as `xaiFileId` + `uploadedAt` +
+   `uploadedBy`. Never upload as a side effect of a search;
+2. an agent working through Collections spends money per query; the same agent working through
+   `list_assets` spends nothing. Show which one it used;
 3. a file over 48 MB cannot be uploaded. Refuse at selection time with the size, not at upload time
    with a provider error.
 
-**Ingest.** A file the user drops into the hub becomes a deliverable with `origin: "uploaded"` and
-one section per detected heading — or one section for the whole file when no headings are found.
-Never invent sections. `shared/designDocument.ts` exists because a loose pattern turned prose into
-phantom requirements; the same failure here produces a deck outline nobody asked for.
+**Ingest.** A file the user drops onto the page becomes an asset with `origin: "uploaded"`, one
+`AssetFile`, and no `producedByAgentId`. **Do not parse it into sections.** Sections belong to the
+design document; an asset is bytes. `shared/designDocument.ts` exists because a loose pattern turned
+prose into phantom requirements, and the same failure here produces a phantom outline nobody asked
+for.
 
-### 3.6 Live presence — who is reading, who is editing
+### 4.7 Live view — who wrote it, and who is writing it now
 
-Three new members on the `ControlRoomEvent` union (`server/services/controlRoomEvents.ts:9-48`),
-published through `getControlRoomBus().publish(projectId, …)` (`:83`) and delivered over
-`/ws/control-room` (`server/index.ts:82-90`, subscribe and replay at `:109-124`):
+Three additive members on the `ControlRoomEvent` union
+(`server/services/controlRoomEvents.ts:9-46`), published through
+`getControlRoomBus().publish(projectId, …)` (`:83`) and delivered over `/ws/control-room`
+(`server/index.ts:82-89`, subscribe and replay at `:108-123`). **Request them in your handoff; do
+not edit the union.**
 
 ```text
-{ type: "dochub_presence"; agentId; deliverableId; sectionId?; mode: "reading" | "editing" }
-{ type: "dochub_changed";  deliverableId; sectionId?; version; byAgentId }
-{ type: "dochub_asset";    deliverableId; sectionId?; assetId; assetKind; costUsd; costSource }
+{ type: "asset_added";   assetId; assetType; byAgentId?; declaredByDesignDocId?; costUsd: number|null; costSource }
+{ type: "asset_changed"; assetId; version; byAgentId? }
+{ type: "asset_writing"; assetId; agentId; expiresAt }
 ```
 
-**Presence is emitted by the tool call, never reported by the agent.** `read_section` publishes
-`reading`; a section write publishes `editing`. An agent that announces "I am now working on slide
-4" is prose, and a string a model wrote is not a lookup key — the control room learned this when
-plan generation stored four unowned tasks by matching a model's phrasing with `===` (iteration 81).
+**The write lease is emitted by the mutation, never reported by the agent.** Every write through the
+store refreshes `writeLease` for 90 seconds and publishes `asset_writing`. An agent that announces
+"I am now working on the deck" is prose, and prose is not a lookup key.
 
-**Presence needs a lease.** The bus is stateless: it publishes and forgets. A `reading` event with
-no expiry leaves a ghost dot on a slide forever after an agent crashes, and the user's conclusion is
-that the product is lying. Hold presence in `docHub.ts` as `{agentId, sectionId, mode, expiresAt}`
-with a 90-second TTL, refreshed by each tool call, and cleared when the session stops.
+**This is not the design document's line-level presence.** `03-design-docs` owns
+`server/services/presence.ts`, where agents are required to emit the line numbers they are reading
+inside a design document, and where the honest handling of a model that forgets to emit is 03's
+problem to state. Your lease is a different, weaker, and more reliable thing: it is a side effect of
+a write that actually happened. Do not build a second presence system, do not import 03's, and do
+not label your lease "reading" — it only ever means writing.
 
 **An event stream is not a state store.** The bus keeps 50 events per project
 (`server/services/controlRoomEvents.ts:67`), so a client that connects into a busy project sees a
 truncated history and a client that reconnects sees a replay it may already have applied. Ship
-`GET /api/dochub/presence?projectId=` returning the live lease table, and have the client fetch it
-on connect and on every reconnect. The control room already paid for this lesson once: events were
-published and dropped by the client — true of the wire, false for the user (iteration 48).
+`GET /api/assets?projectId=` as the snapshot the client fetches on connect and on every reconnect,
+with the lease state included. The control room already paid for this lesson: events were published
+and dropped by the client — true of the wire, false for the user (iteration 48).
 
-### 3.7 Versioning and review — what replaces git
+### 4.8 Ordering: this loop ships before the renderers
 
-Carried over from `server/services/projectStore.ts` unchanged in shape:
+The owner has fixed the order. **AGENTS, ASSETS and DESIGN DOCUMENTS are built and robustly tested
+first. Slide generation, workflow/video generation and software generation come after.** That is not
+a preference to be optimised around; it is the build sequence.
 
-- integer `currentVersion` plus an append-only `versions[]` array, per section;
-- `expectedVersion` on every write, and `VersionConflictError {baseVersion, currentVersion}`
-  (`:67-73`) when it does not match. The error carries both numbers because "conflict" alone cannot
-  be rendered into anything a user can act on;
-- the stale sweep (`:324-329`): a pending suggestion written against an older version becomes
-  `stale` automatically rather than being applied against text that has moved;
-- `assertNoSecrets` (`server/services/secrets.ts:113`) on every section write. A shared deck leaks
-  further than a private repo, not less;
-- `authorId` on every version, including user edits.
+For this loop, concretely:
 
-**What does not carry over:** today the document is a single markdown blob
-(`DesignDocument.content` per version, `server/types/project.ts:49-65`). One blob means two agents
-editing two different slides conflict with each other, every time. Version at the *section*, and
-keep a separate `manifestVersion` on the deliverable that bumps only when sections are added,
-removed or reordered. Conflict granularity is the section; structural changes are rarer and may be
-coarse.
+* every checklist item AS-001…AS-016 must be reachable with **zero** renderers built. Use `document`
+  assets, uploaded files and fixture bytes;
+* the store accepts `slides`, `table`, `workflow` and `software` assets from day one as an envelope
+  plus opaque files. It does not know how to make them and does not pretend to;
+* the preview for a type whose renderer does not exist is `kind: "none"` with
+  `reason: "renderer not built"`. The page says so in words;
+* nothing in `server/services/assetStore.ts` may import from `server/services/render/**` or
+  `server/services/xai/**`. Those are 04's, they do not exist yet, and a dependency on them would
+  put this loop behind the second wave. The direction of the dependency is 04 → you.
 
-**Acceptance evidence for a slide.** Test results were the old acceptance evidence and they are
-gone — `server/services/testRunner.ts` spawns `bun test` and parses its output, which means nothing
-for a deck. What replaces them is a deterministic check run, not a reviewer's opinion; a reviewer
-that returns a different verdict each run cannot gate a publish
-(`server/services/designReview.ts:5-10`).
-
-```text
-SectionCheckRun {
-  checks: Array<{ id, label, result: "pass" | "fail" | "unevaluated", detail? }>,
-  passed, failed, unevaluated,
-  evaluated: boolean,        // false when the run could not execute at all
-  ranAt, ranByAgentId
-}
-```
-
-`evaluated: false` is `TaskTestRun.parsed` (`server/types/project.ts:135-136`) under a new name: an
-honest unknown, never treated as success. The seven checks:
-
-```text
-C1  every assetId on the section resolves to a file on disk with non-zero bytes
-C2  every asset's mtime is later than the task's start — no stale asset re-presented as new
-C3  no placeholder text in the body: Lorem, TODO, {{, "coming soon", "placeholder"
-C4  the section count for this area matches the outline it was assigned
-C5  every brief section mapped to this area has at least one deliverable section
-C6  narration duration within ±20% of target, computed from the stored TTS timings
-C7  assertNoSecrets passes over the body and over every text asset
-```
-
-C1 and C2 are the direct analogue of `changedFiles` verified against git rather than taken from the
-agent: keep the trick at `server/types/project.ts:318-329` — when the agent's claimed asset list
-disagrees with what is on disk, record `claimedAssets` alongside the verified list. Its presence
-means the agent misreported its own work, which is a signal about every other claim in the
-submission, all of which are unverifiable.
-
-A render — a PNG thumbnail per slide — is what replaces the diff at review time. It is our own
-renderer; nothing in xAI produces it. Until it exists, the review UI shows the section body and its
-assets and says so, rather than showing an empty preview pane.
-
-### 3.8 The quick file tree
+### 4.9 The quick file tree
 
 There are two trees, and the product must not conflate them.
 
-**The deliverable tree — the default, and the one non-technical users see.** Deliverables →
-sections → assets, with a presence dot on any node an agent currently holds and a cost figure on any
-node that has assets. It is served from `docHub.ts`, not from git. It edits text sections in place,
-through the same versioned mutation path an agent uses: a user edit is an `Actor {kind: "user"}`
-write carrying `expectedVersion`. That is what makes a user and an agent editing the same slide
-collide loudly instead of one silently overwriting the other.
+**The asset tree — the default, and the one non-technical users see.** Assets → files, grouped by
+type, with a lease dot on any node an agent currently holds and a cost figure on any node that has
+charges. Served from `assetStore.ts`, not from git. It edits text files in place, through the same
+versioned mutation path an agent uses: a user edit is an `Actor {kind: "user"}` write carrying
+`expectedVersion`. That is what makes a user and an agent editing the same document collide loudly
+instead of one silently overwriting the other.
 
-**The repository tree — `software` deliverables only.** What exists to build on:
+**The source tree — `software` assets only.** What exists to build on:
 
 ```text
-server/services/repository.ts:403-419   listRepositoryFiles — git ls-files, flat paths, cap 500,
-                                        reports `truncated`, which nothing renders
-server/services/projectMcpServer.ts:164-176  list_repository_files, MCP only, no HTTP route
-server/routes/repository.ts:153         GET /api/repository/changed-files
-server/routes/repository.ts:44-73       canonical() + assertManagedPath() — reuse verbatim
+server/services/repository.ts:403-419        listRepositoryFiles — git ls-files, flat, cap 500,
+                                             reports `truncated`, which nothing renders
+server/services/projectMcpServer.ts:164      list_repository_files, MCP only, no HTTP route
+server/routes/repository.ts:44-73            canonical() + assertManagedPath() — reuse verbatim
 ```
 
 Three defects to fix rather than inherit: `git ls-files` lists **tracked files only**, so a file an
-agent just generated is invisible — union in `git ls-files --others --exclude-standard`; the 500-cap
-`truncated` flag must be rendered as "showing 500 of N" or the tree lies by omission; and nesting is
-client-side work, a trie over the flat list, with no server change.
+agent just generated is invisible — a software asset's `src/` is not a git repository at all, so
+read it with a recursive directory walk and drop git entirely; the 500-cap `truncated` flag must be
+rendered as "showing 500 of N" or the tree lies by omission; and nesting is client-side work, a trie
+over the flat list, with no server change.
 
-Any new read-file or write-file endpoint routes through `assertManagedPath` and re-checks `..`
-*after* canonicalisation. `GET /api/browse` (`server/routes/api.ts:64`) is not a starting point: it
-lists directories only, filters dotfiles, and has no path confinement at all — it will hand back any
-path on the machine. Confine it or delete it; do not build the tree on it.
+Any read-file or write-file endpoint you add routes through `assertManagedPath` and re-checks `..`
+*after* canonicalisation. `canonical()` (`server/routes/repository.ts:44-57`) resolves through
+symlinks and closes both the macOS `/var`→`/private/var` false refusal and the `<root>/link → /etc`
+false approval, each found by a real test. Copy it; do not re-derive it. `GET /api/browse`
+(`server/routes/api.ts:64`) is not a starting point: it lists directories only, filters dotfiles, and
+has no path confinement at all — it will hand back any path on the machine.
 
-### 3.9 Build order
+### 4.10 The HTTP and MCP surface
 
-This is the table §4 step 3 refers to. Work top-down; each stage is testable before the next
-begins.
+```text
+GET    /api/assets?projectId=&type=&q=          list + lease snapshot
+GET    /api/assets/:assetId                     the envelope
+GET    /api/assets/:assetId/files/:fileId       bytes, streamed, mime from the sidecar
+GET    /api/assets/:assetId/preview             preview bytes, or 204 with { reason }
+GET    /api/assets/tree?projectId=              the asset tree; ?assetId= for a software src tree
+POST   /api/assets                              create — user upload or import
+PATCH  /api/assets/:assetId                     title / type fields, requires expectedVersion
+POST   /api/assets/:assetId/files               attach bytes (server-side callers only)
+DELETE /api/assets/:assetId                     soft delete; user action only
+```
+
+MCP tools, exported as `registerAssetTools(server, ctx)`:
+
+```text
+list_assets(type?, q?)          free, local, available to a base-capability agent
+read_asset(assetId)             envelope + text of text files; binary files return metadata only
+create_asset(type, title, declaredBy?)
+write_asset_text(assetId, fileId, body, expectedVersion)
+```
+
+No tool takes a URL. No tool deletes. No tool starts work. `DELIBERATELY_USER_ONLY`
+(`server/services/projectMcpServer.ts:696`) is the precedent and it is the most important design
+decision in that file: an agent cannot approve its own work, and by the same reasoning an agent
+cannot delete a user's output or promote its own output into a declaration.
+
+### 4.11 Build order
+
+This is the table §5 step 3 refers to. Work top-down; each stage is testable before the next begins.
 
 | # | Stage | Done when |
 |---|---|---|
-| 1 | Types + store: `dochub.ts`, `docHub.ts`, synchronous invariant test | DH-001, DH-002 |
-| 2 | Versioning + conflict + secrets on section writes | DH-003, DH-004 |
-| 3 | Asset persistence and provenance | DH-005, DH-006 |
-| 4 | MCP mutation surface with the `areaId` refusal | DH-007, DH-008 |
-| 5 | Presence: events, lease, snapshot endpoint | DH-009, DH-010 |
-| 6 | Read path: local search, then Files/Collections behind consent | DH-011, DH-012 |
-| 7 | Check runs and the publish gate | DH-013, DH-014 |
-| 8 | UI: home grid, deliverable view, quick tree | DH-015, DH-016 |
+| 1 | Types + store: envelope, five types, synchronous invariant test | AS-001, AS-002 |
+| 2 | The design-document distinction: `declaredBy`, staleness, no declare action | AS-003, AS-006 |
+| 3 | File persistence: bytes-before-record, sha256, sidecars, timings | AS-004 |
+| 4 | Provenance and charges, including capability contradiction refusal | AS-005, AS-016 |
+| 5 | Versioning, conflict detection, secret scanning on text writes | AS-007, AS-008 |
+| 6 | MCP surface: list/read/create/write, free and local | AS-009 |
+| 7 | Consent-gated xAI upload, 48 MB refusal | AS-010 |
+| 8 | Lease + events + snapshot endpoint | AS-014 |
+| 9 | UI: the grid, five type views, honest previews | AS-011, AS-015 |
+| 10 | The quick file tree; software asset survives its preview expiring | AS-012, AS-013 |
 
 ### If the loop runs with nothing to do
 
 1. **Composition checks.** List what the server publishes and what the client consumes, and diff
-   them. That one command is how the dropped budget events were found. Every endpoint you added
-   needs a caller; `bun run audit:endpoints` will tell you, and `server/routes/uiContract.test.ts`
-   is where a new UI call gets its shape guarded — extend it in the same iteration as the call.
-2. **Re-derive a surprising result.** A suspiciously clean check is a bug in the check. An audit
-   that returned all zeros was a broken shell variable, not clean code.
+   them. That one command is how the dropped budget events were found. Every endpoint you add needs
+   a caller; `bun run audit:endpoints` will tell you.
+2. **Re-derive a surprising result.** A suspiciously clean check is a bug in the check. An audit that
+   returned all zeros was a broken shell variable, not clean code.
 3. **Delete a duplication.** If `CodeArtifact` (`server/types/project.ts:246-258`) and `Asset` both
    survive an iteration, one of them is dead weight and the UI will eventually show both.
 
 ---
 
-## 4. Loop procedure
+## 5. Loop procedure
 
 1. Read `VERIFICATION.md` for current status. Trust it over memory.
 2. Run `bun run verify`. If red, fix that and stop.
-3. Pick the highest item in the §3.9 table that is not passing.
+3. Pick the highest item in the §4.11 table that is not passing.
 4. Reproduce or test the required behaviour first — know what failure looks like before fixing it.
 5. Implement the smallest change that satisfies the requirement.
 6. Write tests that would fail without the change.
 7. Run `bun run verify` again. It must be green before you record anything.
-8. Record evidence in `VERIFICATION.md` against the DH-0NN item.
-9. Commit with a message stating what was verified.
+8. Record evidence in `VERIFICATION.md` against the AS-0NN item.
+9. Append anything you need from a hot file to `loops/handoff/pivot-assets.md`.
 10. Report honestly, including what did not move and what you were tempted to edit outside §0.
 
 ---
 
-## 5. What counts as done
+## 6. What counts as done
 
 An item may be marked **PASS** only when every clause of its required result is satisfied and each
 is backed by a command someone else could re-run. A partially-satisfied item is NOT TESTED, not
@@ -495,29 +665,30 @@ PASS; say which clause failed and hold the item.
 **Not evidence:** "this should work", "the implementation appears correct", "the code was added",
 "the component exists", "tests were not run but the logic looks valid".
 
-#### DH-001: A deliverable exists in four kinds and persists
+#### AS-001: An asset exists in five types and persists
 
 Required result:
 
-* a deliverable can be created with kind `document`, `deck`, `experience` or `software`;
-* it round-trips through a process restart with sections and order intact;
-* an unknown kind is refused, not stored.
+* an asset can be created with type `document`, `slides`, `table`, `workflow` or `software`;
+* it round-trips through a process restart with its files, order and version history intact;
+* an unknown type is refused, not stored.
 
 Evidence:
 
 ```text
-Created kinds:
+Created types:
 Restart round-trip:
-Refusal on unknown kind:
+Refusal on unknown type:
 ```
 
-#### DH-002: Every store mutation is synchronous
+#### AS-002: Every store mutation is synchronous
 
 Required result:
 
-* no method on the store is `async` or contains `await`;
+* no method on `assetStore` is `async` or contains `await`;
 * an invariant test fails if one becomes so;
-* the reason is written in the source, and deleting the explanation fails the test.
+* the reason is written in the source, and deleting the explanation fails the test;
+* byte persistence happens outside the store and is proven to do so.
 
 Evidence:
 
@@ -525,166 +696,146 @@ Evidence:
 Invariant test:
 Deliberate async method → test output:
 Explanation removed → test output:
+Where the await lives:
 ```
 
-#### DH-003: Section writes are versioned with conflict detection
+#### AS-003: A document asset is not a design document
+
+Required result:
+
+* the Assets page exposes no action that declares work — no plan, no build-from-this, no promote;
+* an agent has no tool that turns an asset into a design document;
+* the only link between the two is `declaredBy` on the asset, and the design document stores no
+  list of assets;
+* the UI names the two things differently everywhere they appear together.
+
+Evidence:
+
+```text
+Actions enumerated on the page:
+MCP tools enumerated:
+Direction of the link (grep both ways):
+Rendered labels:
+```
+
+#### AS-004: A generated file is persisted before it is referenced
+
+Required result:
+
+* a file created from a URL has its bytes on disk before the record is written;
+* the record stores a local path and a sha256, never the remote URL as the reference;
+* a download failure produces no file record at all — no half-file;
+* no MCP tool accepts a URL argument.
+
+Evidence:
+
+```text
+File record:
+Bytes on disk (size, sha256):
+Download failure → records created:
+MCP tool schemas grepped for url:
+```
+
+#### AS-005: Every asset carries its provenance
+
+Required result:
+
+* `producedByAgentId` and `capability` are present on every generated asset and absent — not
+  defaulted — on every uploaded one;
+* `model`, `prompt` and `requestId` are present on every generated file;
+* a file whose `model` requires a capability its agent does not hold is refused, and the refusal
+  names the capability;
+* the page shows agent, capability and design document on every asset without a click.
+
+Evidence:
+
+```text
+Generated asset record:
+Uploaded asset record:
+Capability contradiction → refusal:
+Rendered provenance line:
+```
+
+#### AS-006: `declaredBy` points at a design document and goes stale honestly
+
+Required result:
+
+* an asset records `designDocId`, `designDocVersion` and a line range at creation;
+* when the design document advances past that version the range is marked `stale`;
+* a stale range is displayed as stale, with the version it was read against;
+* nothing re-anchors the range automatically.
+
+Evidence:
+
+```text
+declaredBy at creation:
+Document version bumped → asset record:
+Rendered label:
+Grep for re-anchoring logic:
+```
+
+#### AS-007: Asset writes are versioned with conflict detection
 
 Required result:
 
 * each write appends a version carrying `authorId` and `changeSummary`;
 * a write with a stale `expectedVersion` throws `VersionConflictError` carrying both versions;
-* two sections of one deliverable can be written concurrently without either conflicting.
+* two files of one asset can be written concurrently without either conflicting;
+* a previous version is restorable and the restore is itself a new version.
 
 Evidence:
 
 ```text
 Version history after 3 writes:
 Stale write error body:
-Concurrent two-section write:
+Concurrent two-file write:
+Restore → version record:
 ```
 
-#### DH-004: A credential cannot be written into a section
+#### AS-008: A credential cannot be written into an asset
 
 Required result:
 
-* `assertNoSecrets` runs on every section write, agent or user;
-* the write is refused and the section is unchanged;
-* the error names where the credential was found.
+* `assertNoSecrets` (`server/services/secrets.ts:113`) runs on every text write, agent or user;
+* the write is refused and the file is unchanged;
+* the error names where the credential was found;
+* an uploaded file is scanned too, and a refusal deletes nothing the user already had.
 
 Evidence:
 
 ```text
 Attempted write:
 Refusal:
-Section version after refusal:
+File version after refusal:
+Uploaded-file case:
 ```
 
-#### DH-005: A generated asset is persisted before it is referenced
+#### AS-009: An agent can find and read assets without spending anything
 
 Required result:
 
-* an asset created from a URL has its bytes on disk before the record is written;
-* the record stores a local path and a sha256, never the remote URL as the reference;
-* a download failure produces no asset record at all — no half-asset.
-
-Evidence:
-
-```text
-Asset record:
-File on disk (bytes, sha256):
-Download failure → records created:
-```
-
-#### DH-006: Every asset carries its provenance and its cost source
-
-Required result:
-
-* `producedByAgentId`, `capability`, `model` and `prompt` are present on every asset;
-* `costUsd` is accompanied by `costSource` of `actual` or `estimated`;
-* the UI never renders a cost figure without its source.
-
-Evidence:
-
-```text
-Image asset (actual, from cost_in_usd_ticks):
-TTS asset (estimated, chars × rate):
-Rendered label:
-```
-
-#### DH-007: An agent cannot write a section outside its area
-
-Required result:
-
-* a section write is refused when the calling agent's `areaId` differs from `section.areaId`;
-* the refusal text names the suggestion path;
-* the section's version is unchanged after the refusal;
-* a section with no `areaId` refuses every agent write.
-
-Evidence:
-
-```text
-Cross-area write attempt:
-Refusal text:
-Version before/after:
-Unowned-section attempt:
-```
-
-#### DH-008: An agent can suggest a change to a section it does not own
-
-Required result:
-
-* a suggestion carries `targetSectionId` and the `baseVersion` it was written against;
-* it becomes `stale` when that section is written by someone else;
-* accepting it produces a new version with `fromSuggestionId` set.
-
-Evidence:
-
-```text
-Suggestion record:
-State after intervening write:
-Version produced on accept:
-```
-
-#### DH-009: The hub shows which agent is reading and which is editing
-
-Required result:
-
-* a read tool call publishes `dochub_presence` with `mode: "reading"`;
-* a section write publishes `mode: "editing"` and a `dochub_changed`;
-* presence is emitted by the tool call, not by anything the agent says;
-* the client renders it on the section without a page refresh.
-
-Evidence:
-
-```text
-Events observed on /ws/control-room:
-Agent prose containing a false claim → events published:
-Rendered indicator:
-```
-
-#### DH-010: Presence expires and can be re-fetched
-
-Required result:
-
-* a lease expires within 90 s without a refreshing tool call;
-* killing an agent mid-read clears its presence;
-* `GET /api/dochub/presence` returns the same state a fresh WebSocket replay would imply;
-* a client reconnecting after more than 50 events shows correct presence.
-
-Evidence:
-
-```text
-Lease expiry:
-Killed agent → presence after 90 s:
-Snapshot vs replay:
-Reconnect after 60 events:
-```
-
-#### DH-011: An agent can find existing material in the hub
-
-Required result:
-
-* `search_dochub` returns matching sections with deliverable, section id and a snippet;
-* `read_section` returns the current version and its number;
-* a base-Grok agent with no media capability can do both;
-* a search costs nothing and the UI says so.
+* `list_assets` returns matching assets with id, type, title and a snippet;
+* `read_asset` returns the current version and its number;
+* a `base`-capability agent can do both;
+* the operation records no charge, and the UI says the search was free.
 
 Evidence:
 
 ```text
 Query and results:
 Capability of the calling agent:
-Cost recorded for the search:
+Charges recorded:
+Rendered cost label:
 ```
 
-#### DH-012: Uploading to xAI requires explicit consent and respects the limits
+#### AS-010: Uploading to xAI requires consent and respects the limits
 
 Required result:
 
 * no upload occurs as a side effect of a search;
-* consent is recorded on the deliverable with who granted it and when;
+* consent is recorded on the asset with who granted it and when;
 * a file over 48 MB is refused at selection with its size;
-* a Collections-backed query records a cost with `costSource` set.
+* a Collections-backed query records a charge with its `costSource`.
 
 Evidence:
 
@@ -692,68 +843,55 @@ Evidence:
 Search without consent → uploads:
 Consent record:
 Oversize refusal:
-Collections query cost:
+Collections query charge:
 ```
 
-#### DH-013: A section produces acceptance evidence without any tests
+#### AS-011: The page lists five types and previews honestly
 
 Required result:
 
-* C1–C7 run and produce per-check pass/fail/unevaluated;
-* a check that could not run is `unevaluated` and sets `evaluated: false`, never a pass;
-* a missing asset file fails C1 and names the asset;
-* narration duration is computed from stored timings, with no second TTS call.
-
-Evidence:
-
-```text
-Check run output:
-Deleted asset → C1 result:
-Unevaluatable check → run summary:
-TTS calls during a check run:
-```
-
-#### DH-014: Publishing refuses without evidence
-
-Required result:
-
-* publish is refused when the check run failed, is missing, or has `evaluated: false`;
-* publish is refused without a named approver;
-* publish is refused for a section that produced no artifact;
-* a failed publish leaves the previous published version intact and restorable.
-
-Evidence:
-
-```text
-Refusals, one per condition:
-Published version before/after a failed publish:
-```
-
-#### DH-015: The hub home shows the four media and live agent activity
-
-Required result:
-
-* documents, slides, experiences and software appear on one page, grouped by kind;
-* each tile shows its owning area colour, its status and its cost to date;
-* an agent's presence appears on the tile within one second of the tool call;
+* documents, slides, tables, workflows and software appear on one page, filterable by type;
+* each tile shows its type, its owning agent's colour, its state and its cost or `cost unknown`;
+* a type whose renderer does not exist shows `preview unavailable` with the reason in words;
 * no figure on the page is fabricated when the underlying value is absent.
 
 Evidence:
 
 ```text
-Rendered page (kinds, counts):
-Presence latency:
+Rendered page (types, counts):
+Tile fields:
+No-renderer preview text:
 Absent-value rendering:
 ```
 
-#### DH-016: The quick tree lists and edits
+#### AS-012: A software asset survives its preview expiring
 
 Required result:
 
-* the tree lists deliverables, sections and assets, nested;
-* a text section can be edited in place and produces a new version with the user as `authorId`;
+* the asset's reference is its source tree and its zip export, never a sandbox URL;
+* after the sandbox lifetime has elapsed the asset still opens, lists its files and shows its
+  screenshot;
+* the UI shows the preview's expiry rather than a dead frame;
+* the file list is read from disk, not from a process-global cache.
+
+Evidence:
+
+```text
+Asset record (reference fields):
+Post-expiry open:
+Expiry shown as:
+Restart → file list:
+```
+
+#### AS-013: The quick tree lists and edits
+
+Required result:
+
+* the tree lists assets and files, nested, grouped by type;
+* a text file can be edited in place and produces a new version with the user as `authorId`;
 * an edit against a stale version is refused with a message naming both versions;
-* for a software deliverable, generated-but-untracked files appear, and truncation is stated.
+* for a software asset, a file created a moment ago appears, and truncation is stated as
+  "showing N of M".
 
 Evidence:
 
@@ -761,119 +899,296 @@ Evidence:
 Tree output:
 User edit → version record:
 Stale edit refusal:
-Untracked file visible / truncation label:
+New file visible / truncation label:
+```
+
+#### AS-014: The page shows who is writing, without asking the agent
+
+Required result:
+
+* a write through the store publishes `asset_writing` and `asset_changed`;
+* the lease expires within 90 s without a further write;
+* agent prose claiming a write that did not happen publishes nothing;
+* `GET /api/assets` returns the same lease state a fresh WebSocket replay would imply, including
+  after 60 intervening events.
+
+Evidence:
+
+```text
+Events observed on /ws/control-room:
+Lease expiry:
+Agent prose containing a false claim → events published:
+Snapshot vs replay after 60 events:
+```
+
+#### AS-015: Versions are visible and restorable, and deletion is a user action
+
+Required result:
+
+* an asset's version history is visible in the UI with author and change summary;
+* any earlier version can be restored;
+* no MCP tool can delete an asset;
+* deletion is soft, and a deleted asset's bytes survive until a user empties them.
+
+Evidence:
+
+```text
+Rendered history:
+Restore performed:
+MCP tool list:
+Deleted asset → bytes on disk:
+```
+
+#### AS-016: No cost figure is fabricated
+
+Required result:
+
+* every charge carries `modelId`, `rateKey` and `costSource`;
+* a charge with no rate has `costUsd: null` and renders as `cost unknown`, never `$0.00`;
+* an asset's total is the sum of its charges, and an asset with no charges renders no total;
+* the model id that could not be priced is shown to the user.
+
+Evidence:
+
+```text
+Charge records:
+Unpriced model → rendered figure:
+Asset with no charges → rendered total:
+Model id surfaced:
 ```
 
 ---
 
-## 5a. Rules learned the hard way
+## 6a. Rules learned the hard way
 
 Each of these exists because it was violated at least once, in this repository or in the research
 behind this pivot. No rule without its bug.
 
+- **The URL is not the asset.** Generated image and video URLs from `api.x.ai` expire, and so does a
+  software preview: 15 minutes on Vercel, 30 on E2B
+  (`.refs/open-lovable/config/app.config.ts:8,34`). Any design that stores a returned URL as a
+  reference is broken by construction, and it breaks after the demo, not during it.
 - **A link nobody can populate is a link nobody can trust.** `Requirement.designSection`
-  (`server/types/project.ts:79`) is declared, accepted by `POST /:id/requirements`, stored, mirrored
-  client-side, and set by nothing, after 52 passing checklist items. Before adding a field that
-  connects two things, name the code that writes it.
+  (`server/types/project.ts:79`) is declared, accepted by the API, stored, mirrored client-side, and
+  set by nothing, after 52 passing checklist items. Before adding a field that connects two things,
+  name the code that writes it.
 - **A string a model wrote is not a lookup key.** Plan generation stored four unowned tasks by
-  matching a model's phrasing of a role with `===` (iteration 81). Presence, section ids and area
-  ids come from the tool call's bound context, never from the agent's text.
+  matching a model's phrasing of a role with `===` (iteration 81). Agent ids, asset ids and leases
+  come from the tool call's bound context, never from the agent's text.
+- **An index that can disagree with disk will disagree with disk.** `listRepositoryFiles` answers
+  with `git ls-files`, so a file generated ten seconds ago is invisible while the answer looks
+  authoritative. Derive the index from disk and make the rebuild a command anyone can run.
 - **An event stream is not a state store.** Control-room events were published and dropped by the
   client — true of the wire, false for the user (iteration 48). Every live indicator needs a
   snapshot endpoint beside it.
-- **Verify through the production code path.** A probe proves the protocol works; only the real
-  service proves the product works. Three items were once marked PASS on evidence that was real but
-  unreachable.
 - **Verified, not the agent's word for it.** `submitCode` checks the agent's changed-file list
   against the repository and records `claimedChangedFiles` only when the agent lied
-  (`server/types/project.ts:318-329`). Do the same for assets, or the check run is self-reported.
+  (`server/types/project.ts:321-329`). Do the same for files, or provenance is self-reported.
 - **Never fabricate a value in the UI.** An absent field is omitted, never defaulted to something
-  plausible. A cost of `$0.00` with no `costSource` is a fabrication: today every figure in the
-  shipping product is very likely `$0.00` because `DEFAULT_RATES`
-  (`server/services/usageAccounting.ts`) has three keys — `gpt-4o`, `gpt-4o-mini`, `gpt-4.1` — and
-  no Grok model, so an unknown model returns `costUsd: 0` with `rateKey: null`, and `rateKey: null`
-  is surfaced nowhere.
-- **A suspiciously clean result is a bug in the check.** An audit that returned all zeros was a
-  broken shell variable, not clean code. Write a positive control for every check in C1–C7 and make
-  each fail on demand before believing a pass.
-- **Test the failure path.** A download that dies halfway, a section written twice at once, a
-  reconnect after the 50-event history has rolled over. Those are where the defects are.
+  plausible. `$0.00` with no `costSource` is a fabrication: `DEFAULT_RATES`
+  (`server/services/usageAccounting.ts:31`) has three OpenAI keys and no Grok model, so an unknown
+  model returns `costUsd: 0` with `rateKey: null` (`:79`), and `rateKey: null` is surfaced nowhere.
 - **When safety comes from the absence of something, write it down.** The store is concurrency-safe
   only because no mutation contains an `await` — not from locking, not from atomic writes. State it
-  in the source and let a test fail if the statement is deleted.
+  in the source and let a test fail if the statement is deleted
+  (`server/services/projectStore.ts:148-162` is the model).
+- **A suspiciously clean result is a bug in the check.** An audit that returned all zeros was a
+  broken shell variable, not clean code. Write a positive control for every check and make it fail
+  on demand before believing a pass.
+- **Test the failure path.** A download that dies halfway, a file written twice at once, a reconnect
+  after the 50-event history has rolled over, a sandbox that expired mid-preview. That is where the
+  defects are.
 
 ---
 
-## 6. Where the owner's assumptions are wrong
+## 7. Where the owner's assumptions are wrong
 
 Stated plainly, because designing quietly around them produces a product that cannot be explained.
 
-1. **There is no xAI document or slide generation API. None.** Nothing on the platform emits PPTX,
-   DOCX, PDF or slides. Grok produces structured JSON; our code renders it. Slide assembly,
-   document assembly and every preview thumbnail are 100% our own code. An agent sent looking for a
-   generation endpoint will burn an iteration finding nothing.
-2. **"Google-Workspace-like" is a look, not an integration.** There is no OAuth flow, no token
-   store, no `googleapis` dependency anywhere in this repository. Real Google Docs sync is a full
-   greenfield subsystem — OAuth 2.0, a refresh-token store, `documents.get` parsing, and change
-   detection via Drive `changes.watch` into Cloud Pub/Sub. This document assumes the look. If the
-   owner meant the integration, stop and ask (§7).
-3. **Media URLs are temporary.** Any design that stores a returned URL in a deck is broken by
-   construction, and it breaks after the demo, not during it.
-4. **Custom voice cloning from the app is not buildable.** API creation of custom voices is
-   Enterprise-only; on a standard plan voices are created in the console, US-only excluding
-   Illinois. Do not put a "clone your voice" control in the hub.
-5. **Cost is broken today, not merely incomplete.** There is no ledger — only running totals
-   (`agent.costUsd += …`), so there is no time series, no drill-down and no export. The
-   input/output/cache token split is computed and thrown away. `approvalThreshold` and `maxRetries`
-   are unimplemented. Per-tool-call attribution is structurally impossible because ACP returns one
-   usage object per *turn*. Per-task cost *is* tracked — `HANDOFF.md` is stale on that point.
-   Consequence for this surface: an asset's media cost is exact, and a section's *text* cost can
-   only be apportioned across whatever the turn touched. Label an apportioned figure as
-   apportioned.
-6. **There is no HTTP client to `api.x.ai` in this project.** It speaks ACP (JSON-RPC over stdio) to
-   the `grok` binary and nothing else. Files, Collections, images, video and TTS all need a net-new
-   HTTP/WebSocket client, and `XAI_API_KEY` is a different credential from whatever signs the CLI
-   in. That client is not owned by this worktree.
-7. **The resources backend already exists and has never been called.**
-   `server/services/promptLibrary.ts` and `server/routes/library.ts` serve skills, prompts and
-   workflows, and no client code has ever called `/api/library`. If you find yourself writing a
-   second one, verify first.
+### 7.1 Slides cannot be delegated to Grok
+
+Two surfaces look like they generate decks, and neither is callable from a server:
+
+* the **"Grok for PowerPoint" Microsoft 365 add-in** — a panel inside Office, driven by a person
+  clicking in Office;
+* **grok.com producing a downloadable `.pptx`** — the consumer chat product, driven by a person
+  typing in a browser.
+
+Both are **user interfaces, not APIs**. There is no xAI slide or document generation API, and none
+for PPTX, DOCX, PDF or tables either. Therefore: we generate slide **content** with the chat API as
+structured JSON, and we render the `.pptx` **ourselves**, in Node, in `04-generation`. An agent sent
+looking for a generation endpoint will burn an iteration finding nothing.
+
+**Video is the opposite case.** `POST https://api.x.ai/v1/videos/generations` is real, documented,
+priced and callable from a server — asynchronous, polled at `GET /v1/videos/{request_id}` through
+`pending | done | expired | failed`. Do not let the slide finding contaminate the video plan, and do
+not let the video finding raise hopes for slides.
+
+### 7.2 "Documents" names two different things
+
+The owner's five asset types include `documents`, and one of the three headline pages is DESIGN
+DOCUMENTS. They are not the same object; see §2. This is the most likely thing for a reader — or an
+agent implementing against this file — to get wrong, and the cost of getting it wrong is a user
+editing their brief on the wrong page and wondering why nothing happened.
+
+### 7.3 What a `workflow` asset is, is not settled
+
+The owner's build-order line groups "workflow/video generation" together, which reads as: a workflow
+asset, when rendered, is a video. The product contract elsewhere defines a *workflow* as agent
+control logic — a loop, an evolve-loop — which is a different object entirely and already has a home
+in `server/services/promptLibrary.ts` (owned by `06-tools-cost`, and never yet called by any client
+code).
+
+This document takes the reading that a **workflow asset is an ordered sequence of steps that can be
+re-run or rendered, whose rendered form is video**, because that reading survives both answers: the
+envelope holds a step list plus media either way, and only the renderer in `04-generation` differs.
+**Marked inferred, not demonstrated.** If the owner means control logic, then a workflow asset must
+be a *view* onto `promptLibrary`'s workflows rather than a stored asset, and §4.1's row changes —
+but nothing else in this document does. Do not build a second workflow store under either reading;
+`06-tools-cost` owns that data. §8, X-1.
+
+### 7.4 Media URLs, and voice, and cloning
+
+* returned media URLs are temporary; persist on receipt or lose the asset;
+* `with_timestamps` on `/v1/tts` ($15.00 per 1M characters) returns **per-character** timing, which
+  is how narration syncs to a slide build. `/v1/tts` is not OpenAI's `/v1/audio/speech`; the OpenAI
+  SDK cannot call it;
+* **custom voice cloning via API is Enterprise-only**, console-only otherwise, US excluding
+  Illinois. Do not put a "clone your voice" control anywhere near this page.
+
+### 7.5 Cost is broken today, not merely incomplete
+
+There is no ledger — only running totals (`agent.costUsd += …`), so there is no time series, no
+drill-down and no export, and no chart has source data. The input/output/cache token split is
+computed and thrown away. `approvalThreshold` and `maxRetries` are unimplemented. Per-tool-call
+attribution is structurally impossible because ACP returns one usage object per turn. Per-task cost
+*is* tracked; `HANDOFF.md` is stale on that point. Consequence for this surface: a generated file's
+media cost is exact, and a text asset's cost can only be apportioned. Say which.
+
+### 7.6 There is no HTTP client to `api.x.ai` in this project
+
+It speaks ACP (JSON-RPC over stdio) to the `grok` binary and nothing else. Files, Collections,
+images, video and TTS all need a net-new HTTP/WebSocket client, and `XAI_API_KEY` is a different
+credential from whatever signs the CLI in. That client is `04-generation`'s, not yours. The `grok`
+binary is a separate Rust program under `.refs/` that this repository does not build; the launch
+flag `grok --common_version` is delivered by *our* wrapper on PATH, not by a flag inside `grok`.
+
+### 7.7 The resources backend already exists and has never been called
+
+`server/services/promptLibrary.ts` and `server/routes/library.ts` serve skills, prompts and
+workflows over `/api/library`, and no client code has ever called it. If you find yourself writing a
+second store for anything that smells like a prompt, a skill or a workflow, stop and verify first.
 
 ---
 
-## 7. Stop and ask the user when
+## 8. Stop and ask the user when
 
 Do not work around any of these. Report the blocker with evidence and stop; do not spend iterations
 restating a known blocker.
 
-- **X-1: "Google-Workspace-like" — look, or integration?** This document assumes look-and-feel and a
-  hub we own. Real Google Docs sync changes the object model, the versioning story and the boundary
-  story. One sentence from the owner settles it.
+- **X-1: what a `workflow` asset is** — a rendered sequence (this document's reading) or agent
+  control logic. One sentence from the owner settles it. §7.3.
 - **No xAI credential exists on this machine.** `grok models` reports "You are not authenticated"
   and `~/.grok/config.toml` points at `api.openai.com`. Nothing that touches Files, Collections,
   Imagine or TTS can be evidenced until that is provided. An action that needs credentials that were
   not provided is a stop condition, not a mock.
-- **Uploading a user's documents to xAI** is outward-facing and spends money per tool invocation.
-  Consent is a product feature, and the decision to make it default-on is the owner's, not yours.
-- **Deleting a user's deliverable, or any tracked file.** Irreversible, and the repository has an
+- **Uploading a user's asset to xAI** is outward-facing and spends money per tool invocation.
+  Consent is a product feature, and the decision to make it default-on is the owner's.
+- **Deleting a user's asset, or any tracked file.** Irreversible, and the repository has an
   eighty-iteration precedent for stopping on exactly this.
-- **A change would fall outside §0.** File a suggestion and stop. Do not edit another worktree's
-  files, even when you are certain.
-- **Two requirements contradict each other** — for example, "simpler and more visual" against a
-  check run that needs seven results on screen. Say which two, and stop.
+- **A change would fall outside §0.** Append it to your handoff file and stop. Do not edit another
+  worktree's files, even when you are certain.
+- **Two requirements contradict each other** — for example, a contract section that still describes
+  four media and a DOC HUB against this document's five types and three pages. Say which two, and
+  stop.
 
 ---
 
-## 8. Definition of done
+## 9. What this worktree hands back
 
-The Doc Hub is complete when DH-001…DH-016 all read PASS with recorded, re-runnable evidence in
-`VERIFICATION.md`; `bun run verify` is green; no item is NOT TESTED and no item is BLOCKED; and the
-canonical demo runs end to end on this surface — a project is created, a team assembled, one agent
-researches in the hub, three agents write slides, images, clips and narration into it, every asset
-lands with its agent, its capability and its cost, and the user can watch it happen without reading
-a log.
+```text
+branch:   pivot/assets
+handoff:  loops/handoff/pivot-assets.md
+merge:    07-shell, then 01/02/03, then 04/05/06, then 08 — the pages are tested first
+```
 
-Only then output `The Doc Hub is complete: YES`.
+**The public contract this loop adds.** Every item below is what another worktree may depend on;
+none of it may change after reconciliation without telling them.
+
+```text
+types      Asset, AssetFile, AssetVersion, AssetPreview, AssetCharge
+           exported from server/services/assetStore.ts
+           (they cannot live in server/types/*.ts — hot; re-export requested in the handoff)
+
+api        GET    /api/assets?projectId=&type=&q=
+           GET    /api/assets/:assetId
+           GET    /api/assets/:assetId/files/:fileId
+           GET    /api/assets/:assetId/preview
+           GET    /api/assets/tree?projectId=[&assetId=]
+           POST   /api/assets
+           PATCH  /api/assets/:assetId
+           POST   /api/assets/:assetId/files
+           DELETE /api/assets/:assetId
+
+events     asset_added, asset_changed, asset_writing
+           additive members on ControlRoomEvent — REQUESTED, not edited
+
+mcp        list_assets, read_asset, create_asset, write_asset_text
+           registered by registerAssetTools(server, ctx) — one call, requested in the handoff
+
+server     persistFile(input) -> AssetFile descriptor          used by 04 and 05, never by an agent
+           getAssetStore().attachFile(assetId, descriptor)     synchronous
+           getAssetStore().recordCharge(assetId, charge)       synchronous
+```
+
+**Hot-file requests to be applied at reconciliation** (write each one into the handoff as you need
+it, with the exact diff):
+
+```text
+server/index.ts                       nothing expected; raise it if the ws path needs a channel
+server/routes/api.ts                  apiRoutes.route("/assets", assetRoutes)
+server/services/projectMcpServer.ts   registerAssetTools(server, ctx) in the tool registration path
+server/services/controlRoomEvents.ts  three additive union members, verbatim from §4.7
+server/types/project.ts               re-export of the Asset types; retire CodeArtifact
+client/src/control-room/useControlRoom.ts  the /api/assets fetches and the three event handlers
+client/src/control-room/ControlRoomApp.tsx mount <AssetsPage/> from control-room/assets/index.tsx
+```
+
+**What this loop assumed about other worktrees.** Each is a thing to confirm at reconciliation, not
+a thing to build around:
+
+* **01-agents** owns agent identity and `capability` on the agent record, with the four values
+  `base | images | voice | voice+images`. This loop reads capability and refuses contradictions; it
+  never sets it. It also owns write-time path enforcement for a software asset's `src/`.
+* **03-design-docs** owns `designDocId`, its version counter, and the rule that one design document
+  is followed by at most one project. This loop stores `designDocId` + `designDocVersion` and needs
+  a way to learn the current version to compute staleness — assumed to be a synchronous read on the
+  design-doc store, or an event. Confirm which.
+* **04-generation** calls `persistFile()` and `recordCharge()` and never writes to the asset
+  directory itself. It renders `.pptx`, tables and workflow media *after* this loop ships. The
+  dependency direction is 04 → 02, never the reverse.
+* **05-software** writes a software asset's `src/` through the boundary, produces the screenshot and
+  the zip, and reports the sandbox URL as a transient view with an expiry — not as the asset's
+  reference.
+* **06-tools-cost** owns `costLedger.ts`. `AssetCharge` is deliberately shaped as a ledger row so
+  that adopting the ledger is a move, not a rewrite. When the ledger lands, `Asset.charges` becomes
+  a query and the field is deleted. Recorded here so it is removed rather than forgotten (X-2).
+* **07-shell** owns the page chrome, the theme tokens and the navigation. This loop exports one
+  mount point and imports no shell internals.
+
+---
+
+## 10. Definition of done
+
+Assets is complete when AS-001…AS-016 all read PASS with recorded, re-runnable evidence in
+`VERIFICATION.md`; `bun run verify` is green; no item is NOT TESTED and no item is BLOCKED; the
+handoff file lists every hot-file change with an exact diff; and the canonical demo runs end to end
+on this surface — a project is created, a team assembled, one agent reads existing material out of
+the store, three agents write documents, slides and clips into it, every asset lands with its agent,
+its capability, its charges and the design document that declared it, and the user can see all of it
+without reading a log.
+
+Only then output `Assets is complete: YES`.
 
 Until then, the honest answer is the current tally and the specific reason the next item is not yet
 passing.
