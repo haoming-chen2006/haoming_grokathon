@@ -4022,6 +4022,45 @@ bun run verify → exit 0, 679 pass / 0 fail, four audits clean
 
 ---
 
+## A red gate that was not the live flake (iteration 66)
+
+`bun run verify` came up red, and the failure was **not** a model-dependent test:
+
+```text
+(fail) Control Room shell > the requirement list drives the implementation panel
+```
+
+A deterministic UI test. It passed five times in isolation and four times with all client tests
+together, and failed only inside the full run — so the interference came from sharing a process
+with the server suites.
+
+**The mechanism.** The test clicked a requirement the instant `control-room` appeared:
+
+```ts
+await waitFor(() => expect(screen.getByTestId("control-room")).toBeTruthy());
+fireEvent.click(screen.getByTestId("requirement-GREET-01"));
+expect(screen.getByTestId("detail-id").textContent).toBe("GREET-01");
+```
+
+`control-room` renders as soon as loading ends, but the project, its document, its agents and its
+progress arrive from four separate fetches. Under the load of the server suites, a later fetch
+lands *after* the click and resets state, so the selection is cleared and the panel falls back to
+`requirement-detail-empty` — which is exactly what the failure output showed.
+
+Fixed by waiting for the data rather than the frame: wait for the requirement row to exist before
+clicking, and for the detail to appear after.
+
+```text
+three consecutive full `bun run verify` runs: 679 pass / 0 fail
+```
+
+**Worth separating from the live-agent flake.** Both are intermittent and both only appear in the
+full suite, and it would have been easy to file this under the known one. It is a different defect
+with a different cause — a UI test racing its own fixtures, not a model choosing badly — and the
+first diagnostic step was checking which it was.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

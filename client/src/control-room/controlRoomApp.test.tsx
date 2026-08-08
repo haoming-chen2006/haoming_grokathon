@@ -150,8 +150,15 @@ describe("Control Room shell", () => {
     // Nothing selected yet.
     expect(screen.getByTestId("requirement-detail-empty")).toBeTruthy();
 
+    // `control-room` appears as soon as loading ends, but the project, its requirements and the
+    // agent list arrive from four separate fetches. Clicking the instant the shell renders is a
+    // race: this failed only inside the full suite, where the server tests slow things enough for
+    // a later fetch to land after the click and reset the selection. Wait for the data, not the
+    // frame.
+    await waitFor(() => expect(screen.getByTestId("requirement-GREET-01")).toBeTruthy());
     fireEvent.click(screen.getByTestId("requirement-GREET-01"));
-    expect(screen.getByTestId("detail-id").textContent).toBe("GREET-01");
+
+    await waitFor(() => expect(screen.getByTestId("detail-id").textContent).toBe("GREET-01"));
     expect(screen.getByTestId("detail-branch").textContent).toBe("agent/greet");
     // The owning agent is resolved from the agent list, not re-fetched.
     expect(screen.getByTestId("detail-owner").textContent).toContain("Backend Engineer");
