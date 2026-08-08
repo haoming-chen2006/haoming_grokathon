@@ -211,7 +211,11 @@ describe("an unmerged page is stated, never faked", () => {
       const notice = screen.getByTestId("not-merged-yet");
       expect(notice.textContent).toContain(page.label);
       expect(notice.textContent).toContain(page.builtBy!);
-      expect(notice.textContent).toContain("not in this build");
+      // States what the shell can observe — that nothing is mounted — and names the branch as
+      // provenance. It must NOT assert a merge status: 06-tools-cost had merged while this notice
+      // still said it had not, which is how the old wording was caught.
+      expect(notice.textContent).toContain("Nothing is mounted here yet");
+      expect(notice.textContent).not.toContain("has not merged yet");
       cleanup();
     }
   });
