@@ -239,3 +239,56 @@ session or rate limit is the first thing to check; an expired token is the secon
 This is outside every worktree's boundary — it is `acpClient.ts` reporting what the endpoint said,
 and the credential itself. **No worktree can mark a live-agent item PASS until it clears**, and any
 that did so in the last hour should re-run before trusting it.
+
+---
+
+## Iteration 6 — 2026-08-08 — THE MOUNT REQUEST (reconciliation, read this one)
+
+**18. There is no `software` page in the shell's contract, and that is correct — so someone has to
+decide where this page hangs.**
+
+`client/src/control-room/shell/contract.ts` publishes five `PageId`s: agents, assets, designdocs,
+users, x. Software is not among them and should not be: software is one of the five **asset types**
+(`grok-workspace.md` §5.2), and `loops/05-software.md` opens by saying this surface must not exist
+loudly — no sixth tab called "Software" in a product whose demo user is a salesperson.
+
+So 05-software has built its page against the published `WorkspacePageProps` and nothing else, and
+offers it three ways. **Any one of them is a single line, and two of them change no contract.**
+
+What is being mounted, from `client/src/control-room/software`:
+
+```ts
+import { SoftwarePage, SoftwareNavigator, SoftwareInspector } from "../software";
+//  each is (props: WorkspacePageProps) => JSX.Element — main, navigator and inspector regions
+```
+
+**Option A — fastest, and it makes the product draw today.** 02-assets has not merged a page;
+`client/src/control-room/assets/` does not exist, so the Assets slot renders NotMergedYet. Software
+assets *are* assets, so point that slot here for now, in `client/src/control-room/shell/pages.ts`:
+
+```ts
+{ id: "assets", label: "Assets", segment: "assets", rank: "headline", builtBy: "02-assets",
+  main: SoftwarePage, navigator: SoftwareNavigator, inspector: SoftwareInspector },
+```
+
+No contract change, no new page id, one line, and the Assets page stops being a hole. When
+02-assets merges its own page it takes the slot back and option B applies.
+
+**Option B — the shape the contract actually wants.** 02-assets renders these three components when
+the selected asset is `kind: "software"`, from inside its own page. Nothing in the shell changes.
+This is the right long-run answer and it needs 02-assets to exist first.
+
+**Option C — a page of its own**, if reconciliation wants it standing alone to look at. This one
+*does* touch `contract.ts` (`PageId` and `PAGE_SEGMENTS` both gain `software`), so it is the least
+additive of the three and is offered last for that reason.
+
+**What renders today.** Every region draws in every state — verified by rendering all three
+components server-side against all three mock apps, not by assertion. The data is invented and says
+so on screen: `client/src/control-room/software/mockSoftware.ts` is the only source, and a banner
+reading "Invented data — the software service is built but not mounted yet." sits above the preview
+for as long as that file is imported. Deleting it and its imports is the whole of the un-mocking.
+
+The real service is built and tested behind it — `server/services/software/**`, 51 tests — and needs
+request 8 (`stopAllPreviews()` in the shutdown path) and a `softwareRoutes` mount that does not exist
+yet. The page reads the same shapes it will be given: `types.ts` is written from the server's own
+`PreviewStatus`.
