@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { NotFoundError, PermissionDeniedError, ProjectStore } from "./projectStore";
-import { CompletionGateError, IncompleteSubmissionError, missingSubmissionFields, testsPass } from "./codeReview";
+import { CompletionGateError, IncompleteSubmissionError, evaluateCompletionGate, missingSubmissionFields, testsPass } from "./codeReview";
 import type { Actor } from "../types/project";
 
 const USER: Actor = { kind: "user", id: "user" };
@@ -296,5 +296,61 @@ describe("V-040: requirement completion follows merge", () => {
     expect(submissions[0].state).toBe("merged");
     expect(submissions[0].mergeCommit).toBe("abc123def");
     expect(reopened.getRequirement(projectId, "AUTH-03").status).toBe("complete");
+  });
+});
+
+describe("a requirement merged on acknowledged failures can still complete", () => {
+  // Observed end to end: CART-01 was merged while two tests belonging to the *next* task failed.
+  // The user approved with a written acknowledgement, which §79 added — and the requirement then
+  // sat at `merged` forever, because this gate reads the submission's recorded run and that run is
+  // frozen at submission time. Progress read 50% with both tasks complete and main fully green.
+  const requirement = { id: "R-01", reviewStatus: "approved" } as never;
+
+  const submission = (extra: Record<string, unknown>) => ({
+    state: "merged", mergeCommit: "abc", testResults: { passed: 2, failed: 2, total: 4 }, ...extra,
+  }) as never;
+
+  test("failing tests with no acknowledgement still block completion", () => {
+    const { gate, unmet } = evaluateCompletionGate({
+      submission: submission({}), requirement, pendingSuggestionCount: 0,
+    });
+    expect(gate.testsPassing).toBe(false);
+    expect(unmet).toContain("required tests not passing");
+  });
+
+  test("an acknowledgement lets it through without claiming the suite passed", () => {
+    const { gate, unmet } = evaluateCompletionGate({
+      submission: submission({ failingTestsAcknowledged: "the failures cover task t2" }),
+      requirement, pendingSuggestionCount: 0,
+    });
+    // The flag stays honest — a UI showing the gate must not report a green suite.
+    expect(gate.testsPassing).toBe(false);
+    expect(gate.failingTestsAcknowledged).toBe("the failures cover task t2");
+    expect(unmet).toEqual([]);
+  });
+
+  test("a blank acknowledgement is not one", () => {
+    const { unmet } = evaluateCompletionGate({
+      submission: submission({ failingTestsAcknowledged: "   " }), requirement, pendingSuggestionCount: 0,
+    });
+    expect(unmet).toContain("required tests not passing");
+  });
+
+  test("an acknowledgement cannot stand in for a suite that never ran", () => {
+    // Nothing was learned from a run of zero tests, so there is nothing to have been informed about.
+    const { unmet } = evaluateCompletionGate({
+      submission: submission({ testResults: { passed: 0, failed: 0, total: 0 }, failingTestsAcknowledged: "trust me" }),
+      requirement, pendingSuggestionCount: 0,
+    });
+    expect(unmet).toContain("required tests not passing");
+  });
+
+  test("it does not paper over the other gate clauses", () => {
+    const { unmet } = evaluateCompletionGate({
+      submission: submission({ state: "pending", mergeCommit: undefined, failingTestsAcknowledged: "ack" }),
+      requirement, pendingSuggestionCount: 0,
+    });
+    expect(unmet).toContain("implementation not accepted");
+    expect(unmet).toContain("code not merged");
   });
 });

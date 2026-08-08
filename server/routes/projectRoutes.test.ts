@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
 import { projectRoutes } from "./projects";
-import { ProjectStore } from "../services/projectStore";
+import { ProjectStore, getProjectStore } from "../services/projectStore";
 import type { Actor } from "../types/project";
 
 /**
@@ -142,5 +142,43 @@ describe("POST /:id/plan/generate (V-017)", () => {
     // this asserts the endpoint's failure handling, which those do not exercise.
     const { status } = await call("POST", "/api/projects/does-not-exist/plan/generate", {});
     expect(status).toBe(404);
+  });
+});
+
+describe("merging re-checks requirements it is not carrying", () => {
+  // Observed end to end: two requirements, two tasks. The first was merged while the second task's
+  // tests still failed, so its gate refused and nothing ever looked at it again — it sat at
+  // `merged` while progress read 50% with both tasks complete and the branch fully green.
+  test("a requirement left short by an earlier merge is settled by a later one", async () => {
+    const store = getProjectStore();
+    const actor = { kind: "user", id: "user" } as const;
+
+    store.addRequirement(projectId, { id: "REQ-02", description: "second" }, actor);
+    store.addTask(projectId, { id: "tA", objective: "first" }, actor);
+    store.addTask(projectId, { id: "tB", objective: "second" }, actor);
+
+    // The first submission's suite is red because the second task is not done yet.
+    const first = store.submitCode(projectId, {
+      taskId: "tA", agentId: "a1", requirementIds: ["REQ-01"], branch: "agent/tA",
+      changedFiles: ["a.ts"], summary: "first", testResults: { passed: 1, failed: 1, total: 2 }, costUsd: 0,
+    });
+    store.approveSubmission(projectId, first.id, actor, undefined, { acknowledgeFailingTests: "the failure is tB's" });
+    store.recordMerge(projectId, first.id, "commit-a", actor);
+
+    const second = store.submitCode(projectId, {
+      taskId: "tB", agentId: "a1", requirementIds: ["REQ-02"], branch: "agent/tB",
+      changedFiles: ["b.ts"], summary: "second", testResults: { passed: 2, failed: 0, total: 2 }, costUsd: 0,
+    });
+    store.approveSubmission(projectId, second.id, actor);
+
+    const { status, json } = await call(
+      "POST", `/api/projects/${projectId}/submissions/${second.id}/merge`, { mergeCommit: "commit-b" },
+    );
+
+    expect(status).toBe(200);
+    // Both, not only the one this submission names.
+    expect(json.completedRequirements.sort()).toEqual(["REQ-01", "REQ-02"]);
+    expect(store.getRequirement(projectId, "REQ-01").status).toBe("complete");
+    expect(store.getProgress(projectId).percent).toBe(100);
   });
 });

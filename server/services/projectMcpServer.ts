@@ -290,10 +290,30 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
         //
         // A failure here is not fatal: the submission still records what the agent did, and the
         // merge will refuse as before rather than merging something that was never committed.
+        // What the repository says actually changed, which is a fact rather than a claim.
+        //
+        // `changedFiles` was recorded exactly as the agent reported it. Observed on a real run: an
+        // agent that edited only `src/cart.ts` submitted `["src/cart.ts", "tests/cart.test.ts"]`,
+        // and the review queue showed a test file it had never touched. Over-reporting is noise;
+        // under-reporting is worse, because a file changed and left off the list is a change the
+        // reviewer's evidence does not mention. The truth is one git call away, and the commit
+        // above has just made it available.
+        let changedFiles = a.changedFiles;
+        let claimedChangedFiles: string[] | undefined;
         try {
           const agent = registry().get(ctx.agentId);
           if (agent?.worktree) {
             commitAgentWork(agent.worktree, `${a.summary} (task ${a.taskId})`, ctx.agentId);
+
+            const base = store().getProject(ctx.projectId).baseBranch ?? "main";
+            const actual = agentChangedFiles(agent.worktree, base).map((f) => f.path).sort();
+            // An empty result means the diff could not be taken (no commits, missing base). The
+            // agent's list is then the only evidence there is, so it stands.
+            if (actual.length > 0) {
+              const claimed = [...new Set(a.changedFiles)].sort();
+              if (claimed.join("\n") !== actual.join("\n")) claimedChangedFiles = claimed;
+              changedFiles = actual;
+            }
           }
         } catch {
           // Nothing to commit, or the worktree is gone; submitCode still runs.
@@ -304,7 +324,8 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
           agentId: ctx.agentId,
           requirementIds: a.requirementIds,
           branch: a.branch,
-          changedFiles: a.changedFiles,
+          changedFiles,
+          claimedChangedFiles,
           summary: a.summary,
           knownLimitations: a.knownLimitations,
           diff: a.diff,

@@ -5048,6 +5048,124 @@ bun run verify → exit 0, 925 pass / 0 fail across 50 files, four audits clean
 
 ---
 
+## A submission's file list was the agent's word for it (iteration 83)
+
+Two iterations of code work; this one ran the product. A cart fixture that starts **red** — two
+independent functions, four failing tests — with two requirements, planned and driven end to end.
+
+The gates held, with errors a user can act on:
+
+```text
+launch t1 before approving   → PLAN_NOT_APPROVED  "the user must approve it before Grok sessions launch"
+launch t2 before t1 finishes → TASK_BLOCKED       blockedBy: ["t1"]
+approve with 2 of 4 failing  → refused, and names the acknowledgement that would allow it
+```
+
+### The stop-short path, exercised for the first time
+
+`t1`'s agent implemented `subtotal` correctly, ran the suite, called `record_test_result` — and
+went idle without submitting. The task sat at `working` for ten minutes.
+
+This is the case iteration 77 built for, and it worked end to end:
+
+```text
+agent.status        idle
+agent.statusDetail  "Stopped without submitting task t1. Open the session and ask it to
+                     continue, or reassign the task."
+```
+
+`AgentCard.tsx` renders `statusDetail`, so it reaches the user rather than sitting in the API — the
+failure mode iteration 48 found for budget events. The remedy it offers was then tested by taking
+it: one message, "Please continue and finish task t1", and the agent submitted. `t1` moved to
+`needs_review` and the detail cleared.
+
+**A correction to how I first read that.** My script printed "0 transcript entries" and I nearly
+recorded the nudge as having done nothing. The reply key is `added`, not `transcript` — my parsing,
+not the product. Checking the raw body is what caught it, which is the discarded-evidence rule from
+iterations 61, 72 and 78 finally being followed at the time rather than afterwards.
+
+### The bug
+
+The submission recorded:
+
+```text
+changedFiles: ["src/cart.ts", "tests/cart.test.ts"]
+```
+
+The agent never touched the test file:
+
+```text
+$ git diff --name-only main...HEAD          src/cart.ts
+$ git status --porcelain                    (clean)
+$ GET /api/repository/changed-files         [{"path":"src/cart.ts","status":"M","staged":true}]
+```
+
+`changedFiles` was stored exactly as the agent reported it, and a reviewer approves on that
+evidence. Over-reporting is noise. **Under-reporting is the real risk** — a file changed and left
+off the list is a change the reviewer's summary does not mention, and the product had the ground
+truth one git call away, in the same function, immediately after the commit it had just made.
+
+So the submission now records what the repository says changed. The agent's list is kept as
+`claimedChangedFiles` only when the two disagree, and the review queue says the agent misreported
+its own work — that bears on the claims in the same submission that nothing can verify. An empty
+git result (no commits, missing base) leaves the agent's list standing, because then it is the only
+evidence there is.
+
+```text
+control: submission takes the agent's word again → 35 pass / 1 fail
+```
+
+### The second bug: a requirement that could never complete
+
+Both tasks merged, main went green, and the project still read:
+
+```text
+task t1: complete      CART-01: merged       progress: 50% (1/2)
+task t2: complete      CART-02: complete
+```
+
+Two requirements in different terminal states, and progress permanently wrong. `merged` is one rung
+below `complete` on the requirement ladder, and `CART-01` never climbed it.
+
+Two independent causes, both real:
+
+**The completion gate ignored the acknowledgement.** `evaluateCompletionGate` reads
+`testsPass(submission.testResults)` — the run *recorded at submission time*, frozen. `CART-01` was
+merged while two tests belonging to `t2` failed, and the user approved that with a written
+acknowledgement, which is exactly the mechanism iteration 79 added for this situation. The
+submission moved; the requirement was left behind, and no amount of later green could reach it.
+`gate.testsPassing` still reports the literal fact — a gate that claimed a red suite was green would
+be worse than the bug — and the acknowledgement now appears beside it as `failingTestsAcknowledged`,
+which is what allows completion. A blank acknowledgement is still not one, and one cannot stand in
+for a suite that never ran.
+
+**Merging only ever looked at its own requirements.** The route completed
+`submission.requirementIds` and swallowed failures, so a requirement whose gate refused at its own
+merge was never revisited. Every unfinished requirement is now re-checked on each merge; the gate
+decides, and attempting it costs nothing.
+
+```text
+control: gate ignores the acknowledgement again  → 26 pass / 1 fail
+control: merge settles only its own requirements →  8 pass / 1 fail
+```
+
+### Still unexercised, and now known to be hard to reach
+
+"Two agents working at once" did not happen, and the reason is worth recording: the Planner gave
+both tasks to the **Backend Engineer** and made `t2` depend on `t1`, so the plan is serial by
+construction even though the two functions are independent. Parallelism needs a plan that splits
+work across roles, which this document did not provoke. The dependency itself was exercised
+properly — merging `t1` unblocked `t2`, and `t2`'s worktree branched off the *merged* main and
+contained `subtotal`, which is the first confirmation of the per-task worktree fix against a real
+dependency rather than a test.
+
+```text
+bun run verify → exit 0, 933 pass / 0 fail across 50 files, four audits clean
+the live walk  → 4 of 4 tests green on main, both requirements complete
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**

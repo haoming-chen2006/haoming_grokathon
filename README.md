@@ -95,12 +95,29 @@ A visual control layer for supervising multiple Grok Build coding agents against
 document. Built on top of the OpenUI canvas; the two views share one app.
 
 ```bash
+bun install && cd client && bun install && cd ..   # once, per clone
 set -a; . ./.env; set +a          # OPENAI_API_KEY (or XAI_API_KEY) for the agent backend
 bun run dev
 ```
 
 Then open **http://localhost:6969/?view=control-room** — or use the toggle in the bottom-right to
 switch between the Control Room and the original terminal canvas.
+
+### The two-minute demo
+
+`bun run demo` builds a repository to drive the loop against, so there is nothing to invent:
+
+```bash
+bun run demo                                             # builds ~/grok-demo, prints the next line
+bun run dev                                              # one terminal
+bun run new -- --repo ~/grok-demo --design ~/grok-demo/design.md --plan
+```
+
+The fixture starts **red** — `greet()` throws and all three of its tests fail — so when the suite is
+green at the end, the agents did that. `bun run demo --force` resets it between runs.
+
+You can also do the whole thing in the browser: the **Open a repository** form creates the project
+*and its five-role agent team*, and the Plan tab generates, approves and launches from there.
 
 ### Starting a project
 

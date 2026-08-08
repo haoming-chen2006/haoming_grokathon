@@ -12,20 +12,37 @@ Never merged to `main`.
 
 ```bash
 cd /Users/haoming/openui
+bun install && (cd client && bun install)   # once per clone; there are no workspaces
 set -a; . ./.env; set +a          # OPENAI_API_KEY — the model backend needs it
 export PATH="$HOME/.bun/bin:$PATH"
 
-bun run verify                    # typechecks, 925 tests, build, four audits
+bun run verify                    # typechecks, 933 tests, build, four audits
 bun run dev                       # UI on :6969, API on :6968
 ```
 
 Then open **`http://localhost:6969/?view=control-room`**.
 
+`.env` is gitignored, so a fresh clone has to write its own; `OPENAI_API_KEY` matters only because
+`~/.grok/config.toml` names it as the `env_key` for the model — nothing in this repository reads it.
+The `grok` binary comes from `bun install` (`node_modules/.bin/grok`), so it does not need to be on
+your `PATH`, but `node` does: the grok launcher is a `#!/usr/bin/env node` script.
+
+### Something to demo against
+
+```bash
+bun run demo                      # builds ~/grok-demo and prints the exact next command
+```
+
+A three-requirement greeting service whose tests **start red**. Green at the end of a demo therefore
+means the agents did the work. `bun run demo --force` resets it between runs.
+
 ### The whole loop, from the browser
 
 1. **Open a repository** — the empty state is a form: repository path, base branch, name,
    objective, budget, and the design document itself. Requirements are read from list items shaped
-   `- AUTH-01: description` and previewed before you submit.
+   `- AUTH-01: description` and previewed before you submit. Creating the project also creates its
+   five-role agent team; until it did, every planned task came back unowned and Launch answered
+   `NO_AGENT` with nothing in the product able to fix it.
 2. **Plan** tab → **Generate plan**. A real Planner agent reads the design and the repository and
    proposes tasks. It lands as a **draft**.
 3. **Approve Plan**. Nothing runs before this — launching first is refused with
@@ -52,11 +69,17 @@ bun run new -- --repo /path/to/repo --design ./design.md --plan
 | `bun run verify` | typecheck (server + client) → tests → production build → the four audits. **The gate.** |
 | `bun run dev` | Vite on 6969 proxying the API on 6968 |
 | `bun run new` | create a project from a design document; `--plan` also runs the Planner |
+| `bun run demo` | build `~/grok-demo`, a red fixture to drive the loop against |
 | `bun run acceptance` | the §22.16 end-to-end flow, 20 steps, against a fixture it builds itself |
 | `bun run audit` | reachability + endpoints + §22.18 quality + doc citations |
 
 `bun run acceptance` is the only test that exercises the whole system with a real agent. It builds
 a repository that **starts red**, so a green run means the agent did the work.
+
+`server/routes/browserLoop.test.ts` is the cheap counterpart: it drives the loop using only the
+endpoints `useControlRoom.ts` calls, and refuses to arrange any state the product is supposed to
+arrange itself. That constraint is the whole point — the `NO_AGENT` dead end survived 750 tests
+because every one of them created the team by hand first.
 
 ---
 
@@ -100,7 +123,7 @@ scripts/audit/       reachability, endpoints, quality, docs
 
 ```text
 52 of 52 checklist items PASS
-925 tests across 50 files, 0 fail
+933 tests across 50 files, 0 fail
 four audits clean: 0 orphans, every endpoint has a caller,
                    0 unclassified quality indicators, every doc citation resolves
 bun run acceptance: 20 of 20 steps

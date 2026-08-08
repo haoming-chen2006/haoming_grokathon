@@ -25,6 +25,8 @@ export interface SubmissionInput {
   branch?: string;
   worktree?: string;
   changedFiles?: string[];
+  /** The agent's own file list, supplied only when it disagreed with the repository. */
+  claimedChangedFiles?: string[];
   diff?: string;
   summary?: string;
   knownLimitations?: string;
@@ -72,9 +74,20 @@ export function evaluateCompletionGate(params: {
 }): { gate: CompletionGate; unmet: string[] } {
   const { submission, requirement, pendingSuggestionCount } = params;
 
+  // Whether the user approved this submission knowing tests were failing, and said why.
+  //
+  // Without this a requirement merged on an acknowledged partial failure could never complete: the
+  // gate reads the submission's *recorded* run, which is frozen at submission time, so it stays
+  // "required tests not passing" forever however green the branch later becomes. Observed on a real
+  // run — CART-01 was merged while two tests belonging to the next task failed, and sat at `merged`
+  // with progress stuck at 50% after both tasks were done. Approving with an acknowledgement (§79)
+  // moved the submission and left the requirement behind.
+  const acknowledged = submission?.failingTestsAcknowledged?.trim() || undefined;
+
   const gate: CompletionGate = {
     implementationAccepted: submission?.state === "approved" || submission?.state === "merged",
     testsPassing: submission ? testsPass(submission.testResults) : false,
+    failingTestsAcknowledged: acknowledged,
     reviewPassed: requirement.reviewStatus === "approved",
     merged: submission?.state === "merged" && !!submission.mergeCommit,
     // An accepted design change that has not landed in the document leaves the contract stale.
@@ -83,7 +96,11 @@ export function evaluateCompletionGate(params: {
 
   const unmet: string[] = [];
   if (!gate.implementationAccepted) unmet.push("implementation not accepted");
-  if (!gate.testsPassing) unmet.push("required tests not passing");
+  // A submission with no recorded run at all is not covered by an acknowledgement: there is nothing
+  // to have been informed about.
+  if (!gate.testsPassing && !(acknowledged && submission && submission.testResults.total > 0)) {
+    unmet.push("required tests not passing");
+  }
   if (!gate.reviewPassed) unmet.push("review not approved");
   if (!gate.merged) unmet.push("code not merged");
   if (!gate.designChangesReflected) unmet.push("accepted design changes not reflected in the document");

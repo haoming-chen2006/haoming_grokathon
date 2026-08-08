@@ -432,6 +432,44 @@ describe("submitting captures the work as a commit", () => {
     expect(Number(after), "the agent's work was not committed").toBeGreaterThan(0);
   });
 
+  test("the changed files recorded are the repository's, not the agent's claim", async () => {
+    // Observed on a real run: an agent that edited only src/cart.ts submitted
+    // ["src/cart.ts", "tests/cart.test.ts"], and the review queue showed a test file it had never
+    // touched. A reviewer approves on this evidence. Over-reporting is noise; under-reporting
+    // hides a change from the only summary the reviewer reads.
+    const wt = createAgentWorktree(repo, { agentId: BACKEND, branch: "agent/claim", baseBranch: "main" });
+    getAgentRegistry().assignTask(BACKEND, "t-auth", { branch: "agent/claim", worktree: wt.path });
+    writeFileSync(join(wt.path, "a.ts"), "export const x = 3;\n");
+
+    const { isError, data } = await call(BACKEND, "submit_code_for_review", {
+      taskId: "t-auth", requirementIds: ["AUTH-01"], branch: "agent/claim",
+      changedFiles: ["a.ts", "tests/never-touched.test.ts"],
+      summary: "Implement it", knownLimitations: "None",
+      testsPassed: 1, testsFailed: 0, testsTotal: 1, costUsd: 0.05,
+    });
+
+    expect(isError).toBe(false);
+    expect(data.changedFiles).toEqual(["a.ts"]);
+    // The claim is kept rather than quietly discarded: that the agent misreported its own work
+    // bears on the claims in the same submission that nothing can verify.
+    expect(data.claimedChangedFiles).toEqual(["a.ts", "tests/never-touched.test.ts"]);
+  });
+
+  test("an accurate list is recorded without flagging the agent", async () => {
+    const wt = createAgentWorktree(repo, { agentId: BACKEND, branch: "agent/exact", baseBranch: "main" });
+    getAgentRegistry().assignTask(BACKEND, "t-auth", { branch: "agent/exact", worktree: wt.path });
+    writeFileSync(join(wt.path, "a.ts"), "export const x = 4;\n");
+
+    const { data } = await call(BACKEND, "submit_code_for_review", {
+      taskId: "t-auth", requirementIds: ["AUTH-01"], branch: "agent/exact",
+      changedFiles: ["a.ts"], summary: "s", knownLimitations: "None",
+      testsPassed: 1, testsFailed: 0, testsTotal: 1, costUsd: 0.05,
+    });
+
+    expect(data.changedFiles).toEqual(["a.ts"]);
+    expect(data.claimedChangedFiles, "an accurate agent must not be flagged").toBeUndefined();
+  });
+
   test("an agent with no worktree still submits, rather than failing", () => {
     // Committing is a convenience, not a precondition: a submission recorded without one is worse
     // than none, but refusing the submission would be worse still.

@@ -21,6 +21,8 @@ export interface SubmissionView {
   requirementIds: string[];
   branch: string;
   changedFiles: string[];
+  /** Set when the agent's own file list disagreed with the repository. */
+  claimedChangedFiles?: string[];
   summary: string;
   knownLimitations?: string;
   testResults: { passed: number; failed: number; total: number };
@@ -279,6 +281,18 @@ export function ReviewQueue({ submissions, onApprove, onRequestChanges, onMerge,
                 {s.testResults.failed > 0 ? ` · ${s.testResults.failed} failing` : ""}
               </span>
               <span data-testid={`submission-cost-${s.id}`}>${s.costUsd.toFixed(2)}</span>
+              {s.claimedChangedFiles && (
+                // The agent's own file list disagreed with the repository. The count above is
+                // git's, so it is already right — this says the agent's account of its own work
+                // was not, which bears on the claims here that nothing can verify.
+                <span
+                  data-testid={`submission-misreported-${s.id}`}
+                  title={`The agent reported: ${s.claimedChangedFiles.join(", ")}`}
+                  className="text-amber-400"
+                >
+                  agent misreported its changed files
+                </span>
+              )}
               <span data-testid={`submission-requirements-${s.id}`}>{s.requirementIds.join(", ")}</span>
             </div>
 

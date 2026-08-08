@@ -695,8 +695,19 @@ projectRoutes.post("/:id/submissions/:submissionId/merge", async (c) => {
 
     // Complete each requirement whose gate is now satisfied. A gate that is not satisfied is left
     // alone rather than forced — that is the point of having one.
+    //
+    // Every unfinished requirement is re-checked, not only the ones this submission names. A
+    // requirement whose gate failed at its own merge was never looked at again, so one that became
+    // satisfiable later stayed short of complete permanently and progress under-reported for the
+    // rest of the project's life. The gate itself decides; attempting it is free and refuses.
     const completed: string[] = [];
-    for (const requirementId of submission.requirementIds) {
+    const candidates = [
+      ...submission.requirementIds,
+      ...store.getProject(projectId).requirements
+        .filter((r) => r.status !== "complete")
+        .map((r) => r.id),
+    ];
+    for (const requirementId of [...new Set(candidates)]) {
       try {
         store.completeRequirement(projectId, requirementId, actor);
         completed.push(requirementId);

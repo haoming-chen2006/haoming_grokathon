@@ -318,7 +318,15 @@ export interface CodeSubmission {
   requirementIds: string[];
   branch: string;
   worktree?: string;
+  /** What the repository says changed on the branch — verified, not the agent's word for it. */
   changedFiles: string[];
+  /**
+   * The agent's own list, recorded only when it disagreed with the repository.
+   *
+   * Present means the agent misreported its own work, which is worth showing a reviewer: it is a
+   * signal about the submission's other claims, all of which are unverifiable.
+   */
+  claimedChangedFiles?: string[];
   diff?: string;
   summary: string;
   knownLimitations?: string;
@@ -343,7 +351,15 @@ export interface CodeSubmission {
 /** A requirement is complete only when every gate below has passed (V-040). */
 export interface CompletionGate {
   implementationAccepted: boolean;
+  /** The literal fact about the submission's recorded run — not whether completion is allowed. */
   testsPassing: boolean;
+  /**
+   * The user approved this submission knowing tests were failing, and said why.
+   *
+   * Kept separate from `testsPassing` so the gate never claims a suite passed when it did not. It
+   * is what allows completion despite the failures — the decision was already made, in writing.
+   */
+  failingTestsAcknowledged?: string;
   reviewPassed: boolean;
   merged: boolean;
   designChangesReflected: boolean;

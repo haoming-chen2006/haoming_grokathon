@@ -751,6 +751,7 @@ export class ProjectStore {
       branch: input.branch!,
       worktree: input.worktree,
       changedFiles: input.changedFiles!,
+      claimedChangedFiles: input.claimedChangedFiles,
       diff: input.diff,
       summary: input.summary!,
       knownLimitations: input.knownLimitations,
