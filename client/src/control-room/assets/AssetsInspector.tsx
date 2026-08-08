@@ -6,7 +6,7 @@
  * omitted rather than defaulted when the field is absent.
  */
 import type { WorkspacePageProps } from "../shell/contract";
-import { TYPE_LABELS, type MockAsset } from "./mockAssets";
+import { TYPE_LABELS, type AssetView } from "./types";
 import { costOf, formatBytes, useAssets } from "./useAssets";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -27,7 +27,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function Cost({ asset }: { asset: MockAsset }) {
+function Cost({ asset }: { asset: AssetView }) {
   const { usd, unpriced } = costOf(asset);
   if (asset.charges.length === 0) return <Row label="Cost" value="No charges" />;
   return (

@@ -82,9 +82,17 @@ export function useShellData(): ShellData {
       }
 
       const list = Array.isArray(projects) ? projects : [];
+      // `?project=<id>` wins over "the first one in the list".
+      //
+      // The list is oldest-first, so `list[0]` is the oldest project a machine has ever had. On a
+      // machine with twenty-three of them, creating a new project appeared to do nothing: it was
+      // created, and the shell kept showing the oldest. The id is in the URL rather than in state
+      // so that a reload, a pasted link and the switcher are all the same code path.
+      const wanted = new URLSearchParams(location.search).get("project");
+      const active = list.find((p) => p.id === wanted) ?? list[0];
       setData({
         projects: list,
-        activeProject: list[0],
+        activeProject: active,
         notifications,
         loading: false,
       });

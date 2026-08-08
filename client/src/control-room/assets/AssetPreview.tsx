@@ -10,7 +10,77 @@
  * there are no real files yet. Every one of them is deliberately drawn in tokens with no imagery,
  * so nothing here can be mistaken for a rendered artefact.
  */
-import type { MockBody } from "./mockAssets";
+import type { AssetView, AssetBody, AssetFile } from "./types";
+
+/** The bytes of a file on a deliverable — `server/routes/assets.ts` serves these. */
+const fileUrl = (assetId: string, fileId: string) => `/api/assets/${assetId}/files/${fileId}`;
+
+/** Pick the file a preview should show: the source a user uploaded, else the first one there is. */
+function primaryFile(asset: AssetView): AssetFile | undefined {
+  const files = asset.files ?? [];
+  return files.find((f) => f.role === "source") ?? files[0];
+}
+
+/**
+ * A deliverable that holds real bytes, shown as itself.
+ *
+ * The structural previews below draw an asset from its *shape* and were written when no real file
+ * existed. The first genuine upload — a PDF — had no shape at all: `asset.body` was undefined and
+ * the page stopped working. A real file is previewed from the file, and only an asset without one
+ * falls through to the structural drawing.
+ *
+ * Four kinds are shown directly, which is what the owner asked for: PDF, slides, video and audio.
+ * Anything else states what it is and offers to open it, rather than rendering a broken frame.
+ */
+export function FilePreview({ asset }: { asset: AssetView }) {
+  const file = primaryFile(asset);
+  if (!file) return null;
+  const src = fileUrl(asset.id, file.id);
+  const mime = file.mime ?? "";
+
+  if (mime === "application/pdf") {
+    return (
+      <object data-testid="preview-pdf" data={src} type="application/pdf" className="h-full w-full">
+        {/* A browser that will not embed a PDF gets a link, never a blank frame. */}
+        <a href={src} target="_blank" rel="noreferrer" className="text-[13px] text-accent underline">
+          Open {asset.title}
+        </a>
+      </object>
+    );
+  }
+
+  if (mime.startsWith("image/")) {
+    return (
+      <img data-testid="preview-image" src={src} alt={asset.title} className="h-full w-full object-contain" />
+    );
+  }
+
+  if (mime.startsWith("video/")) {
+    return <video data-testid="preview-video" src={src} controls className="h-full w-full" />;
+  }
+
+  if (mime.startsWith("audio/")) {
+    return (
+      <div data-testid="preview-audio" className="flex h-full items-center justify-center p-4">
+        <audio src={src} controls className="w-full" />
+      </div>
+    );
+  }
+
+  // Slides and documents in Office formats cannot be rendered in a browser without a converter we
+  // do not have. Saying so and offering the file is the honest answer; an empty frame is not.
+  return (
+    <div data-testid="preview-file" className="flex h-full flex-col items-center justify-center gap-2 p-4">
+      <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-ghost">
+        {mime || "unknown type"}
+      </span>
+      <a href={src} target="_blank" rel="noreferrer" className="text-[13px] text-accent underline">
+        Open {asset.title}
+      </a>
+      <span className="text-[11px] text-ink-ghost">No in-page preview for this format yet.</span>
+    </div>
+  );
+}
 
 /** A line of "text" in a preview. Width varies so a paragraph reads as prose at a glance. */
 function Line({ w, strong }: { w: string; strong?: boolean }) {
@@ -25,7 +95,12 @@ function Line({ w, strong }: { w: string; strong?: boolean }) {
 
 const WIDTHS = ["96%", "88%", "92%", "78%", "84%"];
 
-export function AssetPreview({ body }: { body: MockBody }) {
+export function AssetPreview({ body }: { body?: AssetBody }) {
+  // An uploaded asset has no structural body. Undefined here used to throw on `body.kind` and take
+  // the region down; callers now prefer FilePreview, and this stays defensive because the shape
+  // arrives over a network.
+  if (!body) return null;
+
   if (body.kind === "document") {
     return (
       <div className="flex h-full flex-col gap-2.5 overflow-hidden p-4">

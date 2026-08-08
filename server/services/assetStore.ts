@@ -179,7 +179,7 @@ function isAssetType(value: unknown): value is AssetType {
  * ```text
  * <root>/<assetId>/asset.json          the envelope
  * <root>/<assetId>/files/<fileId>.<ext>  the persisted bytes
- * <root>/<assetId>/files/<fileId>.json   the per-file provenance sidecar
+ * <root>/<assetId>/files/<fileId>.meta.json   the per-file provenance sidecar
  * ```
  *
  * **The listing is derived from those directories, never from an index.** An index that can
@@ -380,15 +380,41 @@ export class AssetStore {
   }
 }
 
+/**
+ * Extension for a mime type, so a file on disk is openable by its name.
+ *
+ * Extended past the five generated kinds because a user uploads what they already have, and the
+ * first real upload was a PDF — which fell through to "bin" and produced a file nothing could open.
+ * The fallback is still "bin" rather than a guess: an unknown type with an honest extension beats a
+ * wrong one that makes an opener fail confusingly.
+ */
 const MIME_EXT: Record<string, string> = {
   "text/plain": "txt",
   "text/markdown": "md",
+  "text/html": "html",
   "text/csv": "csv",
   "application/json": "json",
+  "application/pdf": "pdf",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.ms-powerpoint": "ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/rtf": "rtf",
+  "application/zip": "zip",
   "image/png": "png",
   "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
   "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/mp4": "m4a",
+  "audio/ogg": "ogg",
   "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
 };
 
 export interface PersistFileInput {
@@ -450,7 +476,12 @@ export async function persistFile(input: PersistFileInput, store: AssetStore): P
 
   await writeFile(join(dir, `${id}.${ext}`), bytes);
   // The provenance sidecar sits beside the bytes so a directory scan can rebuild the envelope.
-  await writeFile(join(dir, `${id}.json`), JSON.stringify(descriptor, null, 2));
+  // `.meta.json`, not `.json`. The sidecar used to be `<fileId>.json`, which IS the path a stored
+  // JSON file gets — MIME_EXT maps application/json to "json" — so saving JSON wrote the bytes and
+  // then overwrote them with their own metadata, leaving an envelope whose sha256 and byte count
+  // described content no longer on disk. Found by storing TTS timings, and only because the test
+  // read the file back instead of trusting the descriptor.
+  await writeFile(join(dir, `${id}.meta.json`), JSON.stringify(descriptor, null, 2));
 
   return descriptor;
 }

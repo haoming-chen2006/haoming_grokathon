@@ -22,24 +22,22 @@ import {
   listInjectableAgents,
   listPrompts,
   listSkills,
-  listWorkflows,
+
   resolveInjection,
   type GrokSkill,
   type InjectableAgent,
   type InjectionPayload,
-  type ProjectWorkflow,
+
   type PromptTemplate,
 } from "./api";
 import { dispatchInjectResource, onOpenTools, type InjectionKind } from "./contract";
 import { PromptsSection } from "./PromptsSection";
 import { SkillsSection } from "./SkillsSection";
-import { WorkflowsSection } from "./WorkflowsSection";
 import { Button, ErrorNote, Mono, Tag } from "./ui";
 
 interface LibraryState {
   prompts: PromptTemplate[];
   skills: GrokSkill[];
-  workflows: ProjectWorkflow[];
   agents: InjectableAgent[];
   loading: boolean;
   /** Set when the server could not be read. Distinct from "the library is empty". */
@@ -49,7 +47,6 @@ interface LibraryState {
 const EMPTY: LibraryState = {
   prompts: [],
   skills: [],
-  workflows: [],
   agents: [],
   loading: true,
   error: null,
@@ -63,16 +60,15 @@ export function ToolsPanel({ projectId, section }: ToolsPanelProps) {
 
   const load = useCallback(async () => {
     try {
-      const [prompts, skills, workflows, agents] = await Promise.all([
+      const [prompts, skills, agents] = await Promise.all([
         listPrompts(),
         listSkills(),
-        listWorkflows(),
         listInjectableAgents(projectId),
       ]);
-      setState({ prompts, skills, workflows, agents, loading: false, error: null });
+      setState({ prompts, skills, agents, loading: false, error: null });
     } catch (err) {
-      // A failed read must not render as three empty lists — the user would conclude their work
-      // was lost and start again over the top of it.
+      // A failed read must not render as two empty lists — the user would conclude their work was
+      // lost and start again over the top of it.
       setState((prev) => ({
         ...prev,
         loading: false,
@@ -182,9 +178,6 @@ export function ToolsPanel({ projectId, section }: ToolsPanelProps) {
       ) : null}
       {section === "skills" ? (
         <SkillsSection skills={state.skills} reload={load} onInject={inject} injectDisabled={injectDisabled} />
-      ) : null}
-      {section === "workflows" ? (
-        <WorkflowsSection workflows={state.workflows} reload={load} onInject={inject} injectDisabled={injectDisabled} />
       ) : null}
     </div>
   );

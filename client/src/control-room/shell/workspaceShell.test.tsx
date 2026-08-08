@@ -452,7 +452,7 @@ describe("the Tools overlay", () => {
   });
 
   test("clicking the scrim is the same dismissal as Esc", async () => {
-    atUrl(workspaceUrl("agents", undefined, "workflows"));
+    atUrl(workspaceUrl("agents", undefined, "skills"));
     await mount();
     await act(async () => {
       fireEvent.click(screen.getByTestId("tools-scrim"));
@@ -498,5 +498,52 @@ describe("the Tools overlay", () => {
       fireEvent.click(screen.getByTestId("tools-close"));
     });
     expect(location.search).toBe("");
+  });
+});
+
+describe("the ? control the wireframes draw beside the theme switch", () => {
+  test("it is closed until asked, and says what this workspace is", async () => {
+    await mount();
+    expect(screen.queryByTestId("help-panel")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("help-open"));
+    });
+    const panel = screen.getByTestId("help-panel");
+    // The four facts it exists to state. Asserted by content rather than by presence, because a
+    // help panel that opens and says nothing useful passes a presence test.
+    expect(panel.textContent).toContain("Three regions");
+    expect(panel.textContent).toContain("⌘T");
+    expect(panel.textContent).toContain("An agent can only change things inside its own area");
+    expect(panel.textContent).toContain("Nobody signs in");
+  });
+
+  test("it closes again, both ways", async () => {
+    await mount();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("help-open"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("help-close"));
+    });
+    expect(screen.queryByTestId("help-panel")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("help-open"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("help-open"));
+    });
+    expect(screen.queryByTestId("help-panel")).toBeNull();
+  });
+
+  test("it announces its own state, so it is reachable without a mouse", async () => {
+    await mount();
+    const button = screen.getByTestId("help-open");
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(button.getAttribute("aria-expanded")).toBe("true");
   });
 });

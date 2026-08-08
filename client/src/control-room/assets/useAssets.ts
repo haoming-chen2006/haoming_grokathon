@@ -1,17 +1,15 @@
 /**
- * The one seam between the ASSETS page and its data.
+ * The one seam between the ASSETS page and its data — `GET /api/assets?projectId=`.
  *
- * Today it returns the contents of `./mockAssets`, which is the only module that holds fake data.
- * When `server/routes/assets.ts` exists this becomes a fetch of `GET /api/assets?projectId=…` and
- * `mockAssets.ts` is deleted; no component below changes, because none of them imports the mock.
+ * It used to return `mockAssets.ts`, a shelf of four invented deliverables with invented costs.
+ * That file is deleted and its shapes live in `./types`. An empty project now renders an empty
+ * page, which is the truth, rather than borrowing fake deliverables to look populated.
  */
 import { useEffect, useState } from "react";
-import { TYPE_ORDER, type MockAsset, type MockAssetType } from "./mockAssets";
+import { TYPE_ORDER, type AssetView, type AssetType } from "./types";
 
 export interface AssetsView {
-  assets: MockAsset[];
-  /** Present only while the data is fake, so the page can say so on the page itself. */
-  usingMockData: boolean;
+  assets: AssetView[];
   loading: boolean;
   error: string | null;
   /** Re-read the shelf. An import has to show up without a reload. */
@@ -21,13 +19,12 @@ export interface AssetsView {
 /**
  * `GET /api/assets?projectId=…`, which is `server/routes/assets.ts`.
  *
- * The store's `Asset` and the page's `MockAsset` are the same shape by construction — the mock was
- * copied from `server/services/assetStore.ts` structurally, precisely so that wiring this seam
- * changed no component below it. `usingMockData` is now always false: an empty project renders an
- * empty page, which is the truth, rather than borrowing fake deliverables to look populated.
+ * The store's `Asset` and the page's `AssetView` are the same shape by construction: `./types` was
+ * copied from `server/services/assetStore.ts` structurally, because the client must not import a
+ * server module and `GET /api/assets` is the surface both sides agree on.
  */
 export function useAssets(projectId: string): AssetsView {
-  const [assets, setAssets] = useState<MockAsset[]>([]);
+  const [assets, setAssets] = useState<AssetView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,11 +42,11 @@ export function useAssets(projectId: string): AssetsView {
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
-        // Checked rather than asserted. `as MockAsset[]` is a claim about a value that came over a
+        // Checked rather than asserted. `as AssetView[]` is a claim about a value that came over a
         // network; when the body was anything else, `assets.filter` threw during render and took
         // the region down with it. Every fetch in this product has to do this.
         if (!Array.isArray(body)) throw new Error("GET /api/assets did not return a list of assets");
-        return body as MockAsset[];
+        return body as AssetView[];
       })
       .then((list) => { if (live) { setAssets(list); setError(null); } })
       .catch((err) => { if (live) setError(err instanceof Error ? err.message : String(err)); })
@@ -57,11 +54,11 @@ export function useAssets(projectId: string): AssetsView {
     return () => { live = false; };
   }, [projectId, nonce]);
 
-  return { assets, usingMockData: false, loading, error, refresh: () => setNonce((n) => n + 1) };
+  return { assets, loading, error, refresh: () => setNonce((n) => n + 1) };
 }
 
 /** Deliverables of one type, in the navigator's order. Empty types are still listed, with a zero. */
-export function byType(assets: MockAsset[]): { type: MockAssetType; items: MockAsset[] }[] {
+export function byType(assets: AssetView[]): { type: AssetType; items: AssetView[] }[] {
   return TYPE_ORDER.map((type) => ({ type, items: assets.filter((a) => a.type === type) }));
 }
 
@@ -73,7 +70,7 @@ export function byType(assets: MockAsset[]): { type: MockAssetType; items: MockA
  * because no rate exists is the same defect as inventing a figure. So this returns the priced
  * subtotal and the count of charges that could not be priced, and the UI states both.
  */
-export function costOf(asset: MockAsset): { usd: number; unpriced: number } {
+export function costOf(asset: AssetView): { usd: number; unpriced: number } {
   let usd = 0;
   let unpriced = 0;
   for (const charge of asset.charges) {
@@ -83,7 +80,7 @@ export function costOf(asset: MockAsset): { usd: number; unpriced: number } {
   return { usd, unpriced };
 }
 
-export function formatCost(asset: MockAsset): string {
+export function formatCost(asset: AssetView): string {
   // No charges at all is not a price of zero. A user upload cost nothing because no agent ran, and
   // rendering "$0.00" there reads as a figure we computed — which is how a fabricated number gets
   // into a UI that was careful everywhere else. Caught by a smoke render, which found "$0.00" on

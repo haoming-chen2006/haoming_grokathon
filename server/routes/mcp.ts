@@ -30,7 +30,17 @@ mcpRoutes.all("/:projectId/:agentId", async (c) => {
     // An unknown agent gets the safe default: read-only.
   }
 
-  const server = createProjectMcpServer({ projectId, agentId, canWriteDocument });
+  // The agent's own capability decides which media tools exist for it. Without this every agent
+  // got the base default and nothing in production could generate anything: the gate was real and
+  // nothing could open it (R-2, loops/handoff/pivot-media.md).
+  let capabilities: { images: boolean; voice: boolean } | undefined;
+  try {
+    capabilities = getAgentRegistry().get(agentId).capabilities;
+  } catch {
+    // An unknown agent keeps the safe default, same as canWriteDocument above.
+  }
+
+  const server = createProjectMcpServer({ projectId, agentId, canWriteDocument, capabilities });
 
   // Stateless mode: each request carries its own transport, so concurrent agents cannot collide
   // on a shared session and a crashed request cannot poison later ones.

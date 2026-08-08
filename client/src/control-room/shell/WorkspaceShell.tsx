@@ -377,6 +377,66 @@ function Slot({
   );
 }
 
+/**
+ * The `?` both wireframes draw beside the theme control, and the last thing missing from the
+ * toolbar they specify.
+ *
+ * It says the four things this shell can state without asking anything: what the three regions
+ * are, the one shortcut, the rule every page is built on, and that nothing about identity is
+ * enforced. All four are facts about this product rather than documentation kept somewhere else,
+ * which is what stops a help panel going stale the week after it is written.
+ */
+function Help() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        data-testid="help-open"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label="What this workspace is"
+        title="What this workspace is"
+        className="grid h-6 w-6 place-items-center rounded-[5px] border border-border text-[13px] text-ink-faint hover:bg-surface-hover"
+      >
+        ?
+      </button>
+      {open ? (
+        <div
+          data-testid="help-panel"
+          role="dialog"
+          aria-label="What this workspace is"
+          className="absolute right-0 top-9 z-20 flex w-[320px] flex-col gap-2 rounded-lg border border-border-strong bg-surface-active p-3 text-[13px] leading-snug text-ink-muted shadow-panel"
+        >
+          <p>
+            Three regions on every page: the list on the left, the work in the middle, the
+            properties of whatever is selected on the right. Drag the edges; the widths are
+            remembered.
+          </p>
+          <p>
+            <span className="font-mono text-[11px] text-ink">⌘T</span> opens Tools over any page
+            without losing it. Esc closes it.
+          </p>
+          <p>An agent can only change things inside its own area.</p>
+          <p className="text-ink-faint">
+            Nobody signs in, so nothing about who may do what is enforced yet. The Users page says
+            what that means.
+          </p>
+          <button
+            type="button"
+            data-testid="help-close"
+            onClick={() => setOpen(false)}
+            title="Close"
+            className="self-start rounded border border-border px-2 py-0.5 text-[12px] text-ink-faint hover:bg-surface-hover"
+          >
+            Close
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function WorkspaceShell() {
   const { route, go, select, openTools, closeTools } = useWorkspaceRoute();
   const { theme, toggle } = useTheme();
@@ -429,9 +489,35 @@ export function WorkspaceShell() {
         <span data-testid="toolbar-project" className="min-w-0 truncate text-ink">
           {project ? project.name : data.loading ? "" : "No project yet"}
         </span>
+        {/*
+          The switcher both wireframes draw as a ▾ beside the project name. It was not built, and
+          the shell always selected the oldest project on the machine — so a workspace with
+          twenty-three projects could reach exactly one of them, and creating a new one looked like
+          it had failed. Selection lives in the URL, so this is a link, not state.
+        */}
+        {data.projects.length > 1 ? (
+          <select
+            data-testid="project-switcher"
+            aria-label="Switch project"
+            value={project?.id ?? ""}
+            onChange={(e) => {
+              const url = new URL(location.href);
+              url.searchParams.set("project", e.target.value);
+              location.assign(url.toString());
+            }}
+            className="max-w-[13rem] rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-ink-faint"
+          >
+            {data.projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
         <div className="flex-1" />
         <Spend spend={UNPRICED} />
         <span aria-hidden="true" className="h-4 w-px bg-border" />
+        <Help />
         <button
           type="button"
           data-testid="tools-open"

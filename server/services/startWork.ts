@@ -22,8 +22,8 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { getProjectStore } from "./projectStore";
-import { seedDefaultTeam } from "./agentTeam";
 import { parseDeclaration } from "./designDoc";
+import { getWorkAreaStore } from "./workArea";
 import type { CodingAgent } from "../types/agent";
 
 function workspacesDir(): string {
@@ -66,6 +66,7 @@ export interface StartWorkResult {
   workspace: string;
   agents: CodingAgent[];
   requirementIds: string[];
+  areaIds: string[];
   areaNames: string[];
   /** Present when the document's `project` block did not parse; the project is still created. */
   declarationErrors?: { line: number; message: string }[];
@@ -122,13 +123,56 @@ export function startWork(params: {
     }
   }
 
-  const agents = seedDefaultTeam(project.id, { budgetUsd: project.budgetUsd });
+  /**
+   * One colour box per declared area, created empty.
+   *
+   * The board is areas, and an area is what an agent is confined to — so a project with none is a
+   * board with nothing to click and no boundary to enforce. They are created here, at the moment the
+   * document declares them, rather than when a plan is generated: the areas are the user's own
+   * headings and exist whether or not anyone has planned anything yet.
+   *
+   * Each one is EMPTY: a name, a colour, a milestone, and no agent. Clicking it is how an agent gets
+   * put inside.
+   */
+  const areaIds: string[] = [];
+  const areaStore = getWorkAreaStore();
+  for (const [i, area] of (declared?.areas ?? []).entries()) {
+    try {
+      const created = areaStore.create({
+        projectId: project.id,
+        name: area.name,
+        // The line the area was declared on is its anchor in the document — that is what makes an
+        // area a region of the brief rather than a label beside it.
+        briefSectionAnchor: `L${area.line}`,
+        milestoneId: `m${i + 1}`,
+        rootPath: workspace,
+      });
+      areaIds.push(created.id);
+    } catch {
+      // A rejected area must not lose the project; the board shows what landed.
+    }
+  }
+
+  /**
+   * No team is seeded. The areas ARE the project's shape, and an agent is hired into one.
+   *
+   * Five agents used to appear the moment a document was pasted — Planner, Backend, Frontend, Test,
+   * Reviewer — which was the retired coding product's roster arriving in a workspace that makes
+   * slides. It also pre-answered the question the board exists to ask: an agent's capability is
+   * what it may spend on, and choosing that is the user's decision, taken on the box it will work
+   * in. A seeded agent is one nobody chose.
+   *
+   * `seedDefaultTeam` is still used by POST /api/projects, where a caller that wants the old
+   * behaviour can still ask for it.
+   */
+  const agents: CodingAgent[] = [];
 
   return {
     projectId: project.id,
     workspace,
     agents,
     requirementIds,
+    areaIds,
     areaNames: (declared?.areas ?? []).map((a) => a.name),
     declarationErrors: parsed.ok ? undefined : parsed.errors,
   };
