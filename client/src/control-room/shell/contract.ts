@@ -39,6 +39,13 @@ export interface PageDescriptor {
   segment: string;
   /** headline pages render above the navigator divider; secondary below it. */
   rank: "headline" | "secondary";
+  /**
+   * The branch that builds this page. ADDED ITERATION 3, additive and optional.
+   *
+   * Read only by the unmerged-slot notice, so it can say which branch owns the hole rather than
+   * leaving the reader to guess. No page component sees it.
+   */
+  builtBy?: string;
   /** Required once merged. Renders into MAIN. */
   main?: WorkspacePageComponent;
   /** Optional. Renders in the NAVIGATOR beneath the page selector. */

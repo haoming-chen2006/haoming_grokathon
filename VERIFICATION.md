@@ -5416,7 +5416,7 @@ an unfinished piece of work.**
 Branch `pivot/shell`, worktree 07-shell, **merge slot FIRST**. The rows above (V-001…V-052) belong
 to the retired coding product and are not this loop's to update or delete.
 
-**Tally after iteration 2:** 2 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED.
+**Tally after iteration 3:** 2 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED.
 
 ```text
 SHELL-001  PASS         the contract is published
@@ -5425,9 +5425,9 @@ SHELL-003  NOT TESTED   --common_version opens the workspace
 SHELL-004  NOT TESTED   the shim cannot recurse            (will end BLOCKED-ON-RECONCILE, R-6)
 SHELL-005  NOT TESTED   -- ends the flag scan
 SHELL-006  NOT TESTED   a second invocation does not start a second server
-SHELL-007  NOT TESTED   three regions, resizable, addressable
+SHELL-007  NOT TESTED   three regions, resizable, addressable  (3 of 5 clauses, iteration 3)
 SHELL-008  NOT TESTED   five page slots and the Tools overlay
-SHELL-009  NOT TESTED   light and dark both render         (1 of 4 clauses evidenced, iteration 2)
+SHELL-009  NOT TESTED   light and dark both render         (3 of 4 clauses evidenced, iteration 3)
 SHELL-010  PASS         no raw colour token can enter shell-owned code
 SHELL-011  NOT TESTED   status is never colour alone       (2 of 5 clauses evidenced, iteration 2)
 SHELL-012  NOT TESTED   no OpenUI string is reachable from the browser
@@ -5837,3 +5837,194 @@ bun test (whole suite)           still carries the contention timeouts recorded 
   this worktree's migration (§2.1 item 8): those components are being replaced wholesale by
   01/02/03, and migrating a dying component is work performed twice and thrown away once. What
   changed is that the tokens they will be replaced *with* now exist and are measured.
+
+## Iteration 3 — the region shell, the router, and an audit against A-0
+
+Row 3 of §3.9. Also: the owner's wireframe was extracted and compared against §3.1, and everything
+built so far was audited against `grok-workspace.md` §3.3.1 (A-0), which post-dates the loop
+document.
+
+### The router decision, taken rather than escalated
+
+§3.4 left it unverified and §6 says to stop and ask when *a router dependency must be added*. It
+does not have to be:
+
+```text
+$ for b in pivot/agents pivot/assets pivot/design-docs pivot/generation pivot/software \
+           pivot/tools-cost pivot/users-x pivot/guide main; do
+    git show $b:client/package.json | grep -c router; done
+0 0 0 0 0 0 0 0 0
+```
+
+No branch has a router, so hand-rolling adds no dependency, no `package.json` request, and no risk
+of two worktrees adding different ones — which is the specific conflict §6 exists to prevent. The
+routing is ~140 lines in `client/src/control-room/shell/router.ts`, inside this worktree's own
+directory, and it is the seam to delete if the owner ever adds a library: the shell calls
+`useWorkspaceRoute()` and `navigate()` and nothing else.
+
+### The failure, reproduced first
+
+```text
+$ grep -n "useState<Tab>" client/src/control-room/ControlRoomApp.tsx
+29:  const [tab, setTab] = useState<Tab>("agents");     ← the whole router
+$ grep -rn "pushState\|popstate" client/src | wc -l
+0
+$ grep -n 'className="w-72\|className="w-80' client/src/control-room/ControlRoomApp.tsx
+215:  <aside className="w-72 shrink-0 …">      ← fixed, no handle, no persisted width
+346:  <aside className="w-80 shrink-0 …">
+$ grep -c 'data-testid="\(team-error\|repo-missing\|control-room-error\|budget-alert\)"' …
+   four of the six stacked banners, plus SetupBanner and auth-alert
+```
+
+### SHELL-007 — Three regions, resizable, addressable — **NOT TESTED**, 3 of 5 clauses
+
+```text
+✓ navigator, main and inspector render on every page
+    Asserted for all five pages. client/src/control-room/shell/workspaceShell.test.tsx.
+
+✓ each side region collapses and resizes, and its width survives a reload
+    Double-click collapses; the collapse survives a remount. ArrowRight resizes by 16px; the new
+    width survives a remount. A stored width outside the bounds is clamped rather than honoured,
+    unreadable geometry falls back to the default, and the legacy openui-sidebar-pct key is not
+    reused. Mouse-drag resize is implemented and is NOT separately evidenced — the keyboard path
+    and the pure layout() function are what the tests drive.
+
+✓ the six stacked banners are replaced by one notification surface, and two simultaneous alerts
+  render as two rows in it rather than two full-width strips
+    Driven directly with two alerts: one surface element, two rows, each independently
+    dismissible, the surface disappearing only when the last row goes. Driven through the shell
+    with its one real alert source (Grok not installed).
+
+~ every page and every selected object has a URL that restores it, and workspaceUrl() produces it
+    PAGES: evidenced end to end — clicking writes the URL, a cold mount at that URL restores it.
+    SELECTED OBJECTS: evidenced at the router level only (parse/format round-trips every id,
+    including "deck/v2 final", "a+b" and "100%"). It cannot be evidenced end to end here: no page
+    is merged, so there is nothing in MAIN to select. Held rather than claimed.
+
+~ the browser back button moves between pages and between selections
+    PAGES: the shell re-reads location on popstate rather than holding its own copy, asserted by
+    dispatching the event. Recorded honestly: happy-dom does not schedule popstate for
+    history.back() the way a browser does, so this proves the shell's half of the contract, not
+    the browser's. SELECTIONS: same gap as above.
+```
+
+Five mutation probes, each applied and reverted:
+
+```text
+PROBE 12  drop the popstate listener (hold the page in state instead of reading the URL)
+            (fail) the back button moves between pages
+PROBE 13  drop the pushState notification — pushState does not fire popstate
+            (fail) clicking a page writes its url and renders that page  (+2 more)
+PROBE 14  remove the divider between the headline and secondary pages
+            (fail) three headline pages sit above the divider and two secondary ones below it
+PROBE 15  render a fabricated $0.00 instead of "unknown"
+            (fail) renders the spend as unknown rather than as a fabricated $0.00
+PROBE 16  let an unmerged slot render an empty <div> instead of saying it is unmerged
+            (fail) every slot says which branch builds it, and shows no empty list or spinner
+```
+
+### SHELL-009 — Light and dark both render — **NOT TESTED**, 3 of 4 clauses
+
+```text
+✓ index.css contains no hardcoded colour outside the two :root blocks   (iteration 2)
+✓ a theme control switches both themes with no reload
+    The toolbar control flips the class on <html> and back. Asserted without hardcoding the
+    starting theme — happy-dom answers prefers-color-scheme, and an earlier draft of this test
+    asserted a fixed starting point and passed for the wrong reason.
+✓ the choice persists and wins over prefers-color-scheme in both directions
+    Stored light with an OS preferring dark resolves light, and the reverse; clearing the
+    override returns to the OS. localStorage is the boot cache, PUT /api/settings the durable
+    record.
+✗ no page load flashes the wrong theme — still BLOCKED-ON-RECONCILE. main.tsx now stamps the
+    class before the first render, but by then the browser has already painted once. Only the
+    inline script in client/index.html prevents the flash, and that file is hot: request R-2.
+```
+
+### The shell is reachable from the running application
+
+A passing test proves a unit works, not that anything calls it — this repository has shipped a
+whole control-room UI that was tested and never imported. `client/src/main.tsx` now mounts
+`WorkspaceShell` for the five workspace paths, and the reachability audit agrees:
+
+```text
+before  test-only helpers: 3   (testSupport.ts, shell/contract.ts, shell/pages.ts)
+after   test-only helpers: 1   (testSupport.ts)
+        reached from an entry point: 100
+```
+
+`/` is deliberately not claimed yet. §3.4 gives it to the workspace, but taking it here would
+retire the legacy canvas as a side effect of a routing change; that retirement is row 6, done
+deliberately with the identity strings and the view toggle.
+
+### The wireframe, and where it disagrees with §3.1
+
+`assets-page.html` was read and compared clause by clause; the full extraction, every disagreement
+and every decision is in `loops/handoff/pivot-shell.md`. Three things belong in the ledger:
+
+1. **The brief's premise was wrong and was not worked around.** It described the design as having
+   no toolbar, no inspector and no visible spend figure. All three are present — a 44px toolbar
+   carrying `$18.40 / $50.00` with a 37% meter, and a 320px right-hand inspector whose width
+   matches §3.1's figure exactly. The design and the spec agree on all three.
+2. **One real disagreement, resolved toward the spec:** the wireframe selects pages in a
+   horizontal strip and gives the left rail entirely to the page's list; §3.1 puts both in the
+   navigator. The spec won because the published contract already says `PageDescriptor.navigator`
+   renders "beneath the page selector", and seven worktrees have had that text since iteration 1 —
+   moving the selector is a contract change, not a layout preference. The wireframe's *treatment*
+   was adopted inside the spec's *placement*.
+3. **Its palette and typography were not taken.** The file sets `font-family:'Patrick Hand'`, a
+   handwriting face, with outline-only boxes — sketch notation, not a visual specification. Its
+   accent `#8fb0ff` was left in favour of the published GrokNight/GrokDay pair, and that is
+   recorded as a two-line owner decision rather than a silent choice.
+
+### A-0 audit — no violation
+
+`grok-workspace.md` §3.3.1 post-dates `loops/07-shell.md`. Everything built so far was audited
+against it.
+
+```text
+grep -rniE "agent|capability|worker|job|generat|model|api.x.ai|completion|imagine"
+     over shell/**, main.tsx, index.css, tailwind.config.js
+
+  every "agent" hit  a page id, a URL segment, a label, a branch name, a file path, or prose
+  zero               worker, job runner, task queue, chat-completion client
+  zero               api.x.ai, image_gen, image_to_video
+  two fetch() calls  /api/projects + /api/grok/status (useShellData), /api/settings (theme)
+```
+
+The shell owns no domain logic by construction, so it has no agent to get wrong. Two positive
+signals rather than mere absence: its only alert reads "Grok is not installed, so agents cannot
+start", which is A-0 as a user-facing consequence; and the spend renders "unknown" rather than
+inventing a cheaper plausible number, which is the opposite of the A-0 trap.
+
+Two documentation fixes, no code change: `loops/07-shell.md` said the inspector "shows that the
+Slides agent has Imagine capability while Research does not", which reads as two kinds of agent —
+rewritten to say Slides holds the grant *on top of* what every agent can already do. And the
+wireframe notes passed to 02-assets now state that `BASE + IMAGES` must be read literally as an
+addition to a whole agent. One forward-looking risk is flagged for 04/05/06 rather than checked:
+"workflow" is the most natural word in the product for a job runner to hide behind, and the shell
+cannot see how a workflow executes.
+
+### The gate, iteration 3
+
+```text
+tsc --noEmit (server + client)   exit 0
+bun run build                    exit 0 — built in 1.98s
+bun run audit (4 audits)         0 orphans · every endpoint has a caller · 0 unclassified
+                                 indicators · every cited file resolves
+bun test (shell files)           124 pass / 0 fail across 4 files, 786 assertions
+bun test (whole suite)           the contention timeouts recorded under iteration 1 persist;
+                                 unchanged by this work, which touches no server file
+```
+
+### What did not move
+
+* **SHELL-008 (five slots and the Tools overlay)** — the five slots and `NotMergedYet` landed as
+  part of the frame, but the Tools overlay, its scrim, its Esc handling and its `?tools=` mount
+  are not built. The router already carries `openTools` / `closeTools` and the query parameter
+  round-trips; nothing renders it yet.
+* **SHELL-002…006** — still waiting on the owner's answer about PATH shadowing.
+* **SHELL-011** — unchanged at 2 of 5 clauses. The three outstanding ones live in components R-7
+  has not been applied to.
+* **No screenshot of either theme yet.** The shell is now something that can be looked at, which
+  is what SHELL-009 and SHELL-011 have been waiting for; neither is claimed from arithmetic and
+  assertions alone.

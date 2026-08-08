@@ -26,9 +26,18 @@ presentation" and four agents — Research in the design document, X on the acco
 Imagine capability, Video with voice plus Imagine — go to work. The shell's whole contribution is
 that this is legible at a glance: the navigator names three places and no jargon, the design
 document is one click from the front door, the toolbar carries one number that goes up, ASSETS
-shows every deliverable landing, and the inspector shows that the Slides agent has Imagine
-capability while Research does not. If a shell decision makes any of those five harder to see, it is
-the wrong decision.
+shows every deliverable landing, and the inspector shows that the Slides agent holds the Imagine
+grant on top of everything every agent can already do, while Research holds base Grok. If a shell
+decision makes any of those five harder to see, it is the wrong decision.
+
+**Read that last one under `grok-workspace.md` §3.3.1 (A-0), which post-dates this document.** All
+four are real `grok` processes over ACP with Grok Build's whole native surface — file editing,
+shell, web and X search, skills, hooks, subagents, slash commands, MCP servers, session resume.
+Capability *adds*: `base Grok` is that full surface with no media APIs, `+images` is the same full
+surface plus our image endpoints. So the inspector's capability row shows a **grant on top of a
+whole agent, never a smaller agent**, and no shell copy may imply that a Research agent is a lesser
+thing than a Slides agent. The two words to keep out of every shell string: an agent is never a
+"worker" and never a "job".
 
 ---
 

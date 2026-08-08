@@ -13,11 +13,11 @@
 import type { PageDescriptor, ToolsPanelComponent } from "./contract";
 
 export const PAGES: PageDescriptor[] = [
-  { id: "agents", label: "Agents", segment: "agents", rank: "headline" },
-  { id: "assets", label: "Assets", segment: "assets", rank: "headline" },
-  { id: "designdocs", label: "Design Documents", segment: "designdocs", rank: "headline" },
-  { id: "users", label: "Users", segment: "users", rank: "secondary" },
-  { id: "x", label: "X", segment: "x", rank: "secondary" },
+  { id: "agents", label: "Agents", segment: "agents", rank: "headline", builtBy: "01-agents" },
+  { id: "assets", label: "Assets", segment: "assets", rank: "headline", builtBy: "02-assets" },
+  { id: "designdocs", label: "Design Documents", segment: "designdocs", rank: "headline", builtBy: "03-design-docs" },
+  { id: "users", label: "Users", segment: "users", rank: "secondary", builtBy: "08-users-x" },
+  { id: "x", label: "X", segment: "x", rank: "secondary", builtBy: "08-users-x" },
 ];
 
 /** Set by reconciliation to 06-tools-cost's ToolsPanel. The overlay frame itself is the shell's. */

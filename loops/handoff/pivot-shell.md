@@ -503,3 +503,214 @@ Three notes for whoever applies it:
 orange, which reads backwards. The tokens preserve it so the migration stays mechanical. Swapping
 them is a one-line change to the two blocks above *and* to the two `--status-idle-*` /
 `--status-failed-*` groups in `index.css`, on the day the owner says so.
+
+---
+
+## The owner's wireframe, extracted and compared against §3.1 (iteration 3)
+
+Reference: `assets-page.html` in the main checkout — a bundled React page whose markup is
+server-rendered inline-styled HTML. **Not copied into the repository.** What follows is everything
+this worktree took from it, and every place it and `loops/07-shell.md` §3.1 disagree.
+
+### First, a correction to the brief
+
+The task described the design as containing "no toolbar, no inspector and no visible spend figure".
+All three are present. Quoting the file:
+
+```html
+<!-- toolbar: 44px, and it carries the spend -->
+<div style="display:flex;align-items:center;gap:14px;height:44px;padding:0 14px;
+            border-bottom:1px solid rgba(255,255,255,.1);font-size:15px">
+  … <div>Aeris Chairs — Q3 sales push</div> <div style="flex:1"></div>
+  <div style="font:500 11px 'IBM Plex Mono',monospace">$18.40 / $50.00</div>
+  <div style="width:96px;height:7px;border:1px solid rgba(255,255,255,.28)">
+    <div style="width:37%;height:100%;background:#8fb0ff"></div></div>
+  <div style="width:1px;height:16px;background:rgba(255,255,255,.15)"></div>
+  <div …>?</div><div …>☾</div>
+</div>
+
+<!-- inspector: 320px, right-hand -->
+<div style="width:320px;flex:none;border-left:1px solid rgba(255,255,255,.13);padding:16px 14px">
+  ASSET / overall_sale_doc / PROVENANCE / Made by · Capability · Cost · Declared by · Updated
+  / READ BY / Open · Export · Feed to an agent
+</div>
+```
+
+So the design and §3.1 **agree** on all three — including the inspector's width, 320px, exactly the
+spec's figure. Recorded rather than quietly worked around, because a decision taken to reconcile a
+conflict that does not exist is a decision taken for no reason.
+
+### What was adopted
+
+Structure and measurement, which is what a wireframe is for:
+
+```text
+toolbar        height 44 · padding 0/14 · gap 14 · hairline bottom rule · 15px
+spend          mono 11px, right-aligned, with a 96×7 meter beside it
+controls       24×24, radius 5, 1px rule, separated from the spend by a 1×16 divider
+regions        navigator | main | inspector, hairline rules between
+navigator      padding 14/12 · gap 10 · 14px
+inspector      width 320 · padding 16/14 · gap 14 · 14px
+section label  mono 10px · uppercase · letter-spacing .08em · quietest ink
+type scale     18 title · 16 card · 15 toolbar/headline · 14 body/secondary · 13 meta ·
+               11 mono numerals · 10 mono labels
+page treatment headline = bordered pill, full size; secondary = plain, one step down, quieter;
+               active = accent rule + a ~14% accent wash
+divider        1px rule between the three headline pages and the two secondary ones
+```
+
+### Where they disagree, and which one won
+
+**1. Where the pages live. THE SPEC WON.**
+The wireframe selects pages in a horizontal strip spanning the full width, above all three regions,
+and gives the 262px left rail entirely to the current page's list. §3.1 puts both in the navigator:
+"The navigator holds the pages and the current page's list. Nothing else navigates."
+
+Spec, for two reasons that are not stylistic. First, the published contract already assumes it:
+`PageDescriptor.navigator` is documented as rendering "in the NAVIGATOR beneath the page selector",
+and seven worktrees have had that text since iteration 1 — moving the selector out of the navigator
+changes what that slot means, which is a contract change after publication. Second, §3.1's stated
+failure is "three navigation surfaces in one screen", and the fix it names is consolidation into
+one rail.
+
+Worth saying plainly: the wireframe's arrangement is not the defect §3.1 describes. Its strip is
+above all three regions, not a tab bar inside MAIN. If the owner prefers it, it is a legitimate
+alternative — but it is a contract change, so it is a decision, not an implementation detail.
+**The wireframe's treatment was adopted inside the spec's placement**: headline pages are bordered
+rows at 15px, secondary are plain rows at 14px in a quieter ink, with a rule between them.
+
+**2. Navigator width. THE SPEC WON, and it barely matters.** Wireframe 262, spec 288 default /
+220 minimum. 262 is inside the resizable range either way.
+
+**3. The inspector contains actions and a link. UNRESOLVED — owner's call.**
+The wireframe's inspector ends in `Open · Export · Feed to an agent` and includes
+`Declared by → chair_launch_plan` as an `<a href>`. §3.1: "The inspector shows properties, never
+navigation. An inspector that can change what MAIN displays is a second navigator."
+
+Actions that operate on the current selection (Open, Export) do not change what MAIN displays and
+read as compatible. `Declared by → chair_launch_plan` is a jump from the ASSETS page to a design
+document, which is navigation by any reading. It is also genuinely useful, and it is the
+provenance link the product's whole "the document declares the work" claim depends on.
+
+Not decided here, and not enforced on anybody: **02-assets and 03-design-docs, you own your
+inspector's markup.** The shell asserts nothing about it. The rule as this worktree reads it: an
+inspector may act on the selection freely, and may deep-link with `workspaceUrl()`, but a link
+should be a deliberate, labelled jump rather than a second list of things to pick from.
+
+**4. Fonts. THE SPEC WON by default — the wireframe is a wireframe.**
+It sets `font-family:'Patrick Hand'`, a handwriting face, with outline-only boxes and no fills.
+That is sketch notation, not a visual specification, and reading its typography literally would
+ship a handwritten UI. `'IBM Plex Mono'` for numerals is a real and good idea, but adding a webfont
+is a `client/index.html` change and therefore a hot-file request; the existing `font-mono` stack
+(JetBrains Mono / Fira Code / SF Mono) carries the same intent at no cost. Filed as a possible
+future R-request rather than taken.
+
+**5. The accent colour. NOT TAKEN — owner's call, and it is one line either way.**
+The wireframe's accent is `#8fb0ff`, a periwinkle blue. The published palette's accent is
+GrokNight's magenta `#bb9af7` / GrokDay's purple `#7D4BC6`.
+
+Token *names* are the contract and token *values* are this worktree's, so changing it breaks
+nothing on anyone's branch — `--accent` in the two `:root` blocks, twice. Not taken because the
+stated reason for sourcing both palettes from `groknight.rs` and `grokday.rs` was that the
+workspace and the terminal should read as one product, and a blue accent abandons that for a
+wireframe's placeholder. Say the word and it is a two-line change with a re-measured contrast pair.
+
+**6. Everything the wireframe cannot express.** It is a static 1320×700 mock: dark only, fixed
+widths, no resize handles, no collapse, no light theme, no empty states, no unmerged slots. §3.1
+requires every region collapsible and resizable with persisted widths, and both themes. Built to
+the spec; nothing inferred from the mock's silence.
+
+### Signals passed on to other worktrees
+
+* **02-assets** — the wireframe's Assets navigator is search-first: a search field, filter chips
+  (All · Docs · Slides · Video · More…), a `4 OF 212 MATCH` count, then results, then a RECENT
+  group, and the footer line "Type to search all 212 assets. Nothing is listed until you ask."
+  That is a deliberate stance about a 212-item list and it is yours, not the shell's.
+* **02-assets** — its inspector is ASSET → PROVENANCE (Made by · Capability · Cost · Declared by ·
+  Updated) → READ BY → actions. Cost per asset is shown at `$0.31` / `$1.05` / `$4.06` / `$5.52`
+  precision.
+* **06-tools-cost** — the wireframe shows spend as `$18.40 / $50.00` with a 37%-filled meter. That
+  is the shape the toolbar takes the day a ledger exists. Until then it renders "spend unknown",
+  per §3.9; the slot and the meter are already written.
+* **06-tools-cost** — the Tools affordance in the wireframe is a labelled button with a `⌘T`
+  shortcut. The shell owns the shortcut and the overlay; you own what is inside.
+
+## Finding for every worktree: happy-dom starts at `about:blank`
+
+Not a request. `client/happydom.ts` calls `GlobalRegistrator.register()` with no URL, so in every
+test `location.href` is `about:blank` and **`location.pathname` is the string `"blank"`**. A
+relative `history.replaceState(null, "", "/assets")` cannot resolve against it.
+
+The failure mode is quiet: a component that reads the path sees nothing, falls back to its default,
+and a test asserting the default passes while proving nothing. Three of this worktree's routing
+tests did exactly that before it was noticed.
+
+Fix inside your own test file, no shared edit needed:
+
+```ts
+(window as unknown as { happyDOM: { setURL(u: string): void } }).happyDOM.setURL("http://localhost/assets");
+```
+
+After that, relative `pushState` / `replaceState` work normally. Adding a `url` option to
+`GlobalRegistrator.register()` in `client/happydom.ts` would fix it once for everyone, but that
+file is unassigned and therefore hot, so it is recorded here rather than changed.
+
+---
+
+## A-0 audit of the shell (iteration 3)
+
+`grok-workspace.md` §3.3.1 was added after `loops/07-shell.md` was written. Audited everything this
+worktree has built against it. **Result: no violation, and nothing that makes room for one.**
+
+What was checked and what was found:
+
+```text
+grep -rniE "agent|capability|worker|job|generat|model|api.x.ai|completion|imagine"
+    over client/src/control-room/shell/**, client/src/main.tsx, client/src/index.css,
+    client/tailwind.config.js
+
+  every "agent" hit is one of: the page id "agents", the URL segment /agents, the label
+  "Agents", the branch name 01-agents, a file path (AgentCard.tsx), or prose about where a
+  notification points. No hit is an executor.
+  zero  worker / job runner / task queue of any kind
+  zero  api.x.ai, image_gen, image_to_video, or any media call
+  zero  chat-completion client
+  two   fetch() calls in shell code, both to endpoints that exist on the merge base:
+          useShellData.ts  GET /api/projects, GET /api/grok/status
+          theme.ts         PUT /api/settings
+```
+
+The shell owns no domain logic by construction (§0), so it has no agent to get wrong. Two positive
+signals rather than mere absence:
+
+* `useShellData.ts` raises exactly one alert, and its text is **"Grok is not installed, so agents
+  cannot start."** The shell already treats a `grok` binary as the precondition for an agent
+  existing at all, which is A-0 stated as a user-facing consequence.
+* The spend slot renders "unknown" rather than `$0.00` because no Grok model has a rate. That is
+  the opposite of the A-0 trap: it refuses to make a number up rather than quietly substituting
+  something cheaper and plausible.
+
+**Two places where the vocabulary could be walked into the trap by someone reading my notes, now
+corrected rather than left ambiguous:**
+
+1. The wireframe extraction above passes `PROVENANCE → Capability` to 02-assets, and the wireframe
+   labels assets `BASE + IMAGES` and `BASE + IMAGES + VOICE`. Read under A-0 that notation is
+   already right and should be kept literally: **`+` means added to the whole agent.** A capability
+   row must never be rendered as a *type* of agent, a tier name that replaces "Grok agent", or a
+   badge that implies Research can do less than Slides. Research is a full Grok Build agent that
+   has not been granted media endpoints; that is the only difference.
+2. `loops/07-shell.md`'s demo paragraph said the inspector "shows that the Slides agent has Imagine
+   capability while Research does not", which reads as two kinds of agent. Rewritten this iteration
+   to say Slides holds the Imagine grant *on top of* what every agent can already do.
+
+**One forward-looking risk this worktree's contract names but does not own.** `ToolsPanelProps`
+has `section: "prompts" | "skills" | "workflows"`, and "workflows" is also one of the five asset
+types. That word is the most natural place in the whole product for a job runner to be smuggled in
+wearing an agent's name — the wireframe even shows `MADE BY WORKFLOW · Script → Storyboard → Render
+· loop ran 3 times`. **04-generation, 05-software, 06-tools-cost:** a workflow is a thing an agent
+runs, not a runner that replaces one. If a workflow step executes without a `grok` process, that is
+the exact failure A-0 describes. The shell asserts nothing here — it cannot see how a workflow
+executes — so this is a flag, not a check.
+
+**Nothing needs fixing in shell code.** No file was changed for A-0 this iteration; two documents
+were.
