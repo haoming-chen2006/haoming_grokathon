@@ -4617,6 +4617,73 @@ bun run acceptance → all 20 steps
 
 ---
 
+## Merging settled nothing, and three UI controls were dead (iteration 76)
+
+Continuing the user walk. After a successful merge the state was:
+
+```text
+task        needs_review     (not complete)
+submission  approved         (not merged)
+requirement reviewed         (not complete)
+progress    0% · 0/1
+```
+
+So merging did nothing to the project. Worse than cosmetic: a task that never completes never
+unblocks its dependents, so **a plan could not get past its first task**, and progress was
+permanently zero. The acceptance script did these steps by hand, which is why nothing noticed.
+
+**And there was no way to merge from the Control Room at all.** `ReviewQueue` renders an "Approve
+Merge" button wired to `onMerge`, and the shell never passed it — the iteration-55 defect exactly,
+in a different component.
+
+`POST /submissions/:id/merge` now performs the merge rather than only recording someone else's,
+marks the task complete, reports what that unblocked, and completes each requirement whose gate is
+satisfied. A gate that is not satisfied is left alone; overriding it would make it decoration.
+
+```text
+merged 3b1d379924d4 | unblocked [] | completed ['SET-01']
+progress: 100% · 1/1     main's own tests pass
+```
+
+### The audit that should have caught the dead button
+
+`bun run audit:quality` reported zero dead controls while three were dead. Two bugs in it:
+
+```text
+it matched only  onClick={onMerge}
+the real form is onClick={() => onMerge?.(s.id)}      — the common one, and invisible to it
+
+it derived the component name from the FILENAME
+  ReviewQueues.tsx searched for as <ReviewQueues — which nothing renders; it exports
+  ReviewQueue and SuggestionQueue, so every prop in every multi-export file looked dead
+```
+
+The first bug hid real findings; the second manufactured false ones. After fixing the first the
+audit reported nine, and **two of the first four I checked by hand were passed perfectly well** —
+which is what sent me to the second bug rather than to nine "fixes". Corrected, it reports three,
+all genuine: `onMerge`, `onEdit` (the fourth §22.17 suggestion action), and `onOpenLink`. All three
+are now wired.
+
+### A gate with two computations
+
+Chasing a test for the completion gate found `completionGate()` — the preview the UI reads —
+hardcoding `pendingSuggestionCount: 0` while `completeRequirement` computed it. The preview could
+report a condition satisfied and completion then refuse for exactly that reason. They read the same
+source now.
+
+**Three of my attempts to test that gate failing were wrong before the code was**, and the record
+matters more than the test: failing tests cannot reach it (the store refuses to approve such a
+submission at all), an unreviewed requirement cannot (approving a submission marks it reviewed), and
+a pending suggestion cannot (only *accepted* ones count). The reachable case needs an accepted
+change whose document version has not advanced, and accepting advances it. Rather than contrive
+one, the test asserts the two computations still read the same source, and this is written down.
+
+```text
+bun run verify → exit 0, 745 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4713,7 +4780,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 100 ahead of main
+commits 102 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller

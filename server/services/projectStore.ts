@@ -971,7 +971,13 @@ export class ProjectStore {
       .filter((s) => s.requirementIds.includes(requirementId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .pop();
-    return evaluateCompletionGate({ submission, requirement, pendingSuggestionCount: 0 });
+    // The same count `completeRequirement` uses. Hardcoding 0 here made the preview claim
+    // `designChangesReflected` was satisfied when completion would refuse for exactly that reason:
+    // two computations of one gate, free to disagree, with the user shown the wrong one.
+    const pendingSuggestionCount = project.suggestions.filter(
+      (s) => s.state === "accepted" && s.requirementId === requirementId && s.baseVersion >= project.document.currentVersion,
+    ).length;
+    return evaluateCompletionGate({ submission, requirement, pendingSuggestionCount });
   }
 
   // ---------------------------------------------------- messages & artifacts

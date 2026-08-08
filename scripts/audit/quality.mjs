@@ -198,17 +198,30 @@ for (const file of COMPONENTS) {
  */
 for (const file of COMPONENTS) {
   const src = readFileSync(join(ROOT, file), "utf8");
-  const component = file.split("/").pop().replace(/\.tsx$/, "");
+  // The components this file actually exports, not its filename.
+  //
+  // Deriving the name from the file meant `ReviewQueues.tsx` was searched for as `<ReviewQueues`,
+  // which nothing renders — it exports `ReviewQueue` and `SuggestionQueue`. Every prop in every
+  // multi-export file was therefore reported as dead. Two of the first nine findings were real and
+  // the rest were this.
+  const exported = [...src.matchAll(/export function ([A-Z]\w*)/g)].map((m) => m[1]);
+  const components = exported.length ? exported : [file.split("/").pop().replace(/\.tsx$/, "")];
 
   for (const m of src.matchAll(/^\s*(on[A-Z]\w*)\?:/gm)) {
     const prop = m[1];
     // Only props wired to a DOM handler; a merely declared prop is not a control.
-    if (!new RegExp(`on[A-Z]\\w*=\\{${prop}\\}`).test(src)) continue;
+    //
+    // Both forms count. `onClick={onMerge}` was the only one checked, and the arrow-wrapped form
+    // `onClick={() => onMerge?.(s.id)}` is the more common one — which is how an "Approve Merge"
+    // button sat wired to a prop no caller passed, with this audit reporting zero dead controls.
+    const wiredDirectly = new RegExp(`on[A-Z]\\w*=\\{\\s*${prop}\\s*\\}`).test(src);
+    const wiredInArrow = new RegExp(`on[A-Z]\\w*=\\{[^}]*\\b${prop}\\??\\.?\\(`).test(src);
+    if (!wiredDirectly && !wiredInArrow) continue;
 
     const passedSomewhere = COMPONENTS.some((other) => {
       if (other === file) return false;
       const otherSrc = readFileSync(join(ROOT, other), "utf8");
-      return otherSrc.includes(`<${component}`) && new RegExp(`${prop}=`).test(otherSrc);
+      return components.some((name) => otherSrc.includes(`<${name}`)) && new RegExp(`\\b${prop}=`).test(otherSrc);
     });
     if (!passedSomewhere) {
       const line = src.slice(0, m.index).split("\n").length;

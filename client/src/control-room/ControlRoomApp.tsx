@@ -186,6 +186,7 @@ export function ControlRoomApp() {
                 <SuggestionQueue
                   suggestions={room.suggestions.filter((s) => s.state === "pending" || s.state === "stale")}
                   onAccept={(id) => room.resolveSuggestion(id, "accept")}
+                  onEdit={(id, proposedText) => room.editSuggestion(id, proposedText)}
                   onReject={(id) => room.resolveSuggestion(id, "reject")}
                   onRequestRevision={(id) => room.resolveSuggestion(id, "request_revision")}
                 />
@@ -196,12 +197,17 @@ export function ControlRoomApp() {
                   submissions={room.submissions}
                   onApprove={(id) => room.reviewSubmission(id, "approve")}
                   onRequestChanges={(id, feedback) => room.reviewSubmission(id, "request-changes", feedback)}
+                  onMerge={(id) => room.mergeSubmission(id)}
                 />
               </div>
             )}
             {tab === "conversations" && (
               <ConversationView
                 messages={room.messages}
+                onOpenLink={(link) => {
+                  // A requirement link selects it, which is the only navigation the shell has.
+                  if (link.kind === "requirement") { setSelectedRequirement(link.id); setTab("document"); }
+                }}
                 onLoadHistory={room.loadMessageHistory}
                 historyLoaded={room.historyLoaded}
                 historyLoading={room.historyLoading}

@@ -18,7 +18,7 @@ import type { Actor } from "../types/project";
 import { estimateCost } from "../services/usageAccounting";
 import { getPromptLibrary, rulesForAgent } from "../services/promptLibrary";
 import { existsSync } from "fs";
-import { createAgentWorktree } from "../services/repository";
+import { createAgentWorktree, mergeAgentBranch } from "../services/repository";
 import { buildTaskBriefing } from "../services/taskBriefing";
 
 export const projectRoutes = new Hono();
@@ -608,17 +608,73 @@ projectRoutes.post("/:id/submissions/:submissionId/approve", async (c) => {
 });
 
 /** V-039: record a completed merge. A commit is mandatory. */
+/**
+ * Merge an approved submission and settle everything that follows from it.
+ *
+ * This used to only *record* a merge commit the caller had already produced elsewhere, so a user
+ * who approved a submission had no way to merge it: the Control Room's "Approve Merge" button was
+ * wired to a prop nothing passed, and even the git merge lived on a separate repository endpoint
+ * that knows nothing about projects.
+ *
+ * The consequence was worse than a missing button. Merging left the task at `needs_review` and the
+ * requirement short of complete, so progress stayed at 0% and **every task depending on this one
+ * stayed blocked forever** — a plan could not get past its first task. The acceptance script did
+ * these steps by hand, which is why nothing noticed.
+ */
 projectRoutes.post("/:id/submissions/:submissionId/merge", async (c) => {
   try {
-    const body = await c.req.json();
-    return c.json(
-      getProjectStore().recordMerge(
-        c.req.param("id"),
-        c.req.param("submissionId"),
-        body?.mergeCommit ?? "",
-        actorFrom(c),
-      ),
-    );
+    const projectId = c.req.param("id");
+    const submissionId = c.req.param("submissionId");
+    const store = getProjectStore();
+    const project = store.getProject(projectId);
+    const submission = store.getSubmission(projectId, submissionId);
+    const actor = actorFrom(c);
+    const body = await c.req.json().catch(() => ({}));
+
+    // A caller that has already merged (the acceptance script) passes the commit; otherwise do it.
+    let mergeCommit: string = body?.mergeCommit ?? "";
+    if (!mergeCommit) {
+      const result = mergeAgentBranch(project.repositoryPath, {
+        branch: submission.branch,
+        target: project.baseBranch ?? "main",
+        approvedBy: actor.id,
+      });
+      mergeCommit = result.commit;
+    }
+
+    const merged = store.recordMerge(projectId, submissionId, mergeCommit, actor);
+
+    // The task is done, which is what unblocks whatever was waiting on it.
+    const unblocked: string[] = [];
+    try {
+      const result = store.updateTask(projectId, submission.taskId, { status: "complete" }, actor);
+      unblocked.push(...result.unblocked.map((t) => t.id));
+    } catch {
+      // A submission whose task has since been removed still merges.
+    }
+
+    // Complete each requirement whose gate is now satisfied. A gate that is not satisfied is left
+    // alone rather than forced — that is the point of having one.
+    const completed: string[] = [];
+    for (const requirementId of submission.requirementIds) {
+      try {
+        store.completeRequirement(projectId, requirementId, actor);
+        completed.push(requirementId);
+      } catch {
+        // Not yet satisfied; it stays as it is.
+      }
+    }
+
+    const bus = getControlRoomBus();
+    const progress = store.getProgress(projectId);
+    bus.publish(projectId, {
+      type: "progress",
+      percent: progress.percent,
+      completed: progress.completed,
+      total: progress.total,
+    });
+
+    return c.json({ ...merged, mergeCommit, unblocked, completedRequirements: completed });
   } catch (err) {
     return fail(c, err);
   }

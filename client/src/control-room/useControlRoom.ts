@@ -384,6 +384,38 @@ export function useControlRoom() {
     }
   }, [state.projectId, loadProject]);
 
+  /**
+   * Merge an approved submission (§10 step 15).
+   *
+   * The "Approve Merge" button was wired to a prop the shell never passed, so approving a
+   * submission left the user with nothing to click. Merging also settles the task and the
+   * requirement, which is what unblocks dependent tasks and moves progress off zero.
+   */
+  const mergeSubmission = useCallback(async (submissionId: string) => {
+    if (!state.projectId) return;
+    try {
+      await json(`/api/projects/${state.projectId}/submissions/${submissionId}/merge`, {
+        method: "POST", body: "{}",
+      });
+      void loadProject(state.projectId);
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }, [state.projectId, loadProject]);
+
+  /** Edit a pending design suggestion before resolving it — the fourth §22.17 action. */
+  const editSuggestion = useCallback(async (suggestionId: string, proposedText: string) => {
+    if (!state.projectId) return;
+    try {
+      await json(`/api/projects/${state.projectId}/suggestions/${suggestionId}`, {
+        method: "PATCH", body: JSON.stringify({ proposedText }),
+      });
+      void loadProject(state.projectId);
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }, [state.projectId, loadProject]);
+
   const refresh = useCallback(() => {
     if (state.projectId) void loadProject(state.projectId);
   }, [state.projectId, loadProject]);
@@ -402,6 +434,8 @@ export function useControlRoom() {
     launchTask,
     createProject,
     creating,
+    mergeSubmission,
+    editSuggestion,
     generatePlan,
     planning,
     transcript,

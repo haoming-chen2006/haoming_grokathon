@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
@@ -8,6 +8,7 @@ import { projectRoutes } from "./projects";
 import { repositoryRoutes } from "./repository";
 import { ProjectStore } from "../services/projectStore";
 import { getAgentRegistry } from "../services/agentRegistry";
+import { createAgentWorktree } from "../services/repository";
 import type { Actor } from "../types/project";
 
 /**
@@ -482,5 +483,57 @@ describe("launching gives the agent an isolated worktree (§9, V-009)", () => {
 
     await req("POST", `/api/projects/${projectId}/tasks/t-iso/launch`, {});
     expect(getAgentRegistry().get(agent.id).worktree).toBe(first);
+  });
+});
+
+describe("merging settles the task and the requirement (§10 step 15)", () => {
+  test("an approved submission merges, completes its task and unblocks dependents", async () => {
+    // Merging used to only record a commit the caller produced elsewhere, so the task stayed at
+    // needs_review, progress stayed at 0%, and every task depending on it stayed blocked forever.
+    // A plan could not get past its first task.
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const agent = getAgentRegistry().create({ projectId, name: "B", role: "Backend Engineer" });
+    store.addRequirement(projectId, { id: "M-1", description: "d" }, USER);
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "m1", objective: "o", assignedAgentId: agent.id }, USER);
+    store.addTask(projectId, { id: "m2", objective: "o2", dependsOn: ["m1"] }, USER);
+    store.approvePlan(projectId, USER);
+
+    // Real work on a real branch, so the merge has something to do.
+    const wt = createAgentWorktree(repo, { agentId: agent.id, branch: "agent/m1", baseBranch: "main" });
+    writeFileSync(join(wt.path, "m.ts"), "export const m = 1;\n");
+    execSync("git add -A && git commit -m work", { cwd: wt.path, stdio: "pipe" });
+
+    const sub = store.submitCode(projectId, {
+      taskId: "m1", agentId: agent.id, requirementIds: ["M-1"], branch: "agent/m1",
+      changedFiles: ["m.ts"], summary: "s", testResults: { passed: 1, failed: 0, total: 1 }, costUsd: 0.1,
+    });
+    store.approveSubmission(projectId, sub.id, USER, "LGTM");
+
+    const { status, json } = await req("POST", `/api/projects/${projectId}/submissions/${sub.id}/merge`, {});
+    expect(status).toBe(200);
+    expect(json.mergeCommit, "nothing was merged").toBeTruthy();
+    expect(json.unblocked, "m2 was not unblocked by m1 completing").toContain("m2");
+
+    const after = new ProjectStore(join(dataDir, "projects")).getProject(projectId);
+    expect(after.tasks.find((t) => t.id === "m1")!.status).toBe("complete");
+    expect(after.submissions.find((s) => s.id === sub.id)!.state).toBe("merged");
+    // The branch really landed on the base branch.
+    expect(execSync("git log --oneline main", { cwd: repo }).toString()).toContain("work");
+  });
+
+  test("the gate preview agrees with what completion enforces", () => {
+    // `completionGate` hardcoded pendingSuggestionCount to 0 while `completeRequirement` computed
+    // it, so the preview could report designChangesReflected satisfied and completion then refuse
+    // for exactly that reason. Two computations of one gate, free to disagree, with the user shown
+    // the wrong one. They read the same source now.
+    //
+    // No test forces the gate to fail on that condition: reaching it needs an accepted change whose
+    // document version has not advanced, and accepting a suggestion advances it. Recorded rather
+    // than contrived — three attempts to construct it produced only wrong tests.
+    const src = readFileSync(join(import.meta.dir, "../services/projectStore.ts"), "utf8");
+    const occurrences = src.split("pendingSuggestionCount = project.suggestions.filter").length - 1;
+    expect(occurrences, "the two gate computations have diverged again").toBe(2);
+    expect(src).not.toContain("pendingSuggestionCount: 0");
   });
 });
