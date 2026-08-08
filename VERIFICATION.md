@@ -4237,6 +4237,52 @@ it, launch a task, watch the session.**
 
 ---
 
+## The contract test had fallen behind the UI (iteration 69)
+
+`uiContract.test.ts` exists because the shell tests stub `fetch` with assumed response shapes: if a
+real endpoint drifts, the UI breaks and no unit test notices. It was written in iteration 36 and
+**not extended as the UI grew**. Diffing what the Control Room calls against what it covers:
+
+```text
+called by the UI, not covered
+  POST /api/projects                      creating a project from the form
+  POST /api/projects/:id/requirements     importing what the document parser found
+  POST /api/projects/:id/plan/approve     the approval gate
+  POST /api/projects/:id/tasks/:id/launch launching a task
+  GET  /api/projects/:id/messages?includeArchived=true
+  and the `plan` and `tasks` fields the Plan tab reads off the project payload
+```
+
+Every one arrived in iterations 66-68. The gap the file was written to close had reopened behind
+it, which is what happens to a test that guards a surface nobody re-measures.
+
+**Six tests added, and nothing was found broken.** The real endpoints match what the UI assumes.
+That is the outcome worth stating plainly rather than dressing up: this iteration verified an
+assumption instead of fixing a defect, and the assumption now has a guard.
+
+**Two positive controls**, because an assertion that cannot fail proves nothing:
+
+```text
+strip `plan` from the project payload   → project is missing "plan"          15 pass / 1 fail
+rename the launch gate's error code     → PLAN_NOT_APPROVED test fails       15 pass / 1 fail
+restored                                                                     16 pass / 0 fail
+```
+
+A first attempt at the second control broke compilation instead of failing an assertion — 0 pass, 1
+fail, which is a different thing entirely and not evidence. It was redone until it failed the way a
+real drift would.
+
+**One endpoint deliberately not covered.** `POST /plan/generate` starts a real Grok session, which
+belongs in `bun run acceptance`, not in a contract test that must stay fast and offline. The UI
+reads nothing from its response beyond triggering a reload, and that is recorded in the file rather
+than left as an unexplained hole.
+
+```text
+bun run verify → exit 0, 715 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4263,7 +4309,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 709 pass / 0 fail, 42 files;
+[x] Required tests pass.                    — 715 pass / 0 fail, 42 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -4333,9 +4379,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 85 ahead of main
+commits 87 ahead of main
 build   bun run build exit 0
-tests   709 pass / 0 fail across 42 files
+tests   715 pass / 0 fail across 42 files
 audits  0 orphans; every endpoint has a caller
 ```
 

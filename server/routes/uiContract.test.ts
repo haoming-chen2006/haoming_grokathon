@@ -181,3 +181,79 @@ describe("UI contract: the shapes useControlRoom reads", () => {
     expect(json.error.length).toBeGreaterThan(0);
   });
 });
+
+describe("UI contract: the endpoints the Control Room writes through", () => {
+  // Iteration 36 wrote this file because the shell tests stub fetch with assumed shapes, so the
+  // real endpoints could drift and no unit test would notice. The UI has since gained project
+  // creation, requirement import, plan approval and task launch, and none of them were covered
+  // here — the same gap, reopened by new features.
+
+  test("POST /api/projects returns the created project with the id the UI selects", async () => {
+    const { status, json } = await post("/api/projects", {
+      name: "From the form", goal: "g", repositoryPath: repo, budgetUsd: 12,
+      documentContent: "# Design\n\n- NEW-01: something",
+    });
+    expect(status).toBe(201);
+    // useControlRoom reads project.id to select it, and document.currentVersion for the header.
+    hasFields(json, ["id", "name", "goal", "repositoryPath", "document"], "created project");
+    hasFields(json.document, ["currentVersion"], "created project document");
+    expect(typeof json.id).toBe("string");
+  });
+
+  test("POST /api/projects/:id/requirements accepts what the form parses out of a document", async () => {
+    // The exact shape shared/designDocument.ts produces.
+    const { status, json } = await post(`/api/projects/${projectId}/requirements`, {
+      id: "PARSED-01", description: "greet(name) returns a greeting",
+    });
+    expect(status).toBe(201);
+    hasFields(json, ["id", "description", "status", "reviewStatus"], "created requirement");
+  });
+
+  test("GET /api/projects/:id carries the plan and tasks the Plan tab renders", async () => {
+    const { json } = await get(`/api/projects/${projectId}`);
+    // The hook reads full.plan and full.tasks; a rename here would silently empty the Plan tab.
+    hasFields(json, ["plan", "tasks"], "project");
+    hasFields(json.plan, ["id", "state"], "project.plan");
+    hasFields(json.tasks[0], ["id", "objective", "status", "dependsOn"], "project.tasks[0]");
+  });
+
+  test("POST /plan/approve returns the approved plan", async () => {
+    const fresh = new ProjectStore(join(dataDir, "projects")).createProject({
+      name: "Approvable", goal: "g", repositoryPath: repo,
+    }).id;
+    const store = new ProjectStore(join(dataDir, "projects"));
+    store.createPlan(fresh, { milestones: [] }, USER);
+
+    const { status, json } = await post(`/api/projects/${fresh}/plan/approve`, {});
+    expect(status).toBe(200);
+    // The Plan tab reads state to hide the approve control and enable Launch.
+    expect(json.state).toBe("approved");
+    hasFields(json, ["id", "state", "approvedBy"], "approved plan");
+  });
+
+  test("POST /tasks/:id/launch refuses a draft plan with the code the UI mirrors", async () => {
+    const fresh = new ProjectStore(join(dataDir, "projects")).createProject({
+      name: "Draft", goal: "g", repositoryPath: repo,
+    }).id;
+    const store = new ProjectStore(join(dataDir, "projects"));
+    store.createPlan(fresh, { milestones: [] }, USER);
+    store.addTask(fresh, { id: "t-draft", objective: "o", assignedAgentId: "a1" }, USER);
+
+    const { status, json } = await post(`/api/projects/${fresh}/tasks/t-draft/launch`, {});
+    // The Plan tab disables Launch for exactly this reason; if the server stopped refusing, the
+    // UI would be teaching a gate that no longer exists.
+    expect(status).toBe(409);
+    expect(json.code).toBe("PLAN_NOT_APPROVED");
+  });
+
+  test("GET /messages?includeArchived=true returns the shape the conversation view renders", async () => {
+    const { status, json } = await get(`/api/projects/${projectId}/messages?includeArchived=true`);
+    expect(status).toBe(200);
+    expect(Array.isArray(json)).toBe(true);
+    hasFields(json[0], ["id", "kind", "fromAgentId", "body", "links", "threadId"], "message");
+  });
+
+  // POST /plan/generate is deliberately not called here: it starts a real Grok session, which
+  // belongs in `bun run acceptance` rather than in a contract test. Its response shape is read by
+  // the UI only to trigger a reload, so nothing is asserted about it.
+});
