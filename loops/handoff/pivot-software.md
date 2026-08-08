@@ -62,3 +62,35 @@ carrying an explicit timeout rather than inheriting the default.
 
 Nothing yet. The template and its copier depend on no other worktree's surface, which is why §6
 puts them first.
+
+---
+
+## Iteration 2 — 2026-08-08
+
+### Requests
+
+None. `buildRunner.ts` is a plain module with no wiring; `run_build` becomes a hot-file concern only
+when `registerSoftwareTools` exists (§6 stage 1.3), and the request will carry its signature then.
+
+### Findings other worktrees need
+
+**5. An asset's git worktrees share the one `node_modules` at the asset root, and no second install
+happens.** Measured, not assumed (§5.4 asks for it to be stated either way): a build run by
+`createAgentWorktree`'s worktree at `<assetRoot>/.agents/<name>` resolves `vite` upward to
+`<assetRoot>/node_modules`, exits 0 in 1,878 ms, writes `dist/` inside the worktree, and never
+creates `node_modules` there. **01-agents** may find the same holds for any tooling an agent runs in
+a work area, and it is the reason a per-worktree install is not needed anywhere.
+
+**6. `spawnSync` in a request path blocks the whole server, and this product is a team of agents.**
+`server/services/testRunner.ts` runs a test suite synchronously; `runBuild` deliberately does not,
+because a three-second synchronous build freezes every other agent's events (SW-014). Any worktree
+adding a long-running child process to a request path should do the same. The runners are close
+enough to fold together at reconciliation, and `buildRunner.ts` says so in a comment — but the fold
+must keep the async version, not the synchronous one.
+
+**7. Killing a child process is not killing the work.** `bun run build` spawns vite; `sh -c` spawns
+whatever it was given. Killing only the process we spawned leaves the grandchild running, which was
+mutation-tested here: swapping `process.kill(-child.pid, signal)` for `child.kill(signal)` makes the
+timeout test hang for its full 30 s while the grandchild survives. Anything spawning a child that
+outlives a request — previews, dev servers, long commands — should spawn `detached` and signal the
+group. This is the concrete form of §8's "a child process you did not kill is still running".
