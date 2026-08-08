@@ -27,7 +27,13 @@ import { getAgentRegistry } from "../agentRegistry";
 import { resetXaiClient, setXaiTransport, type XaiHttpRequest } from "../xai/client";
 import { setMediaDownloader } from "../xai/assets";
 import { TTS_USD_PER_CHARACTER } from "../xai/speech";
-import { chargeFromCostEvent, registerMediaTools, textFileNaming, type MediaToolContext } from "./media";
+import {
+  chargeFromCostEvent,
+  READ_TEXT_MAX_BYTES,
+  registerMediaTools,
+  textFileNaming,
+  type MediaToolContext,
+} from "./media";
 
 const PROJECT = "proj_media";
 const AGENT = "agent_writer";
@@ -474,6 +480,128 @@ describe("MEDIA-4: narrate stores audio and keeps its per-character timings", ()
   });
 });
 
+// ─────────────────────────────────────────────────────────── MEDIA-5, the read half
+
+describe("read_text closes the loop: an agent can revise what it wrote", () => {
+  test("what write_text put in, read_text gets back, byte for byte", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    const body = "# Launch brief\n\nThe product ships on Tuesday.\n\n— unicode: café, 日本語, 🚀\n";
+    const { data: wrote } = await call(client, "write_text", {
+      assetId: created.assetId,
+      filename: "brief.md",
+      text: body,
+    });
+
+    const { data } = await call(client, "read_text", { assetId: created.assetId });
+    expect(data.text).toBe(body);
+    expect(data.fileId).toBe(wrote.fileId);
+    expect(data.mime).toBe("text/markdown");
+    // The byte count is the encoded length, not the character count — the two differ here, which
+    // is the point of putting multi-byte characters in the fixture.
+    expect(data.bytes).toBe(new TextEncoder().encode(body).byteLength);
+    expect(data.bytes).toBeGreaterThan(body.length);
+  });
+
+  test("write, read, revise, write again — the round trip that makes the tool worth having", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    await call(client, "write_text", { assetId: created.assetId, filename: "v1.md", text: "# Brief\n\nDraft.\n" });
+
+    const first = await call(client, "read_text", { assetId: created.assetId });
+    const revised = first.data.text.replace("Draft.", "Final.");
+    await call(client, "write_text", { assetId: created.assetId, filename: "v2.md", text: revised });
+
+    const asset = store.getAsset(created.assetId);
+    const v2 = asset.files.find((f) => f.id !== first.data.fileId)!;
+    const back = await call(client, "read_text", { assetId: created.assetId, fileId: v2.id });
+    expect(back.data.text).toBe("# Brief\n\nFinal.\n");
+    // Both versions survive; revising appends rather than overwriting.
+    expect(asset.files).toHaveLength(2);
+  });
+
+  test("the narration timings are readable, so what was paid for can actually be used", async () => {
+    respondWith(TTS_OK);
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "workflow", title: "W" });
+    const { data: spoken } = await call(client, "narrate", { assetId: created.assetId, text: "Hi" });
+
+    const { data, isError } = await call(client, "read_text", {
+      assetId: created.assetId,
+      fileId: spoken.timingsFileId,
+    });
+    expect(isError).toBe(false);
+    expect(JSON.parse(data.text).audio_timestamps.graph_chars).toEqual(["H", "i"]);
+  });
+
+  test("an image is not text, and is refused rather than returned as base64", async () => {
+    respondWith(IMAGE_OK);
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    const { data: image } = await call(client, "generate_image", {
+      assetId: created.assetId,
+      prompt: "a grey square",
+    });
+
+    const { isError, data } = await call(client, "read_text", {
+      assetId: created.assetId,
+      fileId: image.fileId,
+    });
+    expect(isError).toBe(true);
+    expect(data.error).toContain("image/png");
+    // Obliging would be to base64 it. That spends the agent's context to tell it nothing.
+    expect(data.error).not.toContain("iVBOR");
+  });
+
+  test("with several readable files and no fileId, it names them instead of guessing", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    await call(client, "write_text", { assetId: created.assetId, filename: "a.md", text: "one" });
+    await call(client, "write_text", { assetId: created.assetId, filename: "b.md", text: "two" });
+
+    const { isError, data } = await call(client, "read_text", { assetId: created.assetId });
+    expect(isError).toBe(true);
+    expect(data.error).toContain("2 readable files");
+    // The ids are in the message, so the next call is one step away rather than a search.
+    for (const file of store.getAsset(created.assetId).files) expect(data.error).toContain(file.id);
+  });
+
+  test("an empty deliverable says so, and says what it does hold", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    const { isError, data } = await call(client, "read_text", { assetId: created.assetId });
+    expect(isError).toBe(true);
+    expect(data.error).toContain("no readable text");
+  });
+
+  test("a file past the read limit is refused with its size, never truncated", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Big" });
+    const big = "x".repeat(READ_TEXT_MAX_BYTES + 1);
+    await call(client, "write_text", { assetId: created.assetId, filename: "big.md", text: big });
+
+    const { isError, data } = await call(client, "read_text", { assetId: created.assetId });
+    expect(isError).toBe(true);
+    expect(data.error).toContain(String(READ_TEXT_MAX_BYTES + 1));
+    // Half a document that does not say it is half a document is how an ending gets rewritten away.
+    expect(data.text).toBeUndefined();
+  });
+
+  test("it cannot read another project's deliverable", async () => {
+    const foreign = store.createAsset({
+      projectId: "proj_someone_else",
+      type: "document",
+      title: "Theirs",
+      origin: "generated",
+      authorId: "agent_other",
+    });
+    const client = await connect();
+    const { isError, data } = await call(client, "read_text", { assetId: foreign.id });
+    expect(isError).toBe(true);
+    expect(data.error).toContain("No deliverable");
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────── MEDIA-5
 
 describe("MEDIA-5: list_deliverables lets an agent read the shelf", () => {
@@ -620,10 +748,12 @@ describe("MEDIA-6: refusals are clear, and nothing is ever charged at $0.00", ()
 // ─────────────────────────────────────────────────────────────────── capability is registration
 
 describe("a priced endpoint an agent may not reach is not registered at all", () => {
-  test("base Grok gets the three free tools and neither generator", async () => {
+  test("base Grok gets every tool that costs nothing, and neither generator", async () => {
     const client = await connect({ capabilities: { images: false, voice: false } });
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["create_deliverable", "list_deliverables", "write_text"]);
+    // An exact list, not a subset: a new tool must be a deliberate decision about which side of
+    // the capability line it falls on, and this failing is how that decision gets made.
+    expect(names).toEqual(["create_deliverable", "list_deliverables", "read_text", "write_text"]);
   });
 
   test("images alone registers generate_image and withholds narrate", async () => {

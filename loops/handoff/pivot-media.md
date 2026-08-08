@@ -148,6 +148,34 @@ The decision was designed for and the box was never built. The endpoint is ready
 accepts `capabilities`, and the server honours it; what is missing is the picker, and it belongs to
 whoever owns the agents board.
 
+---
+
+## Iteration 3 — the read half
+
+`read_text(assetId, fileId?)`, ungated, costs nothing. Round-tripped through the real HTTP MCP
+route: `create_deliverable` → `write_text` → `read_text` returns the bytes that went in.
+
+§2's M-5 says agents must be able to **read** assets, not only write them, and `list_deliverables`
+only ever returned the shelf — ids, roles, models, prompts, never a byte of content. So an agent
+wrote into a place it could not see: it could not revise its own document, could not check what a
+deliverable already said before adding to it, and could not use the per-character narration timings
+it had just paid for. Every write-only surface eventually produces a second copy of something it
+could not find.
+
+Four refusals it makes rather than obliging:
+
+- **An image is not text.** Base64-ing a 114 KB JPEG into the reply would "work" and would spend
+  the agent's context to tell it nothing. Refused, naming the mime.
+- **Several readable files and no `fileId`** → the ids are listed, not guessed between. A guess is
+  invisible once made.
+- **Over 256 KB** → refused with the actual size. Not truncated: half a document that does not say
+  it is half a document is how an ending gets silently rewritten away by the next `write_text`.
+- **Another project's deliverable** → the same words as one that does not exist, as everywhere else
+  here.
+
+`application/json` is readable as well as `text/*`, which is what makes the timings sidecar useful
+rather than merely stored.
+
 ## Requests still open
 
 ### R-1 · `server/services/assetStore.ts` — `AssetStore` needs `recordCharge()`

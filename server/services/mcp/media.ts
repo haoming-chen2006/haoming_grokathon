@@ -5,13 +5,19 @@
  * could read the project, change files in its worktree, submit for review and message other agents,
  * and at the end of all that the Assets page was still empty. The work existed; nothing shipped.
  *
- * Five tools close that:
+ * Six tools close that:
  *
  *   create_deliverable   start one of the five asset types and get its id
  *   write_text           put readable text on it — the tool that makes the product a product
+ *   read_text            read it back, so revising means revising what is there
  *   generate_image       $0.02 a picture, persisted, charged
  *   narrate              speech with its per-character timings kept
  *   list_deliverables    read the shelf, because an agent that can only write is half an agent
+ *
+ * `read_text` and `list_deliverables` are the read half, and it is not a nicety. Without them an
+ * agent writes into a place it cannot see: it cannot revise its own document, cannot check whether
+ * the thing it is about to make already exists, and cannot use the narration timings it just paid
+ * for. Every write-only surface eventually produces a second copy of something it could not find.
  *
  * ── Identity is not a parameter ───────────────────────────────────────────────────────────────
  * `projectId` and `agentId` are bound when the server is constructed, from the URL the agent was
@@ -28,6 +34,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { readFileSync } from "fs";
 import { join } from "path";
 import {
   ASSET_TYPES,
@@ -64,7 +71,27 @@ export interface MediaToolContext {
  * and `VOICE_TOOLS`, which are gated, and a gated tool in the ungated list would be a tool the
  * capability check silently fails to withhold.
  */
-export const DELIVERABLE_TOOLS = ["create_deliverable", "write_text", "list_deliverables"] as const;
+export const DELIVERABLE_TOOLS = [
+  "create_deliverable",
+  "write_text",
+  "read_text",
+  "list_deliverables",
+] as const;
+
+/**
+ * The largest file `read_text` will return in one call.
+ *
+ * A cap rather than silent truncation: half a document that does not say it is half a document is
+ * worse than a refusal, because an agent will revise the part it can see and write back a file that
+ * has quietly lost its ending. 256 KB is far past any brief and well short of anything that would
+ * swamp a context window.
+ */
+export const READ_TEXT_MAX_BYTES = 256 * 1024;
+
+/** What `read_text` will decode. Anything else is bytes, and bytes are not text. */
+function isTextual(mime: string): boolean {
+  return mime.startsWith("text/") || mime === "application/json";
+}
 
 // ─────────────────────────────────────────────────────────────────────── tool result plumbing
 
@@ -304,7 +331,74 @@ export function registerMediaTools(server: McpServer, ctx: MediaToolContext): vo
       }),
   );
 
-  // ------------------------------------------------------------------ M-5
+  // ------------------------------------------------------------------ M-5, the read half
+
+  server.registerTool(
+    "read_text",
+    {
+      description:
+        "Read back the text of a file on a deliverable — a document you wrote, or the timings " +
+        "from a narration. Use this before rewriting something, so you revise what is actually " +
+        "there rather than what you remember writing. Costs nothing.",
+      inputSchema: {
+        assetId: z.string().describe("From create_deliverable or list_deliverables"),
+        fileId: z
+          .string()
+          .optional()
+          .describe("Which file. Optional when the deliverable holds exactly one readable file."),
+      },
+    },
+    async ({ assetId, fileId }) =>
+      guard(() => {
+        const asset = ownAsset(assetId);
+        const readable = asset.files.filter((f) => isTextual(f.mime));
+
+        let file: AssetFile | undefined;
+        if (fileId !== undefined) {
+          file = asset.files.find((f) => f.id === fileId);
+          if (!file) throw new Error(`No file ${fileId} on deliverable ${assetId}.`);
+          if (!isTextual(file.mime)) {
+            // Returning the bytes base64-encoded would be obliging and useless: an agent cannot
+            // read a JPEG, and handing it 114 KB of base64 spends its context to tell it nothing.
+            throw new Error(
+              `File ${fileId} is ${file.mime}, which is not text. read_text returns documents and ` +
+                `JSON; an image or an audio file can only be opened on the ASSETS page.`,
+            );
+          }
+        } else if (readable.length === 1) {
+          file = readable[0];
+        } else if (readable.length === 0) {
+          throw new Error(
+            `Deliverable ${assetId} holds no readable text. Its files are: ` +
+              `${asset.files.map((f) => `${f.id} (${f.role}, ${f.mime})`).join(", ") || "none"}.`,
+          );
+        } else {
+          // Naming one of several would be a guess, and the guess is invisible once made.
+          throw new Error(
+            `Deliverable ${assetId} holds ${readable.length} readable files; say which with fileId: ` +
+              `${readable.map((f) => `${f.id} (${f.role}, ${f.mime})`).join(", ")}.`,
+          );
+        }
+
+        if (file.bytes > READ_TEXT_MAX_BYTES) {
+          throw new Error(
+            `File ${file.id} is ${file.bytes} bytes, over the ${READ_TEXT_MAX_BYTES}-byte read ` +
+              `limit. It is not truncated here, because half a document that does not say it is ` +
+              `half a document is how an ending gets silently rewritten away.`,
+          );
+        }
+
+        const text = readFileSync(join(store().assetDir(assetId), file.path), "utf8");
+        return {
+          assetId,
+          fileId: file.id,
+          role: file.role,
+          mime: file.mime,
+          bytes: file.bytes,
+          text,
+        };
+      }),
+  );
 
   server.registerTool(
     "list_deliverables",
