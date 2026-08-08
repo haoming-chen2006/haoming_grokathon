@@ -3823,6 +3823,70 @@ bun run verify → exit 0, 666 pass / 0 fail, four audits clean
 
 ---
 
+## Concurrent writes, and the invariant nobody had written down (iteration 63)
+
+This product's premise is several agents working at once, and every `ProjectStore` mutation is
+read-whole-file → change in memory → write-whole-file. `atomicWriteJson` makes each *write* atomic,
+which prevents a torn file and says nothing about two read-modify-write sequences interleaving. If
+they can interleave, one agent's update silently overwrites another's — invisible to every
+single-threaded test written so far, and exactly the kind of loss that would be blamed on an agent.
+
+**Tested rather than reasoned about.** `concurrency.test.ts` drives the real HTTP handlers
+concurrently and re-reads from disk, so a lost write cannot hide in a cached object:
+
+```text
+40 concurrent messages          all 40 persist
+40 concurrent requirements      all 40 persist
+20 concurrent task updates      every task keeps its own change
+15+15+15 mixed writes           messages, requirements and artifacts all survive together
+```
+
+**No data is lost, and the reason matters more than the result.** Every store method is
+synchronous — no `async`, no `await` anywhere in the class — so the event loop cannot interleave two
+mutations. The safety is not from locking or from atomic writes; it is from the absence of a yield
+point.
+
+That makes it fragile in a specific way: switching one method to `fs.promises`, or adding an
+`await` to a helper, would reintroduce lost updates silently. Nothing about `updateTask` announces
+that. So the invariant is now stated where someone would break it — in `persist()` — and enforced:
+
+```text
+projectStoreInvariants.test.ts
+  no method on the prototype is an AsyncFunction
+  no `await` appears in the class source
+  the explanation is still present in persist()
+```
+
+The third looks odd as a test and is deliberate: a rule nobody can find is a rule that gets broken,
+so deleting the explanation fails the build.
+
+```text
+positive controls
+  add an async method       2 pass / 1 fail
+  add an await              1 pass / 2 fail
+  delete the documentation  2 pass / 1 fail
+  restored                  3 pass / 0 fail
+```
+
+**Scope stated honestly.** The guarantee is per-process. Two processes writing the same project
+would also collide on `atomicWriteJson`'s fixed `.tmp` path. The product runs one server and the
+MCP server is mounted in it, so there is no second writer — recorded as a boundary of the claim
+rather than left implicit.
+
+### The flake: stopping the hunt, and saying so
+
+Six more runs of the three live suites were clean, on top of five earlier and twelve of the test in
+isolation — 23 runs across three iterations. The instrumentation from iterations 61-62 is in place
+and will attribute the next occurrence to either the fixture or the model. Continuing to re-run it
+is not producing information, so it is left to self-report. It is **not** fixed, and the measured
+rate of roughly one in five stands.
+
+```text
+bun run verify → exit 0, 673 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3849,7 +3913,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 666 pass / 0 fail, 37 files;
+[x] Required tests pass.                    — 673 pass / 0 fail, 39 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -3919,9 +3983,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 69 ahead of main
+commits 71 ahead of main
 build   bun run build exit 0
-tests   666 pass / 0 fail across 37 files
+tests   673 pass / 0 fail across 39 files
 audits  0 orphans; every endpoint has a caller
 ```
 

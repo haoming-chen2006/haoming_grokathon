@@ -145,6 +145,22 @@ export class ProjectStore {
     project.messages = retained;
   }
 
+  /**
+   * Write the project back to disk.
+   *
+   * **Every mutation on this class must stay synchronous.** A mutation is read-whole-file →
+   * change in memory → write-whole-file, and `atomicWriteJson` makes only the *write* atomic. The
+   * read-modify-write *sequence* is safe purely because no `await` occurs inside it, so the event
+   * loop cannot interleave two of them and let one agent's update overwrite another's. Several
+   * agents writing at once is this product's normal state, so that is load-bearing.
+   *
+   * Introducing an `async` method here — switching to `fs.promises`, for instance — would silently
+   * reintroduce lost updates. `projectStoreInvariants.test.ts` fails if any method becomes async,
+   * and `concurrency.test.ts` exercises the behaviour it protects.
+   *
+   * The guarantee is per-process. A second process writing the same project would also collide on
+   * the fixed `.tmp` path; the product runs one server, and nothing else writes these files.
+   */
   private persist(project: Project): Project {
     project.updatedAt = nowIso();
     this.archiveOldMessages(project);
