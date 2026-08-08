@@ -68,7 +68,6 @@ describe("the three regions", () => {
 
   test("the shell's own inspector content offers no way to change what MAIN displays", async () => {
     await mount();
-    const inspector = screen.getByTestId("inspector");
     // An inspector that can change MAIN is a second navigator, and the user loses their place.
     //
     // Scoped to the shell's OWN content on purpose. Once a sibling mounts a real inspector this
@@ -80,7 +79,18 @@ describe("the three regions", () => {
     // blanket `PAGES.every(p => p.inspector === undefined)` that stood here failed on this branch
     // for a judgement made on 07-shell's. Narrowed to the page actually mounted, which is what the
     // paragraph above asks for and what keeps the two assertions below meaningful.
-    expect(PAGES.find((p) => p.id === DEFAULT_PAGE)?.inspector).toBeUndefined();
+    //
+    // Reconciliation: narrowing it to DEFAULT_PAGE was not narrow enough either. 03-design-docs
+    // supplies an inspector and DEFAULT_PAGE is `designdocs`, so the assertion failed for the same
+    // reason one merge later. What this test is actually about is the shell's OWN fallback content,
+    // so it now mounts a page that supplies no inspector and asserts there. When every page supplies
+    // one, `bare` is undefined and the test says so rather than passing vacuously.
+    const bare = PAGES.find((p) => !p.inspector);
+    expect(bare, "every page now supplies an inspector; this test has nothing left to guard").toBeDefined();
+    cleanup();
+    atUrl(workspaceUrl(bare!.id));
+    await mount();
+    const inspector = screen.getByTestId("inspector");
     expect(inspector.querySelectorAll("button").length).toBe(0);
     expect(inspector.querySelectorAll("a").length).toBe(0);
   });

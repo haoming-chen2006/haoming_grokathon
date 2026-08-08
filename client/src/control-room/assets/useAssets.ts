@@ -41,6 +41,10 @@ export function useAssets(projectId: string): AssetsView {
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+        // Checked rather than asserted. `as MockAsset[]` is a claim about a value that came over a
+        // network; when the body was anything else, `assets.filter` threw during render and took
+        // the region down with it. Every fetch in this product has to do this.
+        if (!Array.isArray(body)) throw new Error("GET /api/assets did not return a list of assets");
         return body as MockAsset[];
       })
       .then((list) => { if (live) { setAssets(list); setError(null); } })

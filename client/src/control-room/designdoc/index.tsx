@@ -73,8 +73,19 @@ function useDesignDocs(): { docs: DesignDocView[]; loading: boolean; error?: str
       try {
         const res = await fetch("/api/design-docs");
         if (!res.ok) throw new Error(`GET /api/design-docs returned ${res.status}`);
-        const docs = (await res.json()) as DesignDocView[];
-        if (live) setState({ docs, loading: false });
+        const body = await res.json();
+        // Checked, not asserted. `as DesignDocView[]` is a claim about a value that arrived over a
+        // network, and when the body was anything else — an error object, a stubbed fetch in a test
+        // — `docs.map` threw during render. With no error boundary above, that unmounted the whole
+        // shell: the page went blank and only a reload brought it back.
+        if (!Array.isArray(body)) {
+          throw new Error(
+            `GET /api/design-docs returned ${typeof body === "object" && body && "error" in body
+              ? String((body as { error: unknown }).error)
+              : "something that is not a list of documents"}`,
+          );
+        }
+        if (live) setState({ docs: body as DesignDocView[], loading: false });
       } catch (e) {
         // Stated, never swallowed into an empty list: "no documents" and "could not load
         // documents" are different facts and the page must not conflate them.

@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import type { PageDescriptor, ToolsSection, WorkspacePageProps } from "./contract";
 import { NotMergedYet } from "./NotMergedYet";
+import { SlotBoundary } from "./SlotBoundary";
 import { PAGES, TOOLS_PANEL } from "./pages";
 import { INSPECTOR, NAVIGATOR, RAIL, layout, useRegion } from "./regions";
 import { useWorkspaceRoute } from "./router";
@@ -368,7 +369,11 @@ function Slot({
   // and only a reload brings it back, because a fresh mount starts from a consistent list. That was
   // the "pages blank when I switch" bug, and it was in all three slots.
   const Component = component;
-  return <Component {...props} />;
+  return (
+    <SlotBoundary what={what}>
+      <Component {...props} />
+    </SlotBoundary>
+  );
 }
 
 export function WorkspaceShell() {
