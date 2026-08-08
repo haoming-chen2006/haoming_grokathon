@@ -116,6 +116,33 @@ subscription to `/ws/control-room?projectId=`. That is a second WebSocket per pr
 honest cost of not touching the hot file — recorded here so reconciliation collapses the two rather
 than discovering them.
 
+### R-8 · HOT · `server/services/projectStore.ts` — `deleteProject` must unfollow
+
+`deleteProject` (`:261`) deletes the project file and its message archive. It must also clear the
+follow link from every design document that project followed:
+
+```ts
+import { getDesignDocStore } from "./designDoc";   // or inject, if a global is unwelcome
+// inside deleteProject, before or after the unlinkSync calls:
+getDesignDocStore().unfollowProject(projectId);
+```
+
+`unfollowProject(projectId): DesignDoc[]` exists, is synchronous, and is tested — it clears
+`followedByProjectId` on every document following the project and **deletes none of them**.
+
+Reason: **a design document outlives its project.** The document is where the next project comes
+from, and a user who deletes a failed project and loses the brief they spent an hour writing does
+not open the product again. Without this call, deleting a project leaves every document it followed
+carrying a dangling `followedByProjectId`, which then refuses to be followed by anything else with
+`DocumentAlreadyFollowedError` naming a project that no longer exists.
+
+This is the one clause keeping **DD-003 held rather than passed**; see `VERIFICATION.md`.
+
+Note: `designDoc.ts` currently exports the `DesignDocStore` class but no accessor. Reconciliation
+should decide whether to add `getDesignDocStore()` alongside the other service singletons or to
+inject the store into `ProjectStore`; this worktree did not pick, because the choice belongs to
+whoever owns the composition root.
+
 ---
 
 ## Findings — raised, not fixed
@@ -149,9 +176,30 @@ an ACP session inside a 5-second budget, and under nine-worktree parallelism the
 A later full run of `bun run verify` — at load 117 — passed all three, which confirms flakiness
 rather than failure.
 
-Proposal for reconciliation, for whoever owns `01-agents`: raise the timeout on these three tests
-to 30s, or gate them behind a serial lane. Do not "fix" the launch path; there is nothing wrong
-with it. **This iteration did not touch the file.**
+Proposal for reconciliation, for whoever owns `01-agents`: raise the timeout on these tests to 30s,
+or gate them behind a serial lane. Do not "fix" the launch path; there is nothing wrong with it.
+**No iteration of this worktree has touched the file.**
+
+**Escalated, iteration 2 — this now fails the gate on every full run.** The blast radius grew from
+3 tests to 5, and it no longer clears on a re-run:
+
+```text
+iteration 1, load 117 → 3 fail, then a re-run passed
+iteration 2, load 117 → 5 fail
+iteration 2, load  50 → 5 fail   (same five, all at ~5.14s against the 5000ms default)
+```
+
+The five are `an agent with no worktree gets one…`, `the worktree is on its own branch…`,
+`an existing worktree is reused…`, `launching another task gives the agent a fresh worktree…`,
+and `relaunching the SAME task reuses its worktree…`. All in `server/routes/projectReads.test.ts`;
+that file still passes 41/41 at `--timeout 60000`.
+
+Consequence for reconciliation: `bun run verify` cannot be green on this machine while nine
+worktrees run in parallel, so no worktree can satisfy "the gate must be green before you record
+anything" (§4 step 7). This worktree recorded its evidence with the gate state disclosed at the top
+of its ledger section rather than either overclaiming or reporting nothing. **Whoever owns
+`01-agents` should treat this as the first thing to fix at reconciliation** — every sibling
+worktree is hitting it.
 
 ### F-2 · Partition gap · `VERIFICATION.md` is owned by nobody and written by everybody
 

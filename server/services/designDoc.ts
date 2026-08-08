@@ -2,8 +2,29 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { atomicWriteJson } from "./persistence";
 import { assertNoSecrets } from "./secrets";
-import { NotFoundError, VersionConflictError } from "./projectStore";
+import { NotFoundError, PermissionDeniedError, VersionConflictError } from "./projectStore";
 import type { Actor } from "../types/project";
+
+/**
+ * A document already belongs to another project.
+ *
+ * All three ids are on the error because "already followed" alone cannot be rendered into anything
+ * a user can act on: the UI has to be able to offer "open the other project" as the next click.
+ */
+export class DocumentAlreadyFollowedError extends Error {
+  readonly code = "DOCUMENT_ALREADY_FOLLOWED";
+  constructor(
+    readonly docId: string,
+    readonly currentProjectId: string,
+    readonly requestedProjectId: string,
+  ) {
+    super(
+      `Design document ${docId} is already followed by project ${currentProjectId}; ` +
+        `${requestedProjectId} cannot also follow it.`,
+    );
+    this.name = "DocumentAlreadyFollowedError";
+  }
+}
 
 /**
  * A design document is the surface where work is declared and watched. It is not one of the five
@@ -83,9 +104,22 @@ type StoredSection = Omit<DocSection, "firstLine">;
 type StoredDoc = Omit<DesignDoc, "sections"> & { sections: StoredSection[] };
 
 let idCounter = 0;
+
+/**
+ * Mint an id that sorts in creation order.
+ *
+ * The counter is zero-padded deliberately. `Date.now()` has millisecond resolution, and creating
+ * several documents in one millisecond is ordinary — a seeded project, an import, a test. When the
+ * timestamps tie, the id is the tiebreak, so an unpadded counter (`"z"` before `"10"`) would put
+ * the 36th document ahead of the 37th and the listing order would be arbitrary.
+ *
+ * Width 4 keeps ordering exact for the first 36^4 ≈ 1.7M ids in a process; past that the timestamp
+ * has long since moved on.
+ */
 function newId(prefix: string): string {
   idCounter += 1;
-  return `${prefix}_${Date.now().toString(36)}${idCounter.toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const seq = idCounter.toString(36).padStart(4, "0");
+  return `${prefix}_${Date.now().toString(36)}${seq}${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function nowIso(): string {
@@ -213,18 +247,106 @@ export class DesignDocStore {
     return hydrate(this.load(docId));
   }
 
+  /**
+   * Every document, in creation order.
+   *
+   * The sort is total: `createdAt` first, then `id`. Without the second key, documents created in
+   * the same millisecond tie and the order falls back to whatever `readdirSync` returns — which is
+   * filesystem order, differs between machines, and changes as files are rewritten. A user's list
+   * of briefs reordering itself between page loads is not a cosmetic problem.
+   */
   listDocuments(): DesignDoc[] {
     if (!existsSync(this.dir)) return [];
     return readdirSync(this.dir)
       .filter((f) => f.endsWith(".json") && !f.endsWith(".tmp"))
       .map((f) => hydrate(JSON.parse(readFileSync(join(this.dir, f), "utf8")) as StoredDoc))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   }
 
   retitleDocument(docId: string, title: string, _actor: Actor): DesignDoc {
     const doc = this.load(docId);
     doc.title = title;
     return this.persist(doc);
+  }
+
+  // ---- cardinality -----------------------------------------------------------------------
+
+  /**
+   * Bind a document to the project that follows it.
+   *
+   * The check is one lookup on the record being mutated: `followedByProjectId` is a single optional
+   * string, so "two projects on one document" is unrepresentable rather than merely forbidden. The
+   * alternative — `Project.documentIds: string[]` — is representable, wrong and silent: two projects
+   * both listing `d7` is a legal array on both sides, nothing fails, the UI shows the document under
+   * both, two teams read it as their brief, and the first person to notice is the user.
+   *
+   * A user action. An agent that could bind a document to a project could bind itself to any brief.
+   */
+  followDocument(docId: string, projectId: string, actor: Actor): DesignDoc {
+    this.assertUser(actor, "follow a design document");
+    const doc = this.load(docId);
+
+    // Idempotent: re-following the project that already follows it is not an error, because the
+    // caller's intent is already satisfied and failing here would make retries unsafe.
+    if (doc.followedByProjectId === projectId) return hydrate(doc);
+    if (doc.followedByProjectId) {
+      throw new DocumentAlreadyFollowedError(docId, doc.followedByProjectId, projectId);
+    }
+
+    doc.followedByProjectId = projectId;
+    return this.persist(doc);
+  }
+
+  /**
+   * Detach a document from its project. A user action only, never an agent tool: an agent that
+   * could unfollow could detach itself from its own brief.
+   */
+  unfollowDocument(docId: string, actor: Actor): DesignDoc {
+    this.assertUser(actor, "unfollow a design document");
+    const doc = this.load(docId);
+    delete doc.followedByProjectId;
+    return this.persist(doc);
+  }
+
+  /**
+   * The documents a project follows — **derived by scan, never stored.**
+   *
+   * A stored list on the project is a second record of the same fact, and two records of one fact
+   * disagree eventually. The scan is the only authority.
+   */
+  listDocumentsForProject(projectId: string): DesignDoc[] {
+    return this.listDocuments().filter((d) => d.followedByProjectId === projectId);
+  }
+
+  /**
+   * Clear the follow link from every document a project follows, and delete nothing.
+   *
+   * **A design document outlives its project.** The document is where the next project comes from,
+   * and a user who deletes a failed project and loses the brief they spent an hour writing does not
+   * open the product again.
+   *
+   * Call this when a project is deleted. `ProjectStore.deleteProject`
+   * (`server/services/projectStore.ts:261`) does not call it yet — that file is hot, and the
+   * one-line wiring is filed in `loops/handoff/pivot-design-docs.md`. Until it lands, a deleted
+   * project leaves a dangling `followedByProjectId`, which is recorded in `VERIFICATION.md` as the
+   * reason DD-003 is held rather than passed.
+   */
+  unfollowProject(projectId: string): DesignDoc[] {
+    return this.listDocumentsForProject(projectId).map((doc) => {
+      const stored = this.load(doc.id);
+      delete stored.followedByProjectId;
+      return this.persist(stored);
+    });
+  }
+
+  private assertUser(actor: Actor, action: string): void {
+    if (actor.kind !== "user") {
+      // The refusal names what to do instead. A refusal that does not is how an agent gets stuck
+      // retrying the same call.
+      throw new PermissionDeniedError(
+        `Only a user may ${action}. An agent may read the document and submit a suggestion against it.`,
+      );
+    }
   }
 
   // ---- sections --------------------------------------------------------------------------

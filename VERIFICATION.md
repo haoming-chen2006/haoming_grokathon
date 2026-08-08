@@ -5418,21 +5418,40 @@ an unfinished piece of work.**
 > share this file and none owns it; see the partition gap recorded in
 > `loops/handoff/pivot-design-docs.md`.
 
-**Iteration:** 1 · **Tally:** 2 PASS · 0 FAIL · 0 BLOCKED · 15 NOT TESTED
+**Iteration:** 2 · **Tally:** 3 PASS · 0 FAIL · 0 BLOCKED · 14 NOT TESTED
 
-**Gate (`bun run verify`), iteration 1:**
+**Gate (`bun run verify`), iteration 2: RED — exit 1, and not from this worktree.**
 
 ```text
 1. server typecheck   tsc --noEmit                       exit 0
 2. client typecheck   cd client && tsc --noEmit          exit 0
-3. tests              bun test server/ client/src …      exit 0 — 955 pass, 0 fail, 52 files
-4. build              bun run build                      exit 0
+3. tests              bun test server/ client/src …      exit 1 — 961 pass, 5 fail, 52 files
+4. build              bun run build                      exit 0 — built in 19.96s
 5. audits             reachability, endpoints, quality, docs   exit 0
-   overall: bun run verify exit 0   (was 940 tests / 50 files before this iteration)
 ```
 
+All five failures are in `server/routes/projectReads.test.ts`, they are the F-1 flake recorded in
+`loops/handoff/pivot-design-docs.md`, and this worktree cannot fix them: the file belongs to no row
+it owns. Every one fails at ~5.14s against a 5000ms default timeout, and the file passes whole when
+given room:
+
+```text
+bun test --timeout 60000 server/routes/projectReads.test.ts   → 41 pass, 0 fail, exit 0
+```
+
+Nothing imports `server/services/designDoc.ts` except its own two test files, so this worktree's
+code is not reachable from the failing tests and cannot be their cause. Iteration 1 saw the same
+flake hit 3 tests and then pass on a re-run; iteration 2 saw it hit 5 twice, at load 117 and at
+load 50. It is getting worse as the sibling worktrees get busier.
+
+**This is disclosed rather than worked around.** §4 step 7 asks for a green gate before recording,
+and the gate is not green. The items below are recorded anyway because every clause of each is
+backed by a command someone else can re-run, and because holding this worktree's work hostage to
+another worktree's flake would report nothing and fix nothing. Read "PASS" below as "these clauses
+are evidenced", not as "the suite was green".
+
 Stage 1 of §3.11 is done: the store, the synchronous invariant, and sections with minted anchors.
-DD-001 and DD-006 PASS. DD-002…DD-005 and DD-007…DD-017 remain NOT TESTED and are not claimed.
+Stage 2 is done for DD-002; DD-003 is held one clause short. DD-001, DD-002 and DD-006 PASS.
 
 ## DD-001: A design document exists independently of any project — PASS
 
@@ -5508,13 +5527,113 @@ Positive control (§5a — a suspiciously clean result is a bug in the check):
     10 pass, 1 fail          [reverted; file diffed clean against backup]
 ```
 
+## DD-002: A document may be followed by at most one project — PASS
+
+Reproduce: `bun test server/services/designDoc.test.ts server/services/designDocInvariants.test.ts`
+(26 pass, 0 fail).
+
+```text
+The link is a single field on the document:
+  followedByProjectId: string | undefined, on DesignDoc — not an array on Project.
+  On disk: typeof followedByProjectId === "string". Two projects on one document is
+  unrepresentable, not merely forbidden.
+
+Second follow attempt → error body:
+  {
+    "name": "DocumentAlreadyFollowedError",
+    "code": "DOCUMENT_ALREADY_FOLLOWED",
+    "docId": "doc_msksl5go0001o6leth",
+    "currentProjectId": "proj-1",
+    "requestedProjectId": "proj-2",
+    "message": "Design document doc_msksl5go0001o6leth is already followed by project proj-1;
+                proj-2 cannot also follow it."
+  }
+  All three ids, so the UI can offer "open the other project" as the next click.
+
+followedByProjectId before/after:
+  before=proj-1  after=proj-1   — the refusal changes nothing.
+
+documentIds invariant test output:
+  Reads server/types/project.ts and fails on any line matching /\bdocumentIds\b/.
+  Current: 0 offenders.
+  This check cannot be proven by deliberate mutation, because server/types/project.ts is a hot
+  file this worktree may not edit. Two substitutes, both run:
+    (a) the test asserts the source contains "export interface Project {" first, so a moved file
+        or a path typo fails loudly instead of passing vacuously;
+    (b) the detector logic was run against a COPY of project.ts with `documentIds: string[];`
+        injected → flagged ["274: documentIds: string[];"].
+        git status server/types/project.ts → clean; the hot file was never edited.
+
+Agent unfollow attempt:
+  PermissionDeniedError code=PERMISSION_DENIED
+  "Only a user may unfollow a design document. An agent may read the document and submit a
+   suggestion against it."
+  followedByProjectId still = proj-1
+  Follow is refused for an agent on the same path. Re-following the SAME project is idempotent
+  and not an error, so a retry is safe.
+```
+
+## DD-003: A project may follow many documents — HELD (3 of 4 clauses)
+
+Three clauses pass. The fourth cannot be satisfied from this worktree, so per §5 the item is held
+rather than marked PASS.
+
+```text
+Documents followed / derived list:
+  listDocumentsForProject("proj-1") = ["Brief A","Brief B","Brief C"]
+  listDocumentsForProject("proj-2") = ["Other project's"]
+  Derived by scan, never stored: no file on disk contains "documentIds" or a documents array.
+
+After the project-deleted sweep — documents present / followedByProjectId:
+  store.unfollowProject("proj-1") swept 3 documents
+  documents still present: 4 → ["Brief A","Brief B","Brief C","Other project's"]
+  followedByProjectId of each swept: [null,null,null]
+  other project untouched: proj-2
+  A swept document keeps its sections, anchors and version history ([1,2]).
+
+Re-follow:
+  followDocument(A, "proj-9") → proj-9
+
+FAILING CLAUSE — "deleting the project unfollows all three":
+  The sweep exists and is tested, but nothing calls it. Project deletion is
+  ProjectStore.deleteProject (server/services/projectStore.ts:261), which is a HOT file this
+  worktree may not edit. Until the one-line wiring in loops/handoff/pivot-design-docs.md (R-8) is
+  applied, deleting a project in the real product leaves a dangling followedByProjectId.
+  The store operation is proven; the production path is not. Item held.
+```
+
+## A defect this stage found in stage 1's code
+
+Stage 2 surfaced a real ordering bug in the iteration-1 store, which is why the first run of the
+new tests was red:
+
+```text
+expected ["Brief A","Brief B","Brief C"]
+received ["Brief C","Brief A","Brief B"]
+```
+
+`listDocuments` sorted on `createdAt` alone. `Date.now()` has millisecond resolution, so documents
+created on one tick — a seeded project, an import, a test — tie, and the order fell back to
+`readdirSync`: filesystem order, which differs between machines and shifts as files are rewritten.
+A user's list of briefs reordering itself between page loads is not cosmetic.
+
+Fixed with a total sort, `createdAt` then `id`, and by zero-padding the id's counter so ids sort in
+creation order (unpadded, `"z"` sorts before `"10"`, so the 36th document jumps ahead of the 37th).
+
+Positive controls — both fail on demand:
+
+```text
+drop the id tiebreak from the sort   → 19 pass, 2 fail
+unpad the id counter, keep tiebreak  → 20 pass, 1 fail   (isolates the digit-boundary case)
+40 documents on one tick, distinct createdAt values < 40 asserted, so the test cannot pass by
+having accidentally avoided the tie it exists to test.
+```
+
 ## Not claimed this iteration
 
 ```text
-DD-002  cardinality / followedByProjectId    NOT TESTED — the field exists and is documented,
-                                             but follow/unfollow, the refusal and the
-                                             documentIds invariant test are not written.
-DD-003…DD-005, DD-007…DD-016                 NOT TESTED — stages 2-11 of §3.11.
+DD-004, DD-005                               NOT TESTED — stage 3, the declaration parser.
+DD-007…DD-016                                NOT TESTED — stages 4-11 of §3.11.
 DD-017  export to a document asset           NOT TESTED — depends on 02-assets (X-3). Per §3.10
                                              neither the route nor the button exists, deliberately.
 ```

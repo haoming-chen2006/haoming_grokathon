@@ -131,6 +131,182 @@ describe("DD-001: a design document exists independently of any project", () => 
   });
 });
 
+// ---- DD-002 -------------------------------------------------------------------------------
+
+const AGENT: Actor = { kind: "agent", id: "agent-research" };
+
+describe("DD-002: a document may be followed by at most one project", () => {
+  test("the link is a single field on the document", () => {
+    const doc = store.createDocument({ title: "Brief" }, USER);
+    const followed = store.followDocument(doc.id, "proj-1", USER);
+
+    expect(followed.followedByProjectId).toBe("proj-1");
+    // Singular, so the illegal state is unrepresentable rather than merely forbidden.
+    expect(Array.isArray((followed as any).followedByProjectId)).toBe(false);
+
+    const onDisk = JSON.parse(readFileSync(join(dir, "design-docs", `${doc.id}.json`), "utf8"));
+    expect(typeof onDisk.followedByProjectId).toBe("string");
+  });
+
+  test("a second project is refused, and the refusal carries all three ids", () => {
+    const doc = store.createDocument({ title: "Brief" }, USER);
+    store.followDocument(doc.id, "proj-1", USER);
+
+    let error: any;
+    try {
+      store.followDocument(doc.id, "proj-2", USER);
+    } catch (e) {
+      error = e;
+    }
+
+    expect(error).toBeDefined();
+    expect(error.name).toBe("DocumentAlreadyFollowedError");
+    expect(error.code).toBe("DOCUMENT_ALREADY_FOLLOWED");
+    // All three, because "already followed" alone renders into nothing the user can act on — the
+    // UI must be able to offer "open the other project".
+    expect(error.docId).toBe(doc.id);
+    expect(error.currentProjectId).toBe("proj-1");
+    expect(error.requestedProjectId).toBe("proj-2");
+  });
+
+  test("the refusal leaves followedByProjectId unchanged", () => {
+    const doc = store.createDocument({ title: "Brief" }, USER);
+    store.followDocument(doc.id, "proj-1", USER);
+    const before = store.getDocument(doc.id).followedByProjectId;
+
+    expect(() => store.followDocument(doc.id, "proj-2", USER)).toThrow();
+
+    expect(store.getDocument(doc.id).followedByProjectId).toBe(before);
+    expect(store.getDocument(doc.id).followedByProjectId).toBe("proj-1");
+  });
+
+  test("re-following the same project is idempotent, not an error", () => {
+    const doc = store.createDocument({ title: "Brief" }, USER);
+    store.followDocument(doc.id, "proj-1", USER);
+
+    // Failing here would make a retry unsafe, and the caller's intent is already satisfied.
+    expect(() => store.followDocument(doc.id, "proj-1", USER)).not.toThrow();
+    expect(store.getDocument(doc.id).followedByProjectId).toBe("proj-1");
+  });
+
+  test("follow and unfollow are refused for an agent and permitted for a user", () => {
+    const doc = store.createDocument({ title: "Brief" }, USER);
+
+    expect(() => store.followDocument(doc.id, "proj-1", AGENT)).toThrow(/Only a user may follow/);
+    expect(store.getDocument(doc.id).followedByProjectId).toBeUndefined();
+
+    store.followDocument(doc.id, "proj-1", USER);
+
+    // An agent that could unfollow could detach itself from its own brief.
+    let error: any;
+    try {
+      store.unfollowDocument(doc.id, AGENT);
+    } catch (e) {
+      error = e;
+    }
+    expect(error.code).toBe("PERMISSION_DENIED");
+    // A refusal that does not say what to do instead produces an agent that retries the same call.
+    expect(error.message).toContain("submit a suggestion");
+    expect(store.getDocument(doc.id).followedByProjectId).toBe("proj-1");
+
+    const unfollowed = store.unfollowDocument(doc.id, USER);
+    expect(unfollowed.followedByProjectId).toBeUndefined();
+  });
+
+  test("an unfollowed document can be followed by a different project", () => {
+    const doc = store.createDocument({ title: "Brief" }, USER);
+    store.followDocument(doc.id, "proj-1", USER);
+    store.unfollowDocument(doc.id, USER);
+
+    expect(store.followDocument(doc.id, "proj-2", USER).followedByProjectId).toBe("proj-2");
+  });
+});
+
+// ---- DD-003 -------------------------------------------------------------------------------
+
+describe("DD-003: a project may follow many documents", () => {
+  test("one project follows three documents, and the list is derived by scan", () => {
+    const a = store.createDocument({ title: "Brief A" }, USER);
+    const b = store.createDocument({ title: "Brief B" }, USER);
+    const c = store.createDocument({ title: "Brief C" }, USER);
+    const other = store.createDocument({ title: "Someone else's" }, USER);
+
+    for (const d of [a, b, c]) store.followDocument(d.id, "proj-1", USER);
+    store.followDocument(other.id, "proj-2", USER);
+
+    const followed = store.listDocumentsForProject("proj-1");
+    expect(followed.map((d) => d.title)).toEqual(["Brief A", "Brief B", "Brief C"]);
+    expect(store.listDocumentsForProject("proj-2").map((d) => d.title)).toEqual(["Someone else's"]);
+
+    // Derived, never stored: nothing on disk holds a list of documents. A stored list is a second
+    // record of one fact, and two records of one fact disagree eventually.
+    for (const file of readdirSync(join(dir, "design-docs"))) {
+      const raw = readFileSync(join(dir, "design-docs", file), "utf8");
+      expect(raw).not.toContain("documentIds");
+      expect(JSON.parse(raw).documents).toBeUndefined();
+    }
+  });
+
+  test("documents created in the same millisecond still list in creation order", () => {
+    // The regression this guards: `createdAt` has millisecond resolution, so a seeded project or an
+    // import creates several documents on one tick. With `createdAt` as the only sort key they tie,
+    // and the order falls back to readdirSync — filesystem order, which differs between machines.
+    // 40 crosses the base-36 digit boundary at 36, which an unpadded counter tiebreak gets wrong.
+    const titles = Array.from({ length: 40 }, (_, i) => `Brief ${String(i).padStart(2, "0")}`);
+    const made = titles.map((title) => store.createDocument({ title }, USER));
+    for (const d of made) store.followDocument(d.id, "proj-1", USER);
+
+    const distinctTimestamps = new Set(made.map((d) => d.createdAt)).size;
+    expect(distinctTimestamps, "the test is meaningless unless creation times actually tie").toBeLessThan(
+      titles.length,
+    );
+
+    expect(store.listDocuments().map((d) => d.title)).toEqual(titles);
+    expect(store.listDocumentsForProject("proj-1").map((d) => d.title)).toEqual(titles);
+  });
+
+  test("the project-deleted sweep unfollows all three and deletes none of them", () => {
+    const docs = ["A", "B", "C"].map((t) => store.createDocument({ title: `Brief ${t}` }, USER));
+    const keep = store.createDocument({ title: "Other project's" }, USER);
+    for (const d of docs) store.followDocument(d.id, "proj-1", USER);
+    store.followDocument(keep.id, "proj-2", USER);
+
+    const swept = store.unfollowProject("proj-1");
+
+    expect(swept).toHaveLength(3);
+    expect(store.listDocumentsForProject("proj-1")).toEqual([]);
+    // A design document outlives its project: the brief a user spent an hour writing survives the
+    // deletion of the project that failed.
+    expect(store.listDocuments()).toHaveLength(4);
+    for (const d of docs) {
+      const still = store.getDocument(d.id);
+      expect(still.title).toBe(d.title);
+      expect(still.followedByProjectId).toBeUndefined();
+    }
+    // Another project's documents are untouched by the sweep.
+    expect(store.getDocument(keep.id).followedByProjectId).toBe("proj-2");
+  });
+
+  test("a swept document is still readable, keeps its sections, and can be re-followed", () => {
+    const doc = store.createDocument(
+      { title: "Brief", sections: [{ title: "Research", body: "prospect material" }] },
+      USER,
+    );
+    const anchor = doc.sections[0].anchor;
+    store.followDocument(doc.id, "proj-1", USER);
+    store.writeSection(doc.id, anchor, { body: "prospect material v2", expectedVersion: 1 }, USER);
+
+    store.unfollowProject("proj-1");
+
+    const after = store.getDocument(doc.id);
+    expect(after.sections[0].anchor).toBe(anchor);
+    expect(after.sections[0].body).toBe("prospect material v2");
+    expect(after.sections[0].versions.map((v) => v.version)).toEqual([1, 2]);
+
+    expect(store.followDocument(doc.id, "proj-9", USER).followedByProjectId).toBe("proj-9");
+  });
+});
+
 // ---- DD-006 -------------------------------------------------------------------------------
 
 describe("DD-006: section anchors are minted and survive a retitle", () => {

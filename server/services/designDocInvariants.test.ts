@@ -53,6 +53,36 @@ describe("DesignDocStore stays synchronous", () => {
     ).toContain("no `await` occurs inside it");
   });
 
+  test("the project type never grows a documentIds array", () => {
+    // The cardinality rule — one document is followed by at most one project — is enforced by the
+    // SHAPE: `followedByProjectId` is a single optional string on the document, so two projects on
+    // one document cannot be represented.
+    //
+    // `Project.documentIds: string[]` is the obvious refactor someone will propose in three weeks,
+    // and it is representable, wrong and silent: two projects both listing `d7` is a legal array on
+    // both sides, nothing throws, and the first person to notice is the user looking at their brief
+    // under two projects. This test is the only thing standing between the design and that change.
+    const types = readFileSync(join(import.meta.dir, "..", "types", "project.ts"), "utf8");
+    // A path typo, or a file that moved, would make the assertion below pass while checking
+    // nothing. `server/types/project.ts` is a hot file this worktree may not edit, so the deliberate
+    // mutation that would prove this check works cannot be run against it — this marker is what
+    // stands in for that control.
+    expect(types, "the project type source was not read — this test would pass vacuously").toContain(
+      "export interface Project {",
+    );
+
+    const offenders = types
+      .split("\n")
+      .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+      .filter(({ line }) => /\bdocumentIds\b/.test(line));
+
+    expect(
+      offenders.map((o) => `${o.n}: ${o.line}`),
+      "a project-side list of documents lets two projects claim one document with nothing failing — " +
+        "the link belongs on the document, as followedByProjectId",
+    ).toEqual([]);
+  });
+
   test("a derived line number is never persisted", () => {
     // A stored line number is a line number that goes wrong on the next edit. `firstLine` is
     // computed on read; if it ever reaches disk, presence and suggestions start pointing at the
