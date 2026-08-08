@@ -292,3 +292,57 @@ The real service is built and tested behind it — `server/services/software/**`
 request 8 (`stopAllPreviews()` in the shutdown path) and a `softwareRoutes` mount that does not exist
 yet. The page reads the same shapes it will be given: `types.ts` is written from the server's own
 `PreviewStatus`.
+
+---
+
+## Iteration 7 — 2026-08-08 — the mount request, made exact
+
+**19. Request 18's Option A is withdrawn. 02-assets has merged, and the seam it left is the right
+one.** `client/src/control-room/assets/` now exists with a real page, and its `AssetPreview.tsx`
+already has a `software` branch that draws a framed rectangle, carrying this comment:
+
+```tsx
+{/* A framed "app", drawn rather than run: 05-software owns the real preview surface. */}
+```
+
+This is that surface. One edit, in **02-assets'** own file — nothing in `shell/**` changes, and
+`contract.ts` is untouched:
+
+```tsx
+// client/src/control-room/assets/AssetsPage.tsx
+import { SoftwarePage } from "../software";
+
+export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
+  const selected = assets.find((a) => a.id === selectionId);
+  // A software asset cannot be looked at without running it, so opening one shows the app itself
+  // rather than a card of it (SW-009's fourth clause: opening it from Assets opens the preview).
+  if (selected?.type === "software") {
+    return <SoftwarePage projectId={projectId} selectionId={selectionId} onSelect={onSelect} />;
+  }
+  ... the grid, unchanged ...
+}
+```
+
+and, if the inspector should follow the main region:
+
+```tsx
+// client/src/control-room/assets/AssetsInspector.tsx
+if (asset?.type === "software") return <SoftwareInspector {...props} />;
+```
+
+**There is no id mapping to do.** The app in `mockSoftware.ts` is keyed to `asset_configurator`,
+which is 02-assets' own mock id, and tells the same story their fixture does: a chair configurator
+whose finish picker is wired to the price list. Selecting that asset lands on a running
+configurator. When both services are real, both sides use the same server-issued assetId and the
+alias stops mattering.
+
+**Rendering, checked rather than claimed.** All three regions were rendered server-side against
+every state — the configurator, the deck picker, a build in progress with no cost reported, a
+failure naming `react-datepicker`, an id that is not here, and an empty list. `bun run build`
+succeeds. There are no tests this iteration, deliberately and by instruction.
+
+**One thing to look at with fresh eyes.** The preview iframe is sandboxed `allow-scripts
+allow-forms allow-popups` and deliberately *not* `allow-same-origin`. Against a real dev server on
+another port that is belt and braces; against the `srcDoc` mock it is load-bearing, because a
+same-origin frame running model-written code could reach into the workspace rendering it. If
+02-assets or 07-shell ever renders a generated artefact in a frame, the same reasoning applies.
