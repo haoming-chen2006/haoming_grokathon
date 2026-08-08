@@ -172,8 +172,12 @@ areas:
 export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
   const data = useAgents(projectId);
   const { project, agents } = data;
+  // The front door has to be reachable from a workspace that already HAS projects. It was rendered
+  // only when there were none, so anyone who had ever used the product could not find it — which is
+  // the state every real machine is in.
+  const [starting, setStarting] = useState(false);
 
-  if (!projectId) return <StartProject />;
+  if (!projectId || starting) return <StartProject />;
   if (data.loading && !project) {
     return <p className="p-6 text-[13px] text-ink-faint">Loading the board…</p>;
   }
@@ -207,6 +211,15 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
           {data.busy ? (
             <span className="font-mono text-[11px] text-ink-faint">{data.busy}…</span>
           ) : null}
+          <button
+            type="button"
+            data-testid="new-project"
+            onClick={() => setStarting(true)}
+            title="Paste another design document and start a second project"
+            className="rounded border border-border px-2.5 py-1 text-[13px] text-ink-faint hover:bg-surface-hover"
+          >
+            New project
+          </button>
           {!project?.plan ? (
             <button
               type="button"

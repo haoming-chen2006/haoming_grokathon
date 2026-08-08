@@ -161,8 +161,84 @@ function TypeFilter({
   );
 }
 
+/**
+ * Bring a deliverable in from outside.
+ *
+ * The store could only be written by the generation engine, so a user with a deck already on their
+ * laptop had no way to put it in front of the agents meant to work on it. The file is read in the
+ * browser and posted as base64 — adequate for a deck or a spreadsheet, and the point at which that
+ * stops being true (a video) is the point to add a streaming upload rather than guess now.
+ */
+function ImportAsset({ projectId, onDone }: { projectId: string; onDone(): void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pick = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (const b of buf) binary += String.fromCharCode(b);
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      const type =
+        ext === "pptx" || ext === "key" ? "slides"
+        : ext === "xlsx" || ext === "csv" ? "table"
+        : ext === "mp4" || ext === "mov" ? "workflow"
+        : "document";
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          type,
+          title: file.name,
+          origin: "uploaded",
+          mime: file.type || "application/octet-stream",
+          filename: file.name,
+          base64: btoa(binary),
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <label
+        data-testid="import-asset"
+        className="cursor-pointer rounded border border-border px-2.5 py-1 text-[13px] text-ink-faint hover:bg-surface-hover"
+        title="Add a document, deck, sheet or video you already have"
+      >
+        {busy ? "Importing…" : "Import"}
+        <input
+          type="file"
+          className="sr-only"
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void pick(f);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      {error ? (
+        <span role="alert" data-testid="import-error" className="text-[11px] text-status-failed-ink">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
-  const { assets, usingMockData } = useAssets(projectId);
+  const { assets, usingMockData, refresh } = useAssets(projectId);
   const [filter, setFilter] = useState<MockAssetType | "all">("all");
 
   const counts = byType(assets);
@@ -171,11 +247,13 @@ export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
 
   if (assets.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-8">
         <p className="max-w-sm text-center text-[13px] text-ink-faint">
           Nothing here yet. Everything your agents produce — documents, slides, tables, workflows
           and software — lands on this page as they finish it.
         </p>
+        {/* An empty shelf still needs a way to put something on it. */}
+        <ImportAsset projectId={projectId} onDone={refresh} />
       </div>
     );
   }
@@ -193,7 +271,10 @@ export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
           Sample data — the assets service is not wired to this page yet.
         </div>
       ) : null}
-      <TypeFilter counts={counts} active={filter} onPick={setFilter} />
+      <div className="flex shrink-0 items-center justify-between gap-3 pr-5">
+        <TypeFilter counts={counts} active={filter} onPick={setFilter} />
+        <ImportAsset projectId={projectId} onDone={refresh} />
+      </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-5">
         {open ? <OpenAsset asset={open} onClose={() => onSelect(undefined)} /> : null}
         {shown.length === 0 ? (

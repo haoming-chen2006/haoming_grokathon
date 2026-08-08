@@ -11,7 +11,7 @@
 // rules the mock was careful to keep, which only matter once the data is real.
 
 import { Hono } from "hono";
-import { getAssetStore, ASSET_TYPES, AssetNotFoundError, type AssetType } from "../services/assetStore";
+import { getAssetStore, persistFile, ASSET_TYPES, AssetNotFoundError, type AssetType } from "../services/assetStore";
 
 export const assetRoutes = new Hono();
 
@@ -47,6 +47,74 @@ assetRoutes.get("/", (c) => {
         q: c.req.query("q") ?? undefined,
       }),
     );
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/**
+ * POST /api/assets — bring a deliverable in, or start an empty one.
+ *
+ * The store could only ever be written by the generation engine, so a user with a deck already on
+ * their laptop had no way to put it in front of the agents that are supposed to work on it. This is
+ * that way in.
+ *
+ * `origin` says where it came from and is not inferred: an "uploaded" asset carries no producing
+ * agent and no capability, and the inspector omits those fields rather than defaulting them to a
+ * plausible agent — the same rule the mock data was careful to keep before the data was real.
+ */
+assetRoutes.post("/", async (c) => {
+  let body: {
+    projectId?: string;
+    type?: string;
+    title?: string;
+    origin?: string;
+    base64?: string;
+    mime?: string;
+    filename?: string;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Expected a JSON body" }, 400);
+  }
+
+  if (!body?.projectId) return c.json({ error: "projectId is required" }, 400);
+  if (!body?.title?.trim()) return c.json({ error: "title is required" }, 400);
+  if (!body?.type || !(ASSET_TYPES as readonly string[]).includes(body.type)) {
+    return c.json({ error: `type must be one of: ${ASSET_TYPES.join(", ")}` }, 400);
+  }
+  const origin = body.origin === "generated" || body.origin === "imported" ? body.origin : "uploaded";
+
+  try {
+    const store = getAssetStore();
+    const asset = store.createAsset({
+      projectId: body.projectId,
+      type: body.type as AssetType,
+      title: body.title.trim(),
+      origin,
+      authorId: "user",
+      changeSummary: origin === "uploaded" ? "Uploaded by the user" : `Imported (${origin})`,
+    });
+
+    // Bytes are optional: an empty deliverable is a legitimate thing to create and fill later, and
+    // refusing one would make "start a deck" impossible without already having a deck.
+    if (body.base64) {
+      const file = await persistFile(
+        {
+          assetId: asset.id,
+          role: "source",
+          mime: body.mime ?? "application/octet-stream",
+          base64: body.base64,
+          ext: body.filename?.split(".").pop(),
+        },
+        store,
+      );
+      store.attachFile(asset.id, file, { authorId: "user", changeSummary: body.filename ?? "Uploaded file" });
+      return c.json(store.getAsset(asset.id), 201);
+    }
+
+    return c.json(asset, 201);
   } catch (err) {
     return fail(c, err);
   }

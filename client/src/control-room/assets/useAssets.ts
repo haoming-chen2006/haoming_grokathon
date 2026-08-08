@@ -14,6 +14,8 @@ export interface AssetsView {
   usingMockData: boolean;
   loading: boolean;
   error: string | null;
+  /** Re-read the shelf. An import has to show up without a reload. */
+  refresh(): void;
 }
 
 /**
@@ -28,6 +30,8 @@ export function useAssets(projectId: string): AssetsView {
   const [assets, setAssets] = useState<MockAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     if (!projectId) {
@@ -51,9 +55,9 @@ export function useAssets(projectId: string): AssetsView {
       .catch((err) => { if (live) setError(err instanceof Error ? err.message : String(err)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [projectId]);
+  }, [projectId, nonce]);
 
-  return { assets, usingMockData: false, loading, error };
+  return { assets, usingMockData: false, loading, error, refresh: () => setNonce((n) => n + 1) };
 }
 
 /** Deliverables of one type, in the navigator's order. Empty types are still listed, with a zero. */
