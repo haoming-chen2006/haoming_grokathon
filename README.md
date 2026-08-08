@@ -102,20 +102,47 @@ bun run dev
 Then open **http://localhost:6969/?view=control-room** — or use the toggle in the bottom-right to
 switch between the Control Room and the original terminal canvas.
 
-### Creating a project
+### Starting a project
 
-The Control Room shows an empty state until a project exists:
+**Stage 1 — write a design document and import it.** Requirements are read from any list item
+shaped `- ID-01: description`:
+
+```markdown
+# Greeting Service
+
+## Requirements
+
+- GREET-01: greet(name) returns "Hello, <name>!"
+- GREET-02: greet is covered by a unit test
+- GREET-03 — an empty name is rejected with a clear error
+```
 
 ```bash
-curl -X POST http://localhost:6968/api/projects \
-  -H 'content-type: application/json' \
-  -d '{"name":"My Project","goal":"Ship the feature",
-       "repositoryPath":"/absolute/path/to/a/git/repo","budgetUsd":10}'
-
-curl -X POST http://localhost:6968/api/coding-agents \
-  -H 'content-type: application/json' \
-  -d '{"projectId":"<id>","name":"Backend Engineer","role":"Backend Engineer","budgetUsd":3}'
+bun run dev                                              # in one terminal
+bun run new -- --repo /path/to/repo --design ./design.md # in another
 ```
+
+That creates the project, imports the requirements, and creates the five-role agent team with
+their personas. Add `--plan` to also run the Planner, which reads the design and the repository and
+proposes tasks — a real agent turn, so it takes a minute.
+
+**Stage 2 — watch it work.** Open the URL the command prints:
+
+```
+http://localhost:6969/?view=control-room
+```
+
+Nothing launches on its own. The plan lands as a **draft**, because human approval is the gate
+before any agent touches the repository — trying to launch first is refused with
+`PLAN_NOT_APPROVED`. To approve and start:
+
+```bash
+curl -X POST http://localhost:6968/api/projects/<id>/plan/approve
+curl -X POST http://localhost:6968/api/projects/<id>/tasks/<taskId>/launch
+```
+
+`bun run new -- --help` lists the options. For the whole flow start to finish without a browser,
+`bun run acceptance` runs all 20 steps against a fixture it builds itself.
 
 ### Views
 

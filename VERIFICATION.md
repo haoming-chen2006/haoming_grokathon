@@ -3957,6 +3957,71 @@ bun run verify → exit 0, 673 pass / 0 fail, four audits clean
 
 ---
 
+## Starting a project was eight curl calls (iteration 65)
+
+Asked how to run the thing end to end — draft a design document, then watch it work — the honest
+answer was that you could not, easily. Every piece existed and nothing composed them: create a
+project, import requirements, create the team, run the Planner, make worktrees. The Control Room's
+own empty state printed a `curl` command, which is a fair summary of the gap.
+
+**`bun run new` is stage 1.** It takes a repository and a design document, and:
+
+```text
+reads requirements from the document   list items shaped "- GREET-01: description"
+creates the project with the document  the design becomes the project's v1 document
+creates the five-role team             each with the persona that reaches its session at launch
+--plan                                 runs the real Planner over the design and repository
+prints the Control Room URL
+```
+
+**What it deliberately does not do is approve or launch anything.** Human approval before any agent
+touches the repository is the point of §4 and V-018, so it stops at the gate. Verified against a
+real repository:
+
+```text
+1. Project created — proj_…, document v1
+2. Requirements imported — GREET-01, GREET-02, GREET-03
+3. Agent team created — Planner, Backend Engineer, Frontend Engineer, Test Engineer, Reviewer
+4. Plan drafted — 3 task(s), state "draft"
+
+plan state: draft
+POST …/tasks/t1/launch → 409 PLAN_NOT_APPROVED
+```
+
+The Planner mapped one task to each requirement from the document alone. Error paths were checked
+too: no server gives "Start it first: bun run dev", a non-git directory explains that worktrees
+require git — both before anything is created.
+
+### A worse finding underneath it
+
+The requirement parser was extracted to `scripts/lib/designDocument.mjs` so it could be tested, and
+six tests were written for it. **The suite total did not move.**
+
+```text
+package.json  "test": "bun test server/ client/src"
+```
+
+`bun test` only scanned two directories. **Any test under `scripts/` was silently never run** — the
+"written but nothing calls it" failure this project keeps finding, applied to tests themselves. A
+test that never runs is worse than no test, because the count implies coverage that does not exist.
+
+Fixed by adding `scripts/`, and guarded so it cannot recur: `bun run audit:quality` now reads the
+roots out of the test script and fails if any tracked `*.test.*` file lies outside them.
+
+```text
+positive control — a test planted in tools/:
+  TEST FILES THAT NEVER RUN (1) — outside the roots in package.json "test": tools/stray.test.ts
+  exit 1        removed: exit 0
+
+before 673 pass · after 679 pass   the six parser tests now actually execute
+```
+
+```text
+bun run verify → exit 0, 679 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -3983,7 +4048,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 673 pass / 0 fail, 39 files;
+[x] Required tests pass.                    — 679 pass / 0 fail, 40 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -4053,9 +4118,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 74 ahead of main
+commits 76 ahead of main
 build   bun run build exit 0
-tests   673 pass / 0 fail across 39 files
+tests   679 pass / 0 fail across 40 files
 audits  0 orphans; every endpoint has a caller
 ```
 

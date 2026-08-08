@@ -214,6 +214,22 @@ for (const file of COMPONENTS) {
   }
 }
 
+// ──────────────────────────────────────────── every test file is actually run
+
+/**
+ * `package.json`'s test script names the directories `bun test` scans. A test outside them is
+ * never executed and reports nothing — the "written but nothing calls it" failure applied to tests
+ * themselves. It happened: a suite under `scripts/` sat unrun until the total test count failed to
+ * move after adding it.
+ */
+const testRoots = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts?.test ?? "")
+  .split(/\s+/)
+  .filter((token) => token && !token.startsWith("-") && token !== "bun" && token !== "test");
+
+const unrunTests = [...gitLines("git ls-files"), ...gitLines("git ls-files --others --exclude-standard")]
+  .filter((f) => /\.(test|spec)\.[a-z]+$/.test(f))
+  .filter((f) => !testRoots.some((root) => f.startsWith(root.replace(/\/$/, "") + "/")));
+
 // ───────────────────────────────────────────────────────────────────────── report
 
 console.log(`\n  §22.18 quality audit — ${files.length} files added by this project\n`);
@@ -228,12 +244,18 @@ if (findings.length) {
   console.log("");
 }
 
+if (unrunTests.length) {
+  console.log(`\n  TEST FILES THAT NEVER RUN (${unrunTests.length}) — outside the roots in package.json "test":\n`);
+  for (const f of unrunTests) console.log(`    ${f}`);
+  console.log(`\n    scanned roots: ${testRoots.join(", ")}\n`);
+}
+
 if (controlFindings.length) {
   console.log(`\n  DEAD OR UNLABELLED CONTROLS (${controlFindings.length}):\n`);
   for (const f of controlFindings) console.log(`    ${f.file}:${f.line} — ${f.why}`);
   console.log("");
 }
 
-if (findings.length || controlFindings.length) process.exit(1);
+if (findings.length || controlFindings.length || unrunTests.length) process.exit(1);
 
-console.log("\n  0 unclassified indicators, 0 dead controls.\n");
+console.log(`\n  0 unclassified indicators, 0 dead controls, every test file is in a scanned root.\n`);
