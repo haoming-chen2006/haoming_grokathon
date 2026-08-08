@@ -388,3 +388,79 @@ describe("a missing working directory is named for what it is", () => {
     }
   });
 });
+
+describe("an agent that stops short of submitting says so", () => {
+  function managerThatJustTalks() {
+    return new AcpSessionManager(
+      () => "/tmp/wt",
+      () =>
+        ({
+          start() {}, stop() {},
+          async initialize() {},
+          get supportsLoadSession() { return false; },
+          get sessionId() { return "s"; },
+          get isRunning() { return true; },
+          async newSession() { return "s"; },
+          async prompt() {
+            return {
+              text: "I had a look.", thoughts: [], toolCalls: [], stopReason: "end_turn",
+              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, cachedReadTokens: 0, reasoningTokens: 0, modelId: "gpt-4o" },
+            };
+          },
+        }) as any,
+    );
+  }
+
+  test("an open task with no submission is called out on the agent", async () => {
+    // Observed for real: the agent implemented the change, went idle, and never called
+    // submit_code_for_review. The task then read "working" forever with nothing to tell the user.
+    const store = getProjectStore();
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "u1", objective: "o" }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    store.updateTask(projectId, "u1", { status: "working" }, { kind: "user", id: "user" });
+
+    const agent = getAgentRegistry().create({ projectId, name: "B", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "u1");
+
+    const mgr = managerThatJustTalks();
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "do the task");
+
+    const after = getAgentRegistry().get(agent.id);
+    expect(after.status).toBe("idle");
+    expect(after.statusDetail, "nothing told the user the agent stopped short").toContain("Stopped without submitting");
+    expect(after.statusDetail).toContain("u1");
+  });
+
+  test("an agent that did submit is left alone", async () => {
+    const store = getProjectStore();
+    store.createPlan(projectId, { milestones: [] }, { kind: "user", id: "user" });
+    store.addTask(projectId, { id: "u2", objective: "o" }, { kind: "user", id: "user" });
+    store.approvePlan(projectId, { kind: "user", id: "user" });
+    store.updateTask(projectId, "u2", { status: "working" }, { kind: "user", id: "user" });
+
+    const agent = getAgentRegistry().create({ projectId, name: "C", role: "Backend Engineer" });
+    getAgentRegistry().assignTask(agent.id, "u2");
+    // A submission needs real evidence; the store refuses one without it (V-037).
+    store.addRequirement(projectId, { id: "U-2", description: "d" }, { kind: "user", id: "user" });
+    store.submitCode(projectId, {
+      taskId: "u2", agentId: agent.id, requirementIds: ["U-2"], branch: "agent/u2",
+      changedFiles: ["a.ts"], summary: "s", testResults: { passed: 1, failed: 0, total: 1 }, costUsd: 0.01,
+    });
+
+    const mgr = managerThatJustTalks();
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "anything else?");
+
+    expect(getAgentRegistry().get(agent.id).statusDetail ?? "").not.toContain("Stopped without submitting");
+  });
+
+  test("an agent with no task is left alone", async () => {
+    const agent = getAgentRegistry().create({ projectId, name: "D", role: "Reviewer" });
+    const mgr = managerThatJustTalks();
+    await mgr.open(agent.id);
+    await mgr.send(agent.id, "hello");
+    expect(getAgentRegistry().get(agent.id).statusDetail ?? "").not.toContain("Stopped without submitting");
+  });
+});

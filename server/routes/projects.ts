@@ -447,10 +447,18 @@ projectRoutes.post("/:id/tasks/:taskId/launch", async (c) => {
     // this repository — with write access to it. Every existing test and the acceptance script
     // created the worktree by hand first, so nothing exercised the path a user actually takes.
     // §9 and V-009 require isolation; this is where it has to be established.
+    // Reuse the worktree only for the SAME task.
+    //
+    // Reusing it whenever one existed meant an agent's second task landed in the first task's
+    // worktree, on a branch already merged into the base — so the work accumulated on merged
+    // history and the submission cited the wrong branch. One agent taking several tasks in
+    // sequence is the ordinary shape of a plan, not a corner case. Relaunching the same task still
+    // reuses, so clicking Launch twice or resuming after a crash does not strand the work.
     const registry = getAgentRegistry();
     const agent = registry.get(task.assignedAgentId);
-    if (!agent.worktree) {
-      const branch = agent.branch || `agent/${taskId}`;
+    const worktreeIsForThisTask = agent.worktree && agent.currentTaskId === taskId;
+    if (!worktreeIsForThisTask) {
+      const branch = `agent/${taskId}`;
       const created = createAgentWorktree(project.repositoryPath, {
         agentId: agent.id,
         branch,

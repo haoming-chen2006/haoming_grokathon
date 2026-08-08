@@ -105,6 +105,29 @@ export class AcpSessionManager {
     }
   }
 
+  /**
+   * A note for an agent that has gone idle without finishing its task, or undefined when there is
+   * nothing to say. Deliberately a status detail rather than an error: stopping short is not a
+   * failure of the system, it is something the user needs to see.
+   */
+  private unfinishedTaskDetail(agentId: string): string | undefined {
+    try {
+      const agent = getAgentRegistry().get(agentId);
+      if (!agent.currentTaskId) return undefined;
+
+      const project = getProjectStore().getProject(agent.projectId);
+      const task = project.tasks.find((t) => t.id === agent.currentTaskId);
+      if (!task || task.status !== "working") return undefined;
+
+      const submitted = project.submissions.some((s) => s.taskId === task.id);
+      if (submitted) return undefined;
+
+      return `Stopped without submitting task ${task.id}. Open the session and ask it to continue, or reassign the task.`;
+    } catch {
+      return undefined;
+    }
+  }
+
   private push(entry: Entry, kind: TranscriptEntry["kind"], text: string, status?: string): void {
     if (!text) return;
     entry.seq += 1;
@@ -292,7 +315,11 @@ export class AcpSessionManager {
 
       this.setState(entry, "ready");
       try {
-        getAgentRegistry().setStatus(agentId, "idle");
+        // An agent that finishes a turn with its task still open and nothing submitted has stopped
+        // short — it may have edited files and simply not called submit_code_for_review. Left as
+        // plain "idle" the task reads as still working forever and nothing tells the user to look.
+        // Say so instead; §11's "current blocker" is exactly this.
+        getAgentRegistry().setStatus(agentId, "idle", this.unfinishedTaskDetail(agentId));
       } catch {}
       return entry.session.transcript.filter((line) => line.seq > before);
     } catch (err) {

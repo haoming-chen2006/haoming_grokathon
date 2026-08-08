@@ -4684,6 +4684,63 @@ bun run verify → exit 0, 745 pass / 0 fail, four audits clean
 
 ---
 
+## A second task landed on the first task's merged branch (iteration 77)
+
+`HANDOFF.md` named multi-task plans as the richest unexercised path. It was right.
+
+**Launch reused the agent's worktree whenever one existed.** So an agent's second task went back
+into the first task's worktree, on a branch already merged into the base — the work would
+accumulate on merged history and the submission would cite the wrong branch. One agent taking
+several tasks in sequence is the ordinary shape of a plan, not a corner case.
+
+```text
+launch s1 → .agents/agent-s1
+launch s2 → .agents/agent-s1      ← the same tree, the merged branch
+```
+
+Reuse is now scoped to the *same* task, so relaunching s1 — clicking Launch twice, or resuming
+after a crash — still reuses and does not strand the work.
+
+**My test passed for the wrong reason first.** It held the object returned by the registry, which
+is live, so `first.worktree` showed the second launch's value and the comparison could never fail.
+Snapshotting the strings made it real, and the control then behaved: reverting the fix turns
+exactly that test red.
+
+## An agent that stops short now says so (iteration 77)
+
+Running a two-task plan for real, the first agent **implemented the change and never submitted it**:
+
+```text
+worktree calc.ts   export function add(a, b) { return a + b; }   ← the work was done
+agent              idle
+task t1            working
+submissions        0
+```
+
+The turn ended after the edit. The briefing asks for tests, a commit and a submission; the model
+did the first part and stopped. That is model behaviour and not something the product can
+guarantee — but the product's part *was* broken: the task read `working` forever and nothing told
+the user to look. An agent going idle mid-task was indistinguishable from one still thinking.
+
+An agent that finishes a turn with its task still open and nothing submitted now carries:
+
+```text
+Stopped without submitting task t1. Open the session and ask it to continue, or reassign the task.
+```
+
+A status detail rather than an error, because stopping short is not a system failure — it is
+something §11 calls a current blocker and expects to be visible. An agent that did submit, or has
+no task, is left alone.
+
+**Two of my test setups were invalid before the code was**: a submission with no `requirementIds`,
+which the store rightly refuses as missing evidence (V-037). The product was correct both times.
+
+```text
+bun run verify → exit 0, 750 pass / 0 fail, four audits clean
+```
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4780,7 +4837,7 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 102 ahead of main
+commits 104 ahead of main
 build   bun run build exit 0
 tests   727 pass / 0 fail across 43 files
 audits  0 orphans; every endpoint has a caller

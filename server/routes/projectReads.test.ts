@@ -537,3 +537,47 @@ describe("merging settles the task and the requirement (§10 step 15)", () => {
     expect(src).not.toContain("pendingSuggestionCount: 0");
   });
 });
+
+describe("a second task must not reuse the merged branch of the first", () => {
+  test("launching another task gives the agent a fresh worktree and branch", async () => {
+    // Launch reuses agent.worktree when present. After t1 is merged, the same agent launched on
+    // t2 would go back into agent/t1 — a branch already in main — so t2's work would accumulate on
+    // merged history and its submission would cite the wrong branch. One agent doing two tasks in
+    // sequence is the normal case for a plan, so this is the normal path, not a corner.
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const agent = getAgentRegistry().create({ projectId, name: "B", role: "Backend Engineer" });
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "s1", objective: "first", assignedAgentId: agent.id }, USER);
+    store.addTask(projectId, { id: "s2", objective: "second", assignedAgentId: agent.id }, USER);
+    store.approvePlan(projectId, USER);
+
+    await req("POST", `/api/projects/${projectId}/tasks/s1/launch`, {});
+    // Snapshot the values: the registry hands back a live object, so holding the reference would
+    // show the second launch's state and the comparison would always pass.
+    const firstWorktree = getAgentRegistry().get(agent.id).worktree;
+    const firstBranch = getAgentRegistry().get(agent.id).branch;
+    expect(firstWorktree).toBeTruthy();
+
+    await req("POST", `/api/projects/${projectId}/tasks/s2/launch`, {});
+    const second = getAgentRegistry().get(agent.id);
+
+    expect(second.worktree, "the second task reused the first task's worktree").not.toBe(firstWorktree);
+    expect(second.branch, "the second task reused the first task's branch").not.toBe(firstBranch);
+    expect(second.currentTaskId).toBe("s2");
+  });
+
+  test("relaunching the SAME task reuses its worktree rather than making another", async () => {
+    // Reuse is right when it is the same task — a user clicking Launch twice, or resuming after a
+    // crash, must not strand the work in a new tree.
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const agent = getAgentRegistry().create({ projectId, name: "C", role: "Reviewer" });
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "s3", objective: "o", assignedAgentId: agent.id }, USER);
+    store.approvePlan(projectId, USER);
+
+    await req("POST", `/api/projects/${projectId}/tasks/s3/launch`, {});
+    const firstTree = getAgentRegistry().get(agent.id).worktree;
+    await req("POST", `/api/projects/${projectId}/tasks/s3/launch`, {});
+    expect(getAgentRegistry().get(agent.id).worktree).toBe(firstTree);
+  });
+});
