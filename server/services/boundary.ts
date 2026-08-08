@@ -46,7 +46,40 @@ export function canonical(path: string): string {
 // ─────────────────────────────────────────────────────────────── capability: which tools exist
 
 /**
- * What an agent may call, chosen once at creation.
+ * **A-0 (`grok-workspace.md` §3.3.1): every agent is a real `grok` process spoken to over ACP, and
+ * capability adds to it — capability never subtracts.**
+ *
+ * Every agent in this product, at every tier, keeps Grok Build's entire native surface. `base Grok`
+ * is not a smaller agent; it is the whole agent with no media endpoints registered on top. Nothing
+ * in this module removes a native tool, and there is deliberately nowhere in the model to express
+ * such a removal: a capability is a set of *additional* MCP tools and nothing else.
+ *
+ * The failure this prevents is easy to walk into. A surface that finds `grok` inconvenient — media
+ * generation is the obvious one, since an image can be produced by an HTTP call with no agent at
+ * all — ships a job runner wearing an agent's name. It works, it is simpler, and the user silently
+ * loses the file editing, search, skills and subagents they were told their team has.
+ */
+export const GROK_NATIVE_SURFACE = [
+  "file reading and editing",
+  "shell execution, under the area boundary hook",
+  "web search",
+  "X search",
+  "skills",
+  "hooks",
+  "subagents",
+  "slash commands",
+  "MCP servers",
+  "session persistence and session/load resume",
+] as const;
+
+/** One sentence a creation form can render verbatim, so the product states A-0 and not only this file. */
+export const GROK_NATIVE_SURFACE_NOTE =
+  "Every agent is a full Grok Build agent, whatever its capability. A capability adds our media " +
+  "endpoints as tools the agent may call; it never removes anything.";
+
+/**
+ * The media endpoints an agent may call, chosen once at creation. **Additive only** — see
+ * `GROK_NATIVE_SURFACE` above.
  *
  * Two flags rather than a four-value enum, because a fifth capability is already foreseeable
  * (posting to X, 08-users-x) and an enum forces a migration. Presented as four presets, because
@@ -90,16 +123,22 @@ export const BASE_CAPABILITIES: AgentCapabilities = { images: false, voice: fals
  * reach any per-unit endpoint at all, so its worst case is bounded by token spend. The cheapest
  * spending control in the product is not a dollar cap; it is not granting the capability.
  */
-export function toolsForCapability(capabilities: AgentCapabilities): string[] {
+export function mediaToolsForCapability(capabilities: AgentCapabilities): string[] {
   return [
     ...(capabilities.images ? IMAGE_TOOLS : []),
     ...(capabilities.voice ? VOICE_TOOLS : []),
   ];
 }
 
-/** The media tools an agent's capability does **not** grant. The absence is the safety. */
-export function toolsWithheldByCapability(capabilities: AgentCapabilities): string[] {
-  const granted = new Set(toolsForCapability(capabilities));
+/**
+ * The media tools an agent's capability does **not** grant. The absence is the safety.
+ *
+ * "Withheld" ranges over `MEDIA_TOOLS` and nothing else, by construction. It never names a project
+ * MCP tool and never names anything in `GROK_NATIVE_SURFACE` — an empty return from
+ * `mediaToolsForCapability` means "no media endpoints", never "no tools".
+ */
+export function mediaToolsWithheldByCapability(capabilities: AgentCapabilities): string[] {
+  const granted = new Set(mediaToolsForCapability(capabilities));
   return MEDIA_TOOLS.filter((tool) => !granted.has(tool));
 }
 
@@ -120,6 +159,9 @@ export interface CapabilityPreset {
  * The four choices the product offers, in the order the creation form presents them: cheapest
  * first, so the expensive one is a deliberate step rather than a default.
  *
+ * Every one of them is a whole Grok Build agent. The differences below are entirely additions;
+ * `mediaTools` is the only field that varies and it ranges over `MEDIA_TOOLS` alone.
+ *
  * No per-unit price appears here. The rate table and the ledger are 06-tools-cost's, and two
  * documents specifying the same prices is how they come to disagree.
  */
@@ -129,7 +171,9 @@ export const CAPABILITY_PRESETS: CapabilityPreset[] = [
     label: "base Grok",
     capabilities: { images: false, voice: false },
     mediaTools: [],
-    spendNote: "Cannot reach any per-unit endpoint. Its worst case is bounded by token spend.",
+    spendNote:
+      "The full Grok Build agent and nothing on top. No media endpoint is registered, so it cannot " +
+      "spend per image, per second or per character — its worst case is bounded by token spend.",
   },
   {
     id: "images",
@@ -137,7 +181,8 @@ export const CAPABILITY_PRESETS: CapabilityPreset[] = [
     capabilities: { images: true, voice: false },
     mediaTools: [...IMAGE_TOOLS],
     spendNote:
-      "Can generate still images and video. Video is priced per second and costs roughly two " +
+      "The full Grok Build agent, plus our image endpoints: still images and video, offered as " +
+      "tools it may call as part of its work. Video is priced per second and costs roughly two " +
       "orders of magnitude more per artifact than a still image.",
   },
   {
@@ -145,7 +190,9 @@ export const CAPABILITY_PRESETS: CapabilityPreset[] = [
     label: "Grok + voice",
     capabilities: { images: false, voice: true },
     mediaTools: [...VOICE_TOOLS],
-    spendNote: "Can synthesise and transcribe speech, priced per character and per minute.",
+    spendNote:
+      "The full Grok Build agent, plus our speech endpoints: synthesis and transcription, priced " +
+      "per character and per minute.",
   },
   {
     id: "voice+images",
@@ -153,8 +200,8 @@ export const CAPABILITY_PRESETS: CapabilityPreset[] = [
     capabilities: { images: true, voice: true },
     mediaTools: [...IMAGE_TOOLS, ...VOICE_TOOLS],
     spendNote:
-      "Everything the other three can call. The most expensive agent to run, and the only one " +
-      "that can spend on both media families.",
+      "The full Grok Build agent, plus both media families. The most expensive agent to run, and " +
+      "the only one that can spend on images and speech alike.",
   },
 ];
 

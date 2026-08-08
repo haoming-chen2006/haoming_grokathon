@@ -7,7 +7,12 @@ import {
   getAcpSessionManager,
 } from "../services/acpSessionManager";
 import { AGENT_RUNTIME_STATUSES, AGENT_STATUS_PRESENTATION } from "../types/agent";
-import { CAPABILITY_PRESETS, MEDIA_TOOLS } from "../services/boundary";
+import {
+  CAPABILITY_PRESETS,
+  GROK_NATIVE_SURFACE,
+  GROK_NATIVE_SURFACE_NOTE,
+  MEDIA_TOOLS,
+} from "../services/boundary";
 import { getProjectStore } from "../services/projectStore";
 import {
   AreaAssignmentError,
@@ -66,8 +71,19 @@ agentRoutes.get("/statuses", (c) =>
  * is chosen once, at creation, and it is a budget control — a base-Grok agent cannot reach a
  * per-unit endpoint at all — so the form has to be able to say what each choice costs the user at
  * the moment of choosing.
+ *
+ * `nativeSurface` ships with the presets rather than being left to the form, because A-0
+ * (`grok-workspace.md` §3.3.1) is exactly the thing a picker of four tiers will otherwise imply
+ * away: every one of these is a whole Grok Build agent, and the tiers differ only by what they add.
  */
-agentRoutes.get("/capabilities", (c) => c.json({ presets: CAPABILITY_PRESETS, mediaTools: MEDIA_TOOLS }));
+agentRoutes.get("/capabilities", (c) =>
+  c.json({
+    presets: CAPABILITY_PRESETS,
+    mediaTools: MEDIA_TOOLS,
+    nativeSurface: GROK_NATIVE_SURFACE,
+    nativeSurfaceNote: GROK_NATIVE_SURFACE_NOTE,
+  }),
+);
 
 agentRoutes.get("/", (c) => c.json(getAgentRegistry().list(c.req.query("projectId") ?? undefined)));
 
