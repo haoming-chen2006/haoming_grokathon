@@ -6,8 +6,8 @@ Evidence for the items in `loops/05-software.md` §7.
 this worktree does not own. It is written in §7's format so the reconciliation pass can move it in
 whole. That request is recorded in `loops/handoff/pivot-software.md`.
 
-**Last iteration:** 4 (2026-08-08)
-**Tally:** 2 PASS · 0 FAIL · 3 BLOCKED · 11 NOT TESTED
+**Last iteration:** 5 (2026-08-08)
+**Tally:** 3 PASS · 0 FAIL · 3 BLOCKED · 10 NOT TESTED
 
 ```text
 SW-001  PASS         the template builds before any agent touches it
@@ -19,12 +19,13 @@ SW-006  NOT TESTED   3 of 4 clauses evidenced; HELD on the 4th, which needs the 
 SW-007  NOT TESTED
 SW-008  NOT TESTED
 SW-009  BLOCKED      waits on 02-assets (store accepting kind: "software")
-SW-010  NOT TESTED
-SW-011  NOT TESTED   partial evidence only, recorded under SW-001; not claimed
+SW-010  NOT TESTED   1 of 4 clauses (the export scan); HELD on the three that need write-time
+                     refusal, which contract A-0 puts outside this surface, and the UI
+SW-011  NOT TESTED   3 of 4 clauses evidenced; HELD on the one that needs the UI's own words
 SW-012  NOT TESTED   two clauses (shared installs, offline) evidenced elsewhere; not claimed
 SW-013  NOT TESTED   the build timeout is bounded and tested; the *retry* bound is not built
 SW-014  BLOCKED      waits on 01-agents (work areas)
-SW-015  NOT TESTED
+SW-015  PASS         export produces something that works
 SW-016  PASS-able only once something is borrowed; nothing is yet — see the note at the end
 ```
 
@@ -311,6 +312,97 @@ paths. `canonical` is copied from `server/routes/repository.ts:44` on §5.3's in
 re-derived, and both of its failure modes are covered: a symlink planted at
 `assets/software/linked-out` pointing outside the root is refused, and the macOS `/var` →
 `/private/var` case is the ordinary path every test here runs on.
+
+---
+
+## SW-015 — Export produces something that works — PASS
+
+All four clauses hold. Reproduce with:
+
+```bash
+bun test server/services/software/exportApp.test.ts
+```
+
+```text
+Zip contents listing:           9 entries — package.json, bun.lock, index.html, vite.config.js,
+                                .gitignore, src/ and its three files. The lockfile goes with it: an
+                                app that installs the same versions somewhere else is the difference
+                                between an export and a pile of source.
+Excluded paths confirmed:       node_modules/, .git/, .agents/ and dist/ — asserted absent by
+                                prefix, from `unzip -Z1` rather than from our own file list, so the
+                                claim is about the archive and not about our intention.
+Clean-room build result:        extracted into a directory that is not under the workspace and has
+                                no node_modules above it, then `bun install` (exit 0) and
+                                `runBuild` (ok true, exit 0, ~1.5 s), producing dist/index.html.
+                                Nothing it built with can have been resolved from the machine it
+                                was exported from.
+Scan result:                    clean, and the scan runs *before* the zip is written — a zip
+                                written and then checked has already been written.
+```
+
+**The zip is produced by the system `zip`, not a library.** A zip writer would be a runtime
+dependency in the workspace's own `package.json`, which is a hot file and a §9 stop besides. When
+`zip` is missing the user is told exactly that, and no partial file is left behind.
+
+---
+
+## SW-010 — No secret reaches the artifact — NOT TESTED, held on three clauses
+
+```text
+Planted pattern:                xai-AAAABBBBCCCCDDDDEEEEFFFF1234, written into a source file of a
+                                real asset. `findSecrets` (server/services/secrets.ts:52) is used
+                                unchanged — a scanner that disagrees with itself between surfaces is
+                                worse than one that is too broad. Both its patterns fire on
+                                `const token = "xai-…"`: the key's shape and the assignment's.
+Refusal text and where shown:   "This app was not exported because it has what looks like a password
+                                or key in src-config.js. Take it out and keep it somewhere the app
+                                reads at runtime, then try again." The finding names the file and the
+                                kind; the preview is three characters and a length, so the value is
+                                never quoted into a second place. **Where it is shown is NOT TESTED**
+                                — there is no UI yet (§6 stage 2.1).
+Export scan result:             refused before the zip existed, asserted by the file's absence.
+                                A secret planted in node_modules does *not* block the export: that
+                                tree is full of key-shaped test fixtures, and a check that always
+                                fires is a check that gets switched off.
+```
+
+**Three clauses are held, and one of them is held for a contract reason rather than a scheduling
+one.** SW-010's first two clauses say `assertNoSecrets` runs over every file *the agent writes* and
+that a planted key is refused *at write time*. Under `grok-workspace.md` §3.3.1 (A-0) an agent is a
+real `grok` process editing files with its own tools — this surface is not in front of those writes
+and must not insert itself there. Write-time refusal is a PreToolUse concern and belongs to
+01-agents' `server/services/boundary.ts`. What this surface owns is the checkpoint where the app
+leaves, and that is what is asserted. Recorded rather than approximated with a scan that pretends to
+be an interceptor.
+
+---
+
+## A-0 audit — every agent is a Grok Build agent
+
+`grok-workspace.md` §3.3.1 was added after `loops/05-software.md` was written. This area was audited
+against it in iteration 5. **Nothing here creates, implies or makes room for a worker that is not a
+`grok` process, and nothing here treats a capability tier as a reduced agent.** Specifically:
+
+```text
+outbound HTTP clients in this area              none. zero fetch, zero http(s) URL, zero provider SDK
+processes this area starts                      git, bun install, the app's build script, the app's
+                                                dev script, zip — all deterministic build tools
+anything that runs or wraps a model             none
+mentions of capability tiers anywhere in it     none, so nothing can have got them backwards
+```
+
+The audit is now a test rather than a paragraph — `contract.test.ts` fails if a `fetch`, a provider
+host or SDK, a model-provider key name, or a `grok` spawn appears in this area, and if the number of
+places a process is started changes. Both halves were mutation-tested: adding
+`fetch("https://api.x.ai/v1/chat/completions", …)` fails the first; adding
+`spawnDetached("grok agent --always-approve stdio", …)` fails the second *and* the call-site count.
+
+The temptation A-0 names is real from exactly here, and worth writing down: this surface owns a
+template, a build, a preview and an export, all deterministic. "Software generation" as a pipeline
+that scaffolds the template, posts a prompt somewhere, writes files back and calls itself an agent
+would work and would be simpler. It would also silently remove file editing, shell, search, skills
+and session resume from a team the user was told they had. The build and the preview are **tools an
+agent calls**; they are not a substitute for one.
 
 ---
 

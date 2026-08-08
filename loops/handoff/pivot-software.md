@@ -184,3 +184,58 @@ ordering constraint.
 builds in `<path>.creating` and renames. An install that fails leaves nothing, so the next attempt
 sees an empty slot rather than "there is already something there" — which is what a partially
 created asset looks like to every subsequent call.
+
+---
+
+## Iteration 5 — 2026-08-08
+
+### Findings other worktrees need
+
+**15. A-0 audit of this area: clean.** `grok-workspace.md` §3.3.1 postdates `loops/05-software.md`,
+so it was audited against explicitly. Nothing in `server/services/software/**` creates, implies or
+makes room for a worker that is not a `grok` process: no `fetch`, no outbound host, no provider SDK,
+no model-provider key name, and no capability tier mentioned anywhere — so nothing here can have got
+"base Grok" backwards. The five processes it starts are `git`, `bun install`, the app's build script,
+the app's dev script and `zip`.
+
+The check is `server/services/software/contract.test.ts`, and it is a test rather than a paragraph
+because the temptation A-0 names is nearest to a surface like this one: a template plus a build plus
+a preview is most of a "generation pipeline", and the last step — post a prompt somewhere, write the
+files back, call it an agent — is the one that quietly removes file editing, shell, search and skills
+from the user's team. **Any worktree with a deterministic pipeline should consider the same guard**;
+04-generation especially, since §13.8's `api.x.ai` preference gives it a legitimate HTTP client and
+therefore no structural reason not to add a second one.
+
+**16. Write-time secret refusal is 01-agents' to make, not ours.** SW-010's first clauses ask that
+`assertNoSecrets` run over every file the agent writes and that a planted key be refused at write
+time. Under A-0 the agent edits with its own tools and this surface is not in front of those writes.
+`scanAppForSecrets(repoPath)` in `server/services/software/exportApp.ts` is the checkpoint scan at
+the boundary this surface does own — the moment the app leaves — and the export refuses before the
+zip exists. **01-agents**: if `boundary.ts`'s PreToolUse hook can call a scanner on a write's
+content, `findSecrets` from `server/services/secrets.ts` is the one already used on every document
+and message write, and using the same one keeps the two surfaces from disagreeing about what a
+secret is.
+
+**17. Every live-agent test on this machine is failing with a 401, as of 2026-08-08 ~14:10.** Not
+contention and not a defect in any worktree's code. The error, identical in every case:
+
+```text
+AcpError: Internal error  code: -32603
+  message: "Auth recovery succeeded but 4 authenticated inference requests were still rejected
+            (401); giving up after 3 retries. Turn ran 7s wall-clock."
+  http_status: 401
+```
+
+Failing: V-006, V-007, V-032, V-033, V-042, V-050 — 10 tests across `agentExecution.test.ts`,
+`skillsAndRecovery.test.ts` and the session suites. It reproduces with a single test file run alone,
+so it is not the gate contention reported in finding 4.
+
+**It is new today.** Two full `bun run verify` runs from this worktree earlier in the same session
+were 991 pass / 0 fail with those exact tests included, and `skillsAndRecovery.test.ts` passed 5/5
+standalone about an hour before. Between then and now the credential started refusing authenticated
+inference. 23 `grok` processes were running across the eight worktrees at the time, so a concurrent
+session or rate limit is the first thing to check; an expired token is the second.
+
+This is outside every worktree's boundary — it is `acpClient.ts` reporting what the endpoint said,
+and the credential itself. **No worktree can mark a live-agent item PASS until it clears**, and any
+that did so in the last hour should re-run before trusting it.
