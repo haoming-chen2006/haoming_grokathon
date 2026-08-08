@@ -1,7 +1,9 @@
 import { Hono } from "hono";
-import { readFileSync, readdirSync, existsSync } from "fs";
+import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { parseDeclaration, type DeclarationResult } from "../services/designDoc";
+import { startWork } from "../services/startWork";
+import { getProjectStore } from "../services/projectStore";
 
 /**
  * HTTP surface for design documents — mounted at `/api/design-docs`.
@@ -14,11 +16,12 @@ import { parseDeclaration, type DeclarationResult } from "../services/designDoc"
  *
  * What is real here and what is not:
  *   real   the documents, their text, their sections, and the declaration — parsed by the one
- *          server-side parser in services/designDoc.ts, the same code path a stored document uses
- *   not    persistence, versioning, section anchors, writes, and suggestions. This router is
- *          read-only on purpose; there is no endpoint here that pretends to save anything.
+ *          server-side parser in services/designDoc.ts, the same code path a stored document uses;
+ *          and, since the product needed a front door, writing and deleting a document as a file
+ *   not    versioning, section anchors and suggestions. A POST overwrites nothing and a DELETE
+ *          keeps no history, because history is the store's job and the store is not wired yet.
  *
- * When the store is wired, `listDocuments()` below is the only function that changes.
+ * When the store is wired, `listDocuments()`, the POST and the DELETE are what change.
  */
 export const designDocRoutes = new Hono();
 
@@ -85,13 +88,37 @@ function readDocument(file: string): DesignDocView {
   };
 }
 
+/**
+ * The project that followed this document, if any.
+ *
+ * Matched on the document TITLE stored with the project, because a project records the document it
+ * was created from as `document.title` and there is no foreign key yet. That is a weaker join than
+ * an id and it is stated here rather than hidden: when the design-document store is wired, this
+ * becomes a lookup and the cardinality rule stops depending on a string.
+ */
+function projectFollowing(docId: string): string | undefined {
+  const doc = (() => {
+    try { return readDocument(`${docId}.md`); } catch { return undefined; }
+  })();
+  if (!doc) return undefined;
+  for (const summary of getProjectStore().listProjects()) {
+    const full = getProjectStore().getProject(summary.id);
+    if (full.document?.title === doc.title) return full.id;
+  }
+  return undefined;
+}
+
 function listDocuments(): DesignDocView[] {
   const dir = docsDir();
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => f.endsWith(".md"))
     .sort()
-    .map(readDocument);
+    .map((f) => {
+      const doc = readDocument(f);
+      const followedBy = projectFollowing(doc.id);
+      return followedBy ? { ...doc, followedByProjectId: followedBy } : doc;
+    });
 }
 
 /** GET /api/design-docs — every document, with its declaration already parsed. */
@@ -117,4 +144,115 @@ designDocRoutes.get("/:docId/declaration", (c) => {
   const doc = listDocuments().find((d) => d.id === id);
   if (!doc) return c.json({ error: `No design document with id ${id}` }, 404);
   return c.json(doc.declaration);
+});
+
+/** A filename from a title, so a pasted document is findable on disk by a human. */
+function slugFor(title: string, text: string): string {
+  const base = (title || firstHeadingOf(text) || "untitled")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "untitled";
+  const dir = docsDir();
+  if (!existsSync(join(dir, `${base}.md`))) return base;
+  for (let n = 2; n < 500; n += 1) if (!existsSync(join(dir, `${base}-${n}.md`))) return `${base}-${n}`;
+  throw new Error(`Too many documents named ${base}`);
+}
+
+function firstHeadingOf(text: string): string | undefined {
+  return /^#\s+(.+)$/m.exec(text)?.[1]?.trim();
+}
+
+/**
+ * POST /api/design-docs — paste or import a document.
+ *
+ * This is the product's front door: a user arrives with a document, and everything downstream —
+ * the project, the team, the plan, the deliverables — is derived from it. Until this existed the
+ * only way in was to drop a file into `demo/design-docs/` by hand, which is not a product.
+ *
+ * The document is written to disk **as pasted**, and the declaration is returned alongside it
+ * rather than being enforced: a document whose `project` block is malformed is still saved, and the
+ * errors come back with their line numbers so the user can fix them in place. Refusing to save
+ * would lose what they typed, which is the one thing a paste box must never do.
+ */
+designDocRoutes.post("/", async (c) => {
+  let body: { title?: string; text?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Expected a JSON body with a `text` field" }, 400);
+  }
+  const text = typeof body?.text === "string" ? body.text : "";
+  if (!text.trim()) return c.json({ error: "text is required and cannot be empty" }, 400);
+
+  const dir = docsDir();
+  mkdirSync(dir, { recursive: true });
+  const id = slugFor(body.title ?? "", text);
+  writeFileSync(join(dir, `${id}.md`), text, "utf8");
+
+  const doc = readDocument(`${id}.md`);
+  return c.json(doc, 201);
+});
+
+/**
+ * DELETE /api/design-docs/:docId — remove a document.
+ *
+ * A demo that cannot be reset is a demo you get one run of. Deleting the document does NOT delete
+ * the project it declared or the assets that project produced: those have their own lifetimes, and
+ * silently cascading would destroy work the user never asked to lose.
+ */
+designDocRoutes.delete("/:docId", (c) => {
+  const id = c.req.param("docId");
+  const path = join(docsDir(), `${id}.md`);
+  if (!existsSync(path)) return c.json({ error: `No design document with id ${id}` }, 404);
+  rmSync(path);
+  return c.json({ deleted: id });
+});
+
+/**
+ * POST /api/design-docs/:docId/start — the one action.
+ *
+ * Creates the project the document declares, seeds its team, and stands it in a workspace. It does
+ * NOT launch anything: the plan is generated separately and approved by a human, because that gate
+ * is the reason this product supervises agents rather than merely running them.
+ *
+ * Refuses a second project for the same document (§3.3, D-2). One project per document, always —
+ * the refusal is here, at the API, rather than as a disabled button, because a disabled button is a
+ * suggestion and this is a rule.
+ */
+designDocRoutes.post("/:docId/start", async (c) => {
+  const id = c.req.param("docId");
+  const doc = listDocuments().find((d) => d.id === id);
+  if (!doc) return c.json({ error: `No design document with id ${id}` }, 404);
+
+  const existing = projectFollowing(id);
+  if (existing) {
+    return c.json(
+      {
+        error: `${doc.title} is already followed by a project`,
+        code: "DOCUMENT_ALREADY_FOLLOWED",
+        projectId: existing,
+      },
+      409,
+    );
+  }
+
+  let body: { repositoryPath?: string } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // No body is the ordinary case — a deck has no repository to name.
+  }
+
+  try {
+    const started = startWork({
+      documentId: doc.id,
+      documentTitle: doc.title,
+      documentText: doc.text,
+      repositoryPath: body?.repositoryPath,
+    });
+    return c.json(started, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+  }
 });
