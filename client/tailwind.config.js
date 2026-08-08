@@ -72,6 +72,8 @@ export default {
       // backgroundColor / textColor / borderColor separately, which is exactly that shape:
       // bg-status-working, text-status-working, border-status-working.
       backgroundColor: {
+        // The overlay scrim. Not a ground: it darkens whatever is beneath it in both themes.
+        'scrim': token('scrim'),
         ...byName(STATUSES.map((s) => `status-${s}`), 'bg'),
         ...byName(AREAS.map((n) => `area-${n}`), 'bg'),
         // The design-document line highlight: the one place colour carries meaning at low

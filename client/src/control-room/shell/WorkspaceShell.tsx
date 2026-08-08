@@ -16,9 +16,10 @@
  * loops/handoff/pivot-shell.md rather than taken silently.
  */
 import { useEffect, useState } from "react";
-import type { PageDescriptor, WorkspacePageProps } from "./contract";
+import type { PageDescriptor, ToolsSection, WorkspacePageProps } from "./contract";
+import { GuideModal } from "./GuideModal";
 import { NotMergedYet } from "./NotMergedYet";
-import { PAGES } from "./pages";
+import { PAGES, TOOLS_PANEL } from "./pages";
 import { INSPECTOR, NAVIGATOR, RAIL, layout, useRegion } from "./regions";
 import { useWorkspaceRoute } from "./router";
 import { useTheme } from "./theme";
@@ -267,6 +268,82 @@ function CollapsedRail({
   );
 }
 
+/**
+ * The Tools overlay — loops/07-shell.md §3.2.
+ *
+ * It overlays MAIN rather than replacing it because its whole purpose is to be applied to the
+ * thing you are currently looking at; a panel you must navigate away to reach cannot be. Xcode's
+ * Library is the same idea for the same reason.
+ *
+ * **This worktree owns the mount, the scrim, the Esc key and the route. 06-tools-cost owns
+ * everything inside.** The line is not negotiable in either direction: if the panel renders its
+ * own scrim or its own Esc handler, two dismissal paths fight and the query parameter
+ * desynchronises from the DOM.
+ *
+ * It is a query parameter and not a path segment so that opening it does not lose the page
+ * underneath — that is the entire argument for it being an overlay.
+ */
+function ToolsOverlay({
+  section,
+  projectId,
+  onClose,
+}: {
+  section: ToolsSection;
+  projectId: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const Panel = TOOLS_PANEL;
+
+  return (
+    <div data-testid="tools-overlay" className="absolute inset-0 z-50 flex flex-col">
+      {/* The scrim dims MAIN without unmounting it: the page underneath is still there, and
+          clicking the scrim is the same dismissal as Esc. */}
+      <button
+        type="button"
+        data-testid="tools-scrim"
+        aria-label="Close the Tools panel"
+        onClick={onClose}
+        className="absolute inset-0 bg-scrim/50"
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="Tools"
+        data-testid="tools-panel"
+        className="relative mt-auto max-h-[70%] overflow-auto border-t border-border bg-surface"
+      >
+        <header className="flex items-center gap-3 border-b border-border px-3.5 py-2">
+          <SectionLabel>Tools</SectionLabel>
+          <span className="text-[13px] text-ink-muted">{section}</span>
+          <div className="flex-1" />
+          <button
+            type="button"
+            data-testid="tools-close"
+            onClick={onClose}
+            aria-label="Close the Tools panel"
+            className="rounded border border-border px-2 py-0.5 text-[11px] text-ink-faint hover:bg-surface-hover"
+          >
+            Esc
+          </button>
+        </header>
+        {Panel ? (
+          <Panel projectId={projectId} section={section} onClose={onClose} />
+        ) : (
+          <NotMergedYet what="The Tools panel" branch="06-tools-cost" />
+        )}
+      </section>
+    </div>
+  );
+}
+
 /** Render a page's slot, or state that the branch which builds it has not merged. */
 function Slot({
   component,
@@ -284,12 +361,13 @@ function Slot({
 }
 
 export function WorkspaceShell() {
-  const { route, go, select } = useWorkspaceRoute();
+  const { route, go, select, openTools, closeTools } = useWorkspaceRoute();
   const { theme, toggle } = useTheme();
   const data = useShellData();
   const navigator = useRegion(NAVIGATOR.key);
   const inspector = useRegion(INSPECTOR.key);
 
+  const [guideOpen, setGuideOpen] = useState(false);
   const [available, setAvailable] = useState(() =>
     typeof window === "undefined" ? 1280 : window.innerWidth,
   );
@@ -298,6 +376,19 @@ export function WorkspaceShell() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // Cmd/Ctrl-T opens the Tools overlay, the shortcut both wireframes print on the Tools control.
+  // Esc lives inside the overlay, so there is exactly one dismissal path.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "t" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        openTools("prompts");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openTools]);
 
   const widths = layout(available, navigator, inspector);
   const page = PAGES.find((p) => p.id === route.page) ?? PAGES[0];
@@ -325,6 +416,25 @@ export function WorkspaceShell() {
         <div className="flex-1" />
         <Spend spend={UNPRICED} />
         <span aria-hidden="true" className="h-4 w-px bg-border" />
+        <button
+          type="button"
+          data-testid="tools-open"
+          onClick={() => openTools("prompts")}
+          aria-expanded={route.tools !== undefined}
+          className="flex items-center gap-2 rounded-md border border-border px-3 py-1 text-[14px] text-ink-muted hover:bg-surface-hover"
+        >
+          Tools
+          <span aria-hidden="true" className="font-mono text-[10px] text-ink-ghost">⌘T</span>
+        </button>
+        <button
+          type="button"
+          data-testid="guide-open"
+          onClick={() => setGuideOpen(true)}
+          aria-label="Open the welcome guide"
+          className="grid h-6 w-6 place-items-center rounded-[5px] border border-border text-[13px] text-ink-faint hover:bg-surface-hover"
+        >
+          ?
+        </button>
         <button
           type="button"
           data-testid="theme-toggle"
@@ -368,7 +478,7 @@ export function WorkspaceShell() {
           onToggle={navigator.toggle}
         />
 
-        <main data-testid="main" className="min-w-0 flex-1 overflow-auto">
+        <main data-testid="main" className="relative min-w-0 flex-1 overflow-auto">
           {project ? (
             <Slot component={page.main} page={page} what={page.label} props={pageProps} />
           ) : (
@@ -379,6 +489,13 @@ export function WorkspaceShell() {
               </p>
             </div>
           )}
+          {route.tools ? (
+            <ToolsOverlay
+              section={route.tools}
+              projectId={pageProps.projectId}
+              onClose={closeTools}
+            />
+          ) : null}
         </main>
 
         <ResizeHandle
@@ -411,6 +528,8 @@ export function WorkspaceShell() {
           </aside>
         )}
       </div>
+
+      {guideOpen ? <GuideModal page={page.id} onClose={() => setGuideOpen(false)} /> : null}
     </div>
   );
 }
