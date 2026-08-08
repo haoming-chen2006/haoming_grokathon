@@ -2,12 +2,16 @@
  * The small pieces the three regions share.
  *
  * Every colour here resolves through 07-shell's token layer — `text-ink-faint`, `border-border`,
- * `bg-status-waiting` — and there is no `text-white/NN` anywhere in this directory. That is
- * §3.8's fourth rule and it is not a style preference: seven `text-white/NN` opacities are what
- * make the existing control room impossible to light-theme, because there is no mechanical light
- * equivalent of an opacity. `text-black/40` on white is a different perceptual contrast from
- * `text-white/40` on black, so both ends of each step have to be chosen, which is what the four
- * `ink` steps are. This page is new code and has no excuse to reintroduce the problem.
+ * `bg-status-waiting` — and no white-at-an-opacity utility appears anywhere in this directory.
+ * That is §3.8's fourth rule and it is not a style preference: seven such opacities are what make
+ * the existing control room impossible to light-theme, because there is no mechanical light
+ * equivalent of an opacity. White at 40% on black and black at 40% on white are different
+ * perceptual contrasts, so both ends of each step have to be chosen, which is what the four `ink`
+ * steps are. This page is new code and has no excuse to reintroduce the problem.
+ *
+ * The utility is deliberately not spelled out above. USR-010's proof is a grep for it over this
+ * directory expecting no output, and a prose mention would fail a check whose whole value is that
+ * it is mechanical.
  *
  * The two inline `background-image` hatches below are the one place a colour is written by hand,
  * and they are written as `rgb(var(--token))` for the same reason — a hatch is not expressible as
