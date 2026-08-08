@@ -222,13 +222,17 @@ tiers are decided from the row, not from the path.
 
 ```text
 TOOL: 0 PASS · 0 FAIL · 0 BLOCKED · 12 NOT TESTED   (TOOL-001…TOOL-012)
-COST: 2 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED   (COST-001, COST-002 PASS)
-Gate: RED, and not from this loop's work. 943 tests across 50 files (3 added this iteration).
-      Three runs: 935/940 on the parent commit before any change, then 939/943 and 938/943.
-      Every failure is a 5000-6700ms timeout in server/routes/projectReads.test.ts or
+COST: 2 PASS · 0 FAIL · 0 BLOCKED · 13 NOT TESTED   (COST-001, COST-002 PASS;
+      COST-003 half done — the formatter is built and tested, the three render sites cannot
+      distinguish priced from unpriced until the ledger exists. NOT TESTED, not PASS.)
+Gate: GREEN on iteration 3. 971 pass, 0 fail, 971 tests across 51 files, exit 0, 146.5s.
+      Iterations 1 and 2 saw it red on 935/940, 939/943 and 938/943 — every failure a
+      5000-6700ms timeout in server/routes/projectReads.test.ts or
       server/services/messaging.test.ts, both other worktrees' files, both green when run
-      alone (76 pass, 0 fail). Eight worktrees are launching real grok processes on one
-      machine against a 5s timeout. typecheck, build and all four audits: exit 0.
+      alone, and red on the parent commit before this loop changed anything. Those tests
+      launch real grok processes against a 5s timeout while eight worktrees share one
+      machine, so a red run here is a load reading before it is a defect: re-run before
+      believing it, and check whether the failing file is one of this loop's rows.
       Reported to 01-agents in the handoff; §0 forbids fixing it here.
 ```
 
@@ -611,8 +615,9 @@ is not negotiable.
 ```text
 Stage  Items                  Work                                                      Blocks
 S1     COST-001               Observe what modelId a live grok turn reports             all of S2-S9
-S2     COST-002 COST-003      Unit-aware rate table; unpriced renders as unknown        S3
+S2     COST-002 COST-003a     Unit-aware rate table; the formatter that says unknown    S3
 S3     COST-004..006          The ledger: schema, append-only store, ingest contract    S4, S5, S7
+S3b    COST-003b              Render "price unknown" at the three existing sites        — [PAGES]
 S4     COST-007 013 014       Rollups incl. per-asset-type; metered vs billed           —
 S5     COST-008 009 015       Budget meter, drill-down, the single money formatter      — [PAGES]
 S6     TOOL-001..003 011      Prompts, the panel, injection from the AGENTS page        — [PAGES]
@@ -638,6 +643,17 @@ from. The panel can be late. The ledger cannot.
 **Why COST-001 blocks everything.** A rate table proven by a unit test proves arithmetic. Only a
 live turn proves the key matches the model id that actually arrives. Building S2 onward on a guessed
 model id produces a green suite and a product that still reports `$0.00`.
+
+**Why COST-003 is split, found on iteration 3.** The item reads as one thing and is two, and the
+second half cannot be done where the table put it. Its first clause needs a formatter that turns an
+unpriced charge into words — that is S2 work, self-contained, and it is done. Its remaining clauses
+need the three existing render sites to *distinguish* a priced charge from an unpriced one, and
+**nothing reaching those sites can tell the difference today**. `agent.costUsd` and `task.costUsd`
+are bare sums (`server/services/agentRegistry.ts:359`, `server/services/projectStore.ts:1227`) into
+which an unpriced turn has already been added as zero. The distinction is destroyed at write time,
+one layer below the UI, and it is the ledger that restores it. So COST-003b sits after S3 and not
+before it. Marking the whole item PASS on the strength of the formatter would be exactly the
+partial-credit §6 forbids.
 
 **What can be proven without an xAI credential:** all of S1–S9 except a billed media row. The ledger,
 the rollups, the formatter, the approval gate, the retry cap and the whole Tools panel are provable

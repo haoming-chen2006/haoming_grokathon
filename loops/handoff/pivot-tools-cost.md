@@ -268,3 +268,117 @@ as "price unknown" until that loop names the provider and its published rate. Th
 state and it is not a blocker for the ledger, but the demo's software asset will show an incomplete
 total until it is answered. `https://e2b.dev/docs/pricing` is recorded as the page to read *if* E2B
 is the choice; it is a placeholder for where to look, not a decision.
+
+---
+
+## Iteration 3 — 2026-08-08
+
+Item worked: **COST-003**. It is **NOT TESTED, not PASS** — half of it is built and proven, half of
+it cannot be done from inside this boundary yet. The honest split is below.
+
+### 1. What is done: the one money formatter
+
+New, inside this loop's row: `client/src/control-room/tools/cost/formatCharge.ts` with 18 tests in
+`formatCharge.test.ts` beside it. This is COST-015's `formatCharge` arriving early, because
+COST-003 cannot be expressed without it.
+
+```text
+formatCharge(charge)              billed "$6.20" · metered "$5.52" · estimated "$0.41 est."
+                                  · unknown "price unknown"   never "$0.00", never blank
+formatUnits(charge)               "12,326 tokens" · "8 images" · "64 seconds of video"
+describeCharge(charge)            "price unknown · 12,326 tokens"
+summariseCharges(charges[])       { costUsd, pricedCount, unpricedCount, complete }
+formatTotal(total)                "$6.20 plus 3 charges we could not price"
+                                  "price unknown for all 2 charges" · "nothing spent yet"
+budgetState(total, budgetUsd)     "under" | "over" | "unknown"
+formatBudget(total, budgetUsd)    "$2.00 of $10.00, plus 1 charge we could not price"
+
+type Charge = { costUsd: number | null; pricing: Pricing;
+                rateKey?: string | null; modelId?: string;
+                units?: { kind: string; count: number } }
+type Pricing = "billed" | "metered" | "estimated" | "unknown"
+```
+
+Three decisions in it that other worktrees will hit, so they are stated rather than left to be
+rediscovered:
+
+* **`rateKey: null` means unpriced only for `estimated` and `metered`.** A `billed` charge
+  legitimately has no rate key — the provider handed us the money — and treating null as unpriced
+  everywhere would hide real spend. `isPriced()` is exported so nobody has to re-derive the rule.
+* **`under` is a claim and `over` is a proof.** With any charge unpriced, `budgetState` returns
+  `unknown` rather than `under`: the spend could be anything. `over` is still returned, because an
+  unpriced charge can only make an exceeded budget more exceeded.
+* **An empty total is "nothing spent yet", not `$0.00`.** No charges and free are different answers.
+
+### 2. What is blocked, and why it is not where the stage table put it
+
+COST-003's remaining clauses need the three render sites to tell a priced charge from an unpriced
+one. **Nothing that reaches them can.** `agent.costUsd` (`server/services/agentRegistry.ts:359`) and
+`task.costUsd` (`server/services/projectStore.ts:1227`) are bare running sums into which an unpriced
+turn has already been added as zero. The distinction is destroyed at write time, one layer below the
+UI. Reproduced this iteration:
+
+```text
+estimateCost({... modelId: "some-model-nobody-priced"})
+  -> { costUsd: 0, estimated: true, rateKey: null, tokens: { totalTokens: 12326, ... } }
+ProjectHeader.tsx:139 renders  $0.00  (labelled "est.")
+AgentCard.tsx:72     renders  $0.00
+```
+
+So the ledger has to land first. §3's stage table now carries COST-003a in S2 and COST-003b after
+S3, and §3 says why.
+
+### 3. Hot-file requests — the three render sites, to apply after COST-005
+
+All three are in `client/src/control-room/` and **no worktree's row claims them**. Treated as hot,
+like the five unlisted server files in §0. None was edited.
+
+Each site also needs a *source* of pricing, which is why these are staged behind COST-005 rather
+than requested for immediate application. Written now so the shape is fixed and two worktrees do not
+invent two different props.
+
+**`client/src/control-room/AgentCard.tsx`** — the per-agent figure:
+
+```diff
++import { formatCharge } from "./tools/cost/formatCharge";
+@@
+-        <Field label="Cost" value={`$${agent.costUsd.toFixed(2)}`} testId="agent-cost" />
++        <Field label="Cost" value={formatCharge(agent.charge)} testId="agent-cost" />
+```
+
+where `agent.charge: Charge` replaces `agent.costUsd`, derived by 01-agents from the ledger rows for
+that agent via `summariseCharges`.
+
+**`client/src/control-room/ProjectHeader.tsx`** — delete the `COST_IS_ESTIMATED` constant at :30,
+the hardcoded `est.` badge at :131-138 and the `.toFixed(2)` at :139-143:
+
+```diff
+-const COST_IS_ESTIMATED =
+-  "Estimated cost: derived from token counts at published list prices, not from billed amounts. The actual charge will differ.";
++import { formatBudget, type ChargeTotal } from "./tools/cost/formatCharge";
+@@
+-          <span data-testid="project-cost-summary">
+-            ${costUsd.toFixed(2)}
+-            {budgetUsd !== undefined ? ` / $${budgetUsd.toFixed(2)}` : ""}
+-            {overBudget ? " — over budget" : ""}
+-          </span>
++          <span data-testid="project-cost-summary">{formatBudget(total, budgetUsd)}</span>
+```
+
+The `est.` badge goes because it is now wrong in both directions: it labels an unpriced charge as an
+estimate, and it will label a billed `costUsdTicks` figure as an estimate too. The tier belongs to
+the row (§4.2), so the words come from the formatter.
+
+**`client/src/control-room/CommandCenter.tsx`** — identical treatment; its `COST_IS_ESTIMATED` at
+:19 is a verbatim copy of ProjectHeader's, and its own comment says it was duplicated because
+"neither owns a constants module the other could import from". They do now.
+
+Prop change, one shape for all three: replace `costUsd: number` with
+`total: ChargeTotal` from `summariseCharges`. `client/src/control-room/useControlRoom.ts` is hot and
+supplies it; that request will be exact once COST-005 defines the derivation.
+
+### 4. A note for whoever reconciles COST-015
+
+`formatCharge` is landed but **not yet the only money formatter** — the three sites above still
+format their own. COST-015's audit (a gate check that fails when any other component formats
+currency) must not be added until those three are converted, or it fails the gate on arrival.
