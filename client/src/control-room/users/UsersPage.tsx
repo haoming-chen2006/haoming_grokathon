@@ -23,6 +23,7 @@
  *     and the two numbers would invite a reader to conclude something about headroom.
  *   - "WAITING ON APPROVAL … needs Dana or Priya". The approval queue has zero production callers.
  */
+import { useEffect, useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { CAPABILITIES, CAPABILITY_KEYS, SIXTY_SECOND_EXPERIENCE_USD } from "./capabilities";
 import { NotBuilt } from "./NotBuilt";
@@ -88,7 +89,14 @@ function PersonRow({
               </span>
             ) : null}
           </span>
-          <span className="block truncate text-[12px] text-ink-ghost">{user.email}</span>
+          {user.email ? (
+            <span className="block truncate text-[12px] text-ink-ghost">{user.email}</span>
+          ) : (
+            // Nobody signs in, so there is no address. Said, rather than left as an empty line.
+            <span className="block truncate text-[12px] text-ink-ghost">
+              nobody signs in — this is whoever opened the workspace
+            </span>
+          )}
         </span>
       </span>
 
@@ -120,9 +128,41 @@ function PersonRow({
   );
 }
 
-function UsersMain({ selectionId, onSelect }: WorkspacePageProps) {
+/**
+ * The project's own cap, from `GET /api/projects/:id`.
+ *
+ * The one figure on this page that is neither invented nor unmeasured: a project budget is a
+ * number a person wrote down and the store keeps. It is a CAP and never a spend — the page says
+ * so, because a cap beside a table of people invites exactly that misreading.
+ */
+function useProjectCap(projectId: string): number | undefined {
+  const [cap, setCap] = useState<number | undefined>();
+  useEffect(() => {
+    if (!projectId) return;
+    let live = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
+        if (!res.ok) return;
+        const body = await res.json();
+        // Checked, not asserted: an error body is an object too, and `body.budgetUsd` on one is
+        // `undefined`, which is exactly the right answer rather than a thrown render.
+        if (live && body && typeof body.budgetUsd === "number") setCap(body.budgetUsd);
+      } catch {
+        // A cap that will not load is a cap that is not shown. It is not an error the reader can act on.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [projectId]);
+  return cap;
+}
+
+function UsersMain({ projectId, selectionId, onSelect }: WorkspacePageProps) {
   const state = useUsersState();
   const rows = visibleUsers(state);
+  const projectCap = useProjectCap(projectId);
 
   // Real arithmetic over the caps that are written down. It is not a spend total and is not
   // labelled as one — it is what this workspace has authorised, which is a fact the caps support.
@@ -134,10 +174,20 @@ function UsersMain({ selectionId, onSelect }: WorkspacePageProps) {
       <NotEnforcedBanner />
 
       <header className="flex shrink-0 items-baseline gap-3 border-b border-border px-4 py-3">
-        <h1 className="text-[17px] text-ink">People in this workspace</h1>
+        <h1 className="text-[17px] text-ink">People on this project</h1>
         <div className="flex-1" />
-        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost">
-          {capped.length} of {state.users.length} capped · {usd(totalCaps)} authorised a month
+        <span
+          data-testid="users-totals"
+          className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost"
+        >
+          {/*
+            Two caps, and neither is a spend. BUDGETS TOTAL is arithmetic over what people were
+            authorised; PROJECT CAP is the project's own figure. The mockup sets one against the
+            other to imply headroom, and this does not, because per-user spend is not measured and
+            a reader comparing them would conclude something nothing here can support.
+          */}
+          Budgets total {capped.length === 0 ? "none set" : usd(totalCaps)} · Project cap{" "}
+          {projectCap === undefined ? "not set" : usd(projectCap)}
         </span>
       </header>
 
@@ -146,7 +196,9 @@ function UsersMain({ selectionId, onSelect }: WorkspacePageProps) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 ? (
           <p data-testid="users-empty" className="px-4 py-6 text-[13px] text-ink-faint">
-            No one here matches that search.
+            {state.users.length === 0
+              ? "Nobody is on this project."
+              : "No one here matches that search."}
           </p>
         ) : (
           rows.map((user) => (
