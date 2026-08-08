@@ -90,8 +90,11 @@ export default {
       },
 
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['"JetBrains Mono"', '"Fira Code"', '"SF Mono"', 'monospace'],
+        // The page designs' two faces. Prose is Patrick Hand — a hand it reads as, which is what
+        // stops a workspace full of agent output feeling like a console. Anything a machine
+        // produced is IBM Plex Mono: ids, file paths, line ranges, money.
+        sans: ['"Patrick Hand"', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', '"JetBrains Mono"', '"SF Mono"', 'monospace'],
       },
       boxShadow: {
         // Baked rgba(0,0,0,.3) only works on a dark ground; the light ramp is chosen separately.

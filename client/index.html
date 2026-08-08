@@ -4,10 +4,36 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpenUI - AI Agent Canvas</title>
+    <title>grok-workspace</title>
+    <!--
+      Stamp the theme before the first paint.
+
+      main.tsx also calls applyTheme, but by the time a module runs the browser has already
+      painted once — so without this a user sees a flash of the wrong ground. The key and the
+      default must match `client/src/control-room/shell/theme.ts`: dark is the product's own
+      default and is not read from prefers-color-scheme.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('grok-workspace-theme');
+          var theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
+          var root = document.documentElement;
+          root.classList.toggle('light', theme === 'light');
+          root.classList.toggle('dark', theme === 'dark');
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!--
+      The page designs' two faces: Patrick Hand for prose, IBM Plex Mono for anything a machine
+      produced — ids, paths, line ranges, money. Inter and JetBrains Mono are kept as the fallback
+      step so a failed font fetch degrades to the previous look rather than to Times.
+    -->
+    <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
     <div id="root"></div>

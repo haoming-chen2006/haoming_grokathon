@@ -12,10 +12,15 @@
  * `dark` / `light` on <html> before the bundle loads, so a light-mode user never
  * sees a dark flash — the class is on the element before the first paint.
  *
- * Both palettes are Grok Build's own matched first-party pair, so the workspace
- * and the terminal read as one product rather than two:
- *   .refs/grok-build/crates/codegen/xai-grok-pager-render/src/theme/groknight.rs
+ * GrokDay below is still Grok Build's own first-party light theme:
  *   .refs/grok-build/crates/codegen/xai-grok-pager-render/src/theme/grokday.rs
+ *
+ * GrokNight was too, and no longer is. The page designs arrived after this layer
+ * was written and use their own darker, warmer ground; matching the terminal was
+ * the better guess in the absence of a design and the wrong answer once one
+ * existed. `design/mockups/` holds the markup these values were read out of. The
+ * cost of the change is that the workspace and the terminal are now a near match
+ * rather than an exact one, which is the trade the designs ask for.
  *
  * Values are space-separated RGB triples, not hex, because tailwind.config.js
  * wraps each one as rgb(var(--token) / <alpha-value>) — which is what keeps the
@@ -35,43 +40,56 @@
 :root {
   /* GrokNight — the product default. */
 
-  /* ground */
-  --canvas: 10 10 10;
-  --surface: 20 20 20;
-  --surface-hover: 28 28 28;
-  --surface-active: 36 36 36;
-  --border: 44 44 44;
-  --border-strong: 65 65 65;
+  /*
+   * Taken from the page designs, not chosen here — `design/mockups/` holds the rendered markup
+   * they were read out of, and its README lists the same values as hex. The tokens existed before
+   * the designs did and were a reasonable neutral guess; the guess was a colder, flatter grey than
+   * the product, so the pages were token-correct and still did not look like the mockups.
+   */
+
+  /* ground — #111214, #1a1c1f, #141517 inset, #2a2a2a rule */
+  --canvas: 17 18 20;
+  --surface: 26 28 31;
+  --surface-hover: 32 34 38;
+  --surface-active: 38 41 46;
+  --border: 42 42 42;
+  --border-strong: 62 63 67;
 
   /* ink — four steps, measured against --surface */
-  --ink: 225 225 225;
-  --ink-muted: 200 200 200;
-  --ink-faint: 148 148 148;
-  --ink-ghost: 108 108 108;
+  --ink: 255 255 255;
+  --ink-muted: 198 200 205;
+  --ink-faint: 145 148 155;
+  --ink-ghost: 104 107 114;
 
-  /* accent */
-  --accent: 187 154 247;
-  --accent-muted: 157 124 216;
+  /* accent — #A78BFA */
+  --accent: 167 139 250;
+  --accent-muted: 139 113 214;
 
-  /* status — hue assignment preserved from control-room/types.ts, see R-7 */
-  --status-working-bg: 41 48 33;
-  --status-working-ink: 158 206 106;
-  --status-working-border: 75 94 54;
-  --status-waiting-bg: 51 43 33;
-  --status-waiting-ink: 224 175 104;
-  --status-waiting-border: 102 82 54;
-  --status-needs-review-bg: 35 41 54;
-  --status-needs-review-ink: 122 162 247;
-  --status-needs-review-border: 61 77 111;
-  --status-complete-bg: 47 47 47;
-  --status-complete-ink: 200 200 200;
-  --status-complete-border: 92 92 92;
-  --status-idle-bg: 54 35 38;
-  --status-idle-ink: 247 118 142;
-  --status-idle-border: 111 59 69;
-  --status-failed-bg: 55 41 32;
-  --status-failed-ink: 255 158 100;
-  --status-failed-border: 114 75 52;
+  /*
+   * status — the designs' hues: working #22C55E, waiting #FBBF24, attention #F97316,
+   * stopped #EF4444, accent #A78BFA. Each ink is the design's colour; each bg and border is that
+   * colour mixed down against --surface, so a badge reads as a tint of one hue rather than an
+   * unrelated brown. Colour is never the only signal — every state also carries its word.
+   */
+  --status-working-bg: 22 47 33;
+  --status-working-ink: 34 197 94;
+  --status-working-border: 30 77 48;
+  --status-waiting-bg: 52 43 20;
+  --status-waiting-ink: 251 191 36;
+  --status-waiting-border: 92 74 30;
+  --status-needs-review-bg: 40 34 60;
+  --status-needs-review-ink: 167 139 250;
+  --status-needs-review-border: 71 58 108;
+  --status-complete-bg: 25 45 45;
+  --status-complete-ink: 45 212 191;
+  --status-complete-border: 32 78 74;
+  --status-idle-bg: 34 36 40;
+  --status-idle-ink: 145 148 155;
+  --status-idle-border: 58 60 66;
+  /* 42 21 21 rather than a lighter tint: #EF4444 clears 4.5:1 on this fill and does not on 55 27 27. */
+  --status-failed-bg: 42 21 21;
+  --status-failed-ink: 239 68 68;
+  --status-failed-border: 96 40 40;
 
   /* areas — six hues, each with a tile fill, an ink, a rule and a gutter wash */
   --area-1-bg: 42 51 70;
@@ -201,7 +219,7 @@
 }
 
 :root {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Patrick Hand', 'Inter', system-ui, -apple-system, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
