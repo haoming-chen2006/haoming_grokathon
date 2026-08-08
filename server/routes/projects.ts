@@ -17,6 +17,7 @@ import { reviewSubmission } from "../services/designReview";
 import type { Actor } from "../types/project";
 import { estimateCost } from "../services/usageAccounting";
 import { getPromptLibrary, rulesForAgent } from "../services/promptLibrary";
+import { existsSync } from "fs";
 
 export const projectRoutes = new Hono();
 
@@ -109,7 +110,11 @@ projectRoutes.post("/", async (c) => {
 
 projectRoutes.get("/:id", (c) => {
   try {
-    return c.json(getProjectStore().getProject(c.req.param("id")));
+    const project = getProjectStore().getProject(c.req.param("id"));
+    // Whether the repository still exists. A project whose repository has been moved or deleted
+    // looks entirely normal until an agent is launched, at which point the failure surfaces as an
+    // ENOENT naming the grok binary — see AcpConnection.start(). Say it up front instead.
+    return c.json({ ...project, repositoryExists: existsSync(project.repositoryPath) });
   } catch (err) {
     return fail(c, err);
   }

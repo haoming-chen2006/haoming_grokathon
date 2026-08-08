@@ -421,3 +421,15 @@ describe("a generated plan is launchable (V-018)", () => {
     expect(owned.json?.code).not.toBe("NO_AGENT");
   });
 });
+
+describe("a project whose repository is gone says so (found by using the product)", () => {
+  test("GET /:id reports whether the repository still exists", async () => {
+    const live = await req("GET", `/api/projects/${projectId}`);
+    expect(live.json.repositoryExists).toBe(true);
+
+    const store = new ProjectStore(join(dataDir, "projects"));
+    const dead = store.createProject({ name: "Dead", goal: "g", repositoryPath: "/path/to/repo" }).id;
+    const gone = await req("GET", `/api/projects/${dead}`);
+    expect(gone.json.repositoryExists).toBe(false);
+  });
+});

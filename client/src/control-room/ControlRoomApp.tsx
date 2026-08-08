@@ -61,6 +61,18 @@ export function ControlRoomApp() {
         onPauseAll={room.pauseAll}
       />
 
+      {room.health && !room.health.repositoryExists && (
+        <div
+          data-testid="repo-missing"
+          role="alert"
+          className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"
+        >
+          This project's repository is missing — <span className="font-mono">{room.health.repositoryPath}</span>.
+          Nothing can be planned or launched until it is restored, or the project is recreated
+          against a repository that exists.
+        </div>
+      )}
+
       {room.error && (
         <div data-testid="control-room-error" role="alert" className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
           {room.error}

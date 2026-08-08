@@ -6,6 +6,7 @@ import { AcpSessionManager } from "./acpSessionManager";
 import { ProjectStore, getProjectStore } from "./projectStore";
 import { getAgentRegistry } from "./agentRegistry";
 import { getPromptLibrary, rulesForAgent } from "./promptLibrary";
+import { AcpConnection } from "./acpClient";
 
 /**
  * What a launched agent is actually handed at session/new.
@@ -363,5 +364,27 @@ describe("one composer serves both session paths (§14)", () => {
 
     expect(viaManager).toBe(viaPlanner!);
     expect(viaManager).toContain("Plan carefully.");
+  });
+});
+
+describe("a missing working directory is named for what it is", () => {
+  test("starting an agent in a directory that does not exist explains that", () => {
+    // posix_spawn reports this as ENOENT against the *executable*, so the real message read
+    // "no such file or directory … /node_modules/.bin/grok" while the binary was fine. That cost
+    // an evening of looking for a missing binary.
+    const conn = new AcpConnection({ agentId: "x", cwd: "/path/to/nowhere" });
+    expect(() => conn.start()).toThrow(/working directory does not exist/);
+  });
+
+  test("the message names the directory, not the binary", () => {
+    const conn = new AcpConnection({ agentId: "x", cwd: "/path/to/nowhere" });
+    try {
+      conn.start();
+      throw new Error("should have thrown");
+    } catch (err) {
+      const message = (err as Error).message;
+      expect(message).toContain("/path/to/nowhere");
+      expect(message).not.toContain("posix_spawn");
+    }
   });
 });

@@ -1,5 +1,7 @@
 import { grokBinaryPath } from "./grokDetect";
 import { extractUsage, type TokenUsage } from "./usageAccounting";
+import { grokSpawnEnv } from "./grokDetect";
+import { existsSync } from "fs";
 
 const QUIET = !!process.env.OPENUI_QUIET;
 const log = QUIET ? () => {} : console.log.bind(console);
@@ -148,15 +150,50 @@ export class AcpConnection {
     const args = [...(this.options.args ?? ACP_ARGS)];
     this.emit({ type: "starting", agentId: this.agentId, command: `${bin} ${args.join(" ")}` });
 
+    // A missing working directory is reported by posix_spawn as ENOENT **against the executable**,
+    // not against the directory:
+    //
+    //   ENOENT: no such file or directory, posix_spawn '…/node_modules/.bin/grok'
+    //
+    // which reads as a missing agent binary and is nothing of the kind. A project whose repository
+    // has been moved or deleted produces exactly that, and it cost an evening of looking for a
+    // binary that was present the whole time. Check first and say what is actually wrong.
+    if (!existsSync(this.cwd)) {
+      const error =
+        `Cannot start Grok Build: the working directory does not exist — ${this.cwd}. ` +
+        `This is usually a project whose repository has been moved or deleted.`;
+      this.emit({ type: "failed", agentId: this.agentId, error });
+      throw new Error(error);
+    }
+
+    // The grok launcher is a `#!/usr/bin/env node` script, so Node must be on the PATH of this
+    // process. Inheriting the environment made that depend on how the server happened to be
+    // started. This was not the cause of the ENOENT above, but it is a real way to fail.
+    const env = grokSpawnEnv();
+    if (!env) {
+      const error =
+        "Cannot start Grok Build: no `node` executable was found. The grok launcher is a Node " +
+        "script, so Node must be installed and on PATH. Install Node, or start the server from a " +
+        "shell where `node --version` works.";
+      this.emit({ type: "failed", agentId: this.agentId, error });
+      throw new Error(error);
+    }
+
     try {
       this.proc = Bun.spawn([bin, ...args], {
         cwd: this.cwd,
+        env,
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
       });
     } catch (err) {
-      const error = `Failed to spawn Grok Build: ${err instanceof Error ? err.message : String(err)}`;
+      const raw = err instanceof Error ? err.message : String(err);
+      // ENOENT here almost never means the grok binary is missing — detection already ran it.
+      const hint = raw.includes("ENOENT")
+        ? " (the grok launcher needs `node`; check that `node --version` works)"
+        : "";
+      const error = `Failed to spawn Grok Build: ${raw}${hint}`;
       this.emit({ type: "failed", agentId: this.agentId, error });
       throw new Error(error);
     }

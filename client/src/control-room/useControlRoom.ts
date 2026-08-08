@@ -27,6 +27,12 @@ export interface BudgetAlert {
   limit: number;
 }
 
+export interface ProjectHealth {
+  /** False when the project's repository has been moved or deleted. */
+  repositoryExists: boolean;
+  repositoryPath: string;
+}
+
 export interface PlanView {
   id: string;
   state: "draft" | "approved" | "revising";
@@ -57,6 +63,7 @@ export interface ControlRoomState {
   /** The implementation plan, absent until one is drafted. */
   plan: PlanView | null;
   tasks: TaskView[];
+  health: ProjectHealth | null;
   progress: ProgressView | null;
   costUsd: number;
   loading: boolean;
@@ -65,7 +72,7 @@ export interface ControlRoomState {
 
 const EMPTY: ControlRoomState = {
   projects: [], projectId: null, project: null, document: null, requirements: [],
-  agents: [], suggestions: [], submissions: [], messages: [], plan: null, tasks: [], progress: null,
+  agents: [], suggestions: [], submissions: [], messages: [], plan: null, tasks: [], health: null, progress: null,
   costUsd: 0, loading: true, error: null,
 };
 
@@ -138,6 +145,10 @@ export function useControlRoom() {
         messages: full.messages ?? [],
         plan: full.plan ?? null,
         tasks: full.tasks ?? [],
+        health: {
+          repositoryExists: full.repositoryExists !== false,
+          repositoryPath: full.repositoryPath ?? "",
+        },
         agents,
         progress,
         costUsd: costs.projectCostUsd ?? 0,

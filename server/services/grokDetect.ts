@@ -1,6 +1,6 @@
 import { spawnSync } from "bun";
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, readdirSync } from "fs";
+import { dirname, join } from "path";
 import { homedir } from "os";
 
 const QUIET = !!process.env.OPENUI_QUIET;
@@ -135,4 +135,57 @@ export function getGrokDetection(refresh = false): GrokDetection {
 /** Resolved binary path, or null when Grok Build is unavailable. */
 export function grokBinaryPath(): string | null {
   return getGrokDetection().binaryPath;
+}
+
+/**
+ * Directories worth searching for `node`, beyond whatever is already on PATH.
+ *
+ * The grok launcher is a script with `#!/usr/bin/env node`, so spawning it needs Node on the
+ * PATH of the *spawning process*. When it is missing, `posix_spawn` reports ENOENT against the
+ * grok script itself — a message that names the wrong file and sent this project looking for a
+ * missing binary that was present all along.
+ *
+ * Whether Node is on PATH depends on how the server was started: a login shell with nvm sourced
+ * has it, a GUI launch or a bare `sh -c` does not. That is not a reasonable thing for the product
+ * to depend on, so these are searched as a fallback.
+ */
+const NODE_SEARCH_PATHS = [
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  "/usr/bin",
+];
+
+/** The directory containing a runnable `node`, or null when none can be found. */
+export function nodeDirectory(): string | null {
+  const fromPath = Bun.which("node");
+  if (fromPath) return dirname(fromPath);
+
+  // nvm keeps versions under ~/.nvm/versions/node/<version>/bin; take the highest.
+  const nvmRoot = join(homedir(), ".nvm/versions/node");
+  if (existsSync(nvmRoot)) {
+    const versions = readdirSync(nvmRoot)
+      .filter((v) => existsSync(join(nvmRoot, v, "bin/node")))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    if (versions[0]) return join(nvmRoot, versions[0], "bin");
+  }
+
+  for (const dir of NODE_SEARCH_PATHS) {
+    if (existsSync(join(dir, "node"))) return dir;
+  }
+  return null;
+}
+
+/**
+ * The environment a Grok process should be spawned with: the current one, plus a PATH that is
+ * guaranteed to contain Node. Returns null when no Node exists anywhere, so the caller can say so
+ * instead of producing an ENOENT about the wrong file.
+ */
+export function grokSpawnEnv(): Record<string, string> | null {
+  const dir = nodeDirectory();
+  if (!dir) return null;
+  const path = process.env.PATH ?? "";
+  return {
+    ...(process.env as Record<string, string>),
+    PATH: path.split(":").includes(dir) ? path : `${dir}:${path}`,
+  };
 }
