@@ -244,6 +244,44 @@ Engineer, Reviewer) does not.
 
 Agent creation is where **capability** is chosen, and capability is the important idea (§9).
 
+### 3.3.1 Every agent is a Grok Build agent — this is not negotiable
+
+**A-0. An agent in this product is a real `grok` process, spoken to over ACP, retaining Grok Build's
+entire native surface.** It is not a wrapper around a chat completion, not a bespoke worker loop, and
+not a media-generation job with a name. The product is an *interface on top of* Grok Build; anything
+that quietly replaces it has removed the reason the product exists.
+
+What an agent inherits by being a `grok` process, and must keep:
+
+```text
+file reading and editing         shell execution (under the PreToolUse guard, §7)
+web search                       X search
+skills                           hooks
+subagents                        slash commands
+MCP servers                      session persistence and session/load resume
+```
+
+The failure this prevents is specific and easy to walk into. A worktree that owns media generation
+builds an HTTP client to `api.x.ai`, discovers it can produce an image without an agent at all, and
+ships a "generation agent" that is a job runner wearing an agent's name. It works, it is simpler, and
+the product silently loses file editing, search, skills and every capability the user was told their
+team has. The same trap exists for any surface that finds `grok` inconvenient.
+
+So:
+
+- **Capability adds, it never subtracts.** `base Grok` means the full Grok Build tool surface and no
+  media APIs. `+images` means that same surface **plus** our image endpoints. A capability tier is a
+  grant on top of a whole agent, never a smaller agent (§9.1).
+- **§13.8 is about media only.** Preferring our own `api.x.ai` key over the CLI's `image_gen` and
+  `image_to_video` tools is a decision about *where pixels come from*, taken because those tools are
+  subscription-gated even in ACP agent mode. It is not permission to route the agent's thinking,
+  editing or searching anywhere other than through `grok`.
+- **The media endpoints are offered to the agent as tools it may call**, through the project MCP
+  server, so the agent decides when to generate as part of its work. A pipeline that generates media
+  *instead of* an agent is out of contract.
+- **If a surface believes it needs a non-`grok` agent, it stops and asks** (§20) rather than building
+  one.
+
 ### 3.4 Orchestration is deliberately light
 
 An omni-agent, but simple, because agents are mostly in conversation. A quick file tree exists for
