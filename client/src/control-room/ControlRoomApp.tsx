@@ -6,6 +6,7 @@ import { DesignDocumentPanel } from "./DesignDocumentPanel";
 import { RequirementDetail, RequirementList } from "./RequirementPanel";
 import { ReviewQueue, SuggestionQueue } from "./ReviewQueues";
 import { ConversationView } from "./ConversationView";
+import { NewProjectPanel } from "./NewProjectPanel";
 import { PlanPanel } from "./PlanPanel";
 import { SessionDrawer } from "./SessionDrawer";
 import { useControlRoom } from "./useControlRoom";
@@ -39,12 +40,8 @@ export function ControlRoomApp() {
 
   if (room.projects.length === 0) {
     return (
-      <div data-testid="control-room-no-projects" className="p-8 text-sm text-white/60">
-        <div className="mb-2 font-semibold text-white">No projects yet</div>
-        Create one to begin:
-        <pre className="mt-3 rounded bg-neutral-900 p-3 text-xs text-white/70">{`curl -X POST http://localhost:6968/api/projects \\
-  -H 'content-type: application/json' \\
-  -d '{"name":"My Project","goal":"…","repositoryPath":"/path/to/repo","budgetUsd":10}'`}</pre>
+      <div data-testid="control-room-no-projects" className="h-full w-full overflow-y-auto bg-neutral-950">
+        <NewProjectPanel onCreate={room.createProject} busy={room.creating} error={room.error} />
       </div>
     );
   }

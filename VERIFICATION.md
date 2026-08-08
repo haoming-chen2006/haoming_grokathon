@@ -4116,6 +4116,67 @@ bun run verify → exit 0, 692 pass / 0 fail, four audits clean
 
 ---
 
+## The Control Room stopped asking you to leave it (iteration 67)
+
+The empty state printed a `curl` command. So the first thing this interface asked of a new user was
+to go and use a different one — and §10 steps 1-2 describe choosing a repository and importing a
+design document as part of the product, not as setup for it.
+
+**A form, with exactly the fields the design names:**
+
+```text
+local repository   base branch   project name   objective   budget   design document
+```
+
+**"Optional deadline" is deliberately absent.** The design lists it; the API has nowhere to store
+one. Collecting a value and dropping it would be worse than not asking — recorded as a §10
+deviation rather than built as a field that silently does nothing, which is the same call made for
+`agent.tools` in iteration 54.
+
+The document pasted here becomes version 1 of the project document, which the form says plainly,
+along with the fact that agents may read and propose changes to it but never edit it directly —
+the §4 rule stated where the user first meets it.
+
+```text
+submit disabled until a repository and a name exist, titled "…are required"
+whitespace alone does not count as a value
+empty base branch and document are omitted, not sent blank
+base branch defaults to main
+a server error renders rather than being swallowed
+while creating, the button says so and cannot be double-fired
+```
+
+Eight component tests and two through the assembled shell. The shell pair is what matters: one
+asserts the form replaced the curl instructions, the other that submitting issues a real
+`POST /api/projects` with the typed values and then selects the created project.
+
+```text
+control experiment — the shell's onCreate wiring replaced with a no-op:
+  (fail) creating a project POSTs it and selects the result
+  14 pass / 1 fail        restored: 15 pass / 0 fail
+```
+
+### Two harness defects found on the way
+
+**The fetch stub returned the project *list* for `POST /api/projects`.** A created project arrived
+as an array, so nothing could be selected from it. The stub now distinguishes the verb. Worth
+recording because it looked exactly like a product bug for a minute — the wrong shape reaching the
+UI is what iteration 42's whole class was about.
+
+**A capture variable typed `T | null` passed `bun test` and failed `tsc`.** TypeScript narrows it
+to `null` at the assertion because it cannot see the mutation inside a callback. The suite was
+green and the gate was not, which is the argument for `verify` running the typechecks as well as
+the tests.
+
+```text
+bun run verify → exit 0, 701 pass / 0 fail, four audits clean (two consecutive runs)
+```
+
+The flow is now operable end to end without leaving the browser once a server is running: create
+the project, read the plan, approve it, launch a task, watch the session.
+
+---
+
 ## Test-suite stability (iteration 41)
 
 One full-suite run reported `520 pass / 1 fail`. It did **not** reproduce in **13 subsequent runs**
@@ -4142,7 +4203,7 @@ reader reaches last.)*
 [x] No required item is NOT TESTED.
 [x] No critical item is BLOCKED.            — B-3 (auth) cleared in iteration 22
 [x] Build succeeds.                         — bun run build exit 0
-[x] Required tests pass.                    — 692 pass / 0 fail, 41 files;
+[x] Required tests pass.                    — 701 pass / 0 fail, 42 files;
                                               see the flake note above
 [x] End-to-end acceptance test passes.      — §22.16, `bun run acceptance`, 20 steps from a
                                               fixture that starts red, including an agent
@@ -4212,9 +4273,9 @@ FLAKE  One unreproduced test failure in 13 runs (see "Test-suite stability" abov
 
 ```text
 branch  grok-control-room (local only, never pushed)
-commits 81 ahead of main
+commits 83 ahead of main
 build   bun run build exit 0
-tests   692 pass / 0 fail across 41 files
+tests   701 pass / 0 fail across 42 files
 audits  0 orphans; every endpoint has a caller
 ```
 

@@ -66,7 +66,15 @@ function stubFetch() {
     }
     const send = (data: unknown) => new Response(JSON.stringify(data), { status: 200 });
 
-    if (url === "/api/projects") return send(projectsResponse);
+    // GET lists projects; POST creates one. Returning the list for both made a created project
+    // arrive as an array, so nothing could be selected from it.
+    if (url === "/api/projects") {
+      if (method === "POST") {
+        const input = JSON.parse((init?.body as string) ?? "{}");
+        return new Response(JSON.stringify({ id: "p1", ...input, document: { currentVersion: 1 } }), { status: 201 });
+      }
+      return send(projectsResponse);
+    }
     if (String(url).endsWith("/api/projects/p1")) return send(PROJECT);
     if (String(url).includes("/document")) return send({ title: "Design", version: 2, content: "# Design" });
     if (String(url).includes("/coding-agents?projectId")) return send(AGENTS);
@@ -126,12 +134,42 @@ describe("Control Room shell", () => {
     expect(screen.getByTestId("suggestions-pending-badge").textContent).toBe("1 suggestion pending");
   });
 
-  test("shows an actionable empty state when no project exists", async () => {
+  test("with no project, the shell offers the form rather than a curl command", async () => {
     projectsResponse = [];
     render(<ControlRoomApp />);
     await waitFor(() => expect(screen.getByTestId("control-room-no-projects")).toBeTruthy());
-    // Tells the user how to proceed rather than showing a blank screen.
-    expect(screen.getByTestId("control-room-no-projects").textContent).toContain("/api/projects");
+
+    // It used to print a curl command, so the first thing the Control Room asked was that you
+    // leave it. Every field §10 step 1 names must be here.
+    expect(screen.getByTestId("new-project")).toBeTruthy();
+    for (const id of ["np-repo", "np-name", "np-branch", "np-goal", "np-budget", "np-design"]) {
+      expect(screen.getByTestId(id), `${id} is missing`).toBeTruthy();
+    }
+  });
+
+  test("creating a project POSTs it and selects the result", async () => {
+    projectsResponse = [];
+    render(<ControlRoomApp />);
+    await waitFor(() => expect(screen.getByTestId("new-project")).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId("np-repo"), { target: { value: "/tmp/repo" } });
+    fireEvent.change(screen.getByTestId("np-name"), { target: { value: "Greeting Service" } });
+    fireEvent.change(screen.getByTestId("np-design"), { target: { value: "# Design" } });
+
+    // From here the project exists, so the shell should load it.
+    projectsResponse = [{ id: "p1", name: "Greeting Service", goal: "g", repositoryPath: "/tmp/repo" }];
+    fireEvent.click(screen.getByTestId("np-submit"));
+
+    await waitFor(() => {
+      const post = calls.find((c) => c.method === "POST" && c.url === "/api/projects");
+      expect(post, "no POST /api/projects was issued").toBeTruthy();
+      expect(JSON.parse(post!.body!)).toMatchObject({
+        name: "Greeting Service", repositoryPath: "/tmp/repo", documentContent: "# Design",
+      });
+    });
+
+    // And the newly created project becomes the selected one.
+    await waitFor(() => expect(screen.getByTestId("project-name").textContent).toBe("Greeting Service"));
   });
 
   test("every tab renders its panel", async () => {

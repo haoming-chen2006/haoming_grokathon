@@ -4,6 +4,7 @@ import type { DesignDocumentView, Requirement } from "./projectTypes";
 import type { DesignSuggestionView, SubmissionView } from "./ReviewQueues";
 import type { MessageView } from "./ConversationView";
 import type { TranscriptEntryView, LiveSessionStateView } from "./SessionDrawer";
+import type { NewProjectInput } from "./NewProjectPanel";
 
 export interface ProjectSummary {
   id: string;
@@ -103,6 +104,7 @@ export function useControlRoom() {
    */
   const [budgetAlert, setBudgetAlert] = useState<BudgetAlert | null>(null);
   const [acpSessionId, setAcpSessionId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -321,6 +323,25 @@ export function useControlRoom() {
     }
   }, [state.projectId, loadProject]);
 
+  /**
+   * Create a project and select it (§10 steps 1-2).
+   *
+   * The empty state used to print a curl command, so the first thing the Control Room asked of a
+   * user was to leave it.
+   */
+  const createProject = useCallback(async (input: NewProjectInput) => {
+    setCreating(true);
+    try {
+      const project = await json<any>("/api/projects", { method: "POST", body: JSON.stringify(input) });
+      await loadProjects();
+      setState((s) => ({ ...s, projectId: project.id, loading: true, error: null }));
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setCreating(false);
+    }
+  }, [loadProjects]);
+
   const refresh = useCallback(() => {
     if (state.projectId) void loadProject(state.projectId);
   }, [state.projectId, loadProject]);
@@ -337,6 +358,8 @@ export function useControlRoom() {
     pauseAll,
     approvePlan,
     launchTask,
+    createProject,
+    creating,
     transcript,
     sessionState,
     selectProject: (id: string) => setState((s) => ({ ...s, projectId: id, loading: true })),
