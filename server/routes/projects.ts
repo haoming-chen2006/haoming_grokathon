@@ -313,27 +313,49 @@ projectRoutes.get("/:id/spend", (c) => {
     let charges = 0;
     let unpriced = 0;
 
+    /** Per agent, so the inspector can show one agent's share of the same two ledgers. */
+    const byAgent = new Map<string, { agentId: string; pricedUsd: number; charges: number; unpriced: number }>();
+    const forAgent = (agentId: string) => {
+      let row = byAgent.get(agentId);
+      if (!row) byAgent.set(agentId, (row = { agentId, pricedUsd: 0, charges: 0, unpriced: 0 }));
+      return row;
+    };
+
     // Token spend, per agent. `costUsd` is the registry's running total and is only ever advanced
     // by a turn that could be priced, so an agent at 0 with tokens recorded is an unpriced agent.
     for (const agent of getAgentRegistry().list(projectId)) {
+      const row = forAgent(agent.id);
       if (agent.costUsd > 0) {
         pricedUsd += agent.costUsd;
         charges += 1;
+        row.pricedUsd += agent.costUsd;
+        row.charges += 1;
       } else if (agent.tokensUsed > 0) {
         charges += 1;
         unpriced += 1;
+        row.charges += 1;
+        row.unpriced += 1;
       }
     }
 
     // Metered media charges, per asset. These carry their own tier: `billed` came from xAI,
     // `estimated` from a published rate, `unknown` from neither — and only the last is unpriced.
+    //
+    // They are attributed to the agent that made them, which is why an agent's own spend cannot be
+    // read off the registry alone: `generate_image` writes its charge onto the asset it bought and
+    // never advances `CodingAgent.costUsd`. The board's card shows the registry figure and is
+    // therefore a token figure; this endpoint is what the two together come to.
     for (const asset of getAssetStore().listAssets(projectId, { includeDeleted: true })) {
       for (const charge of asset.charges) {
+        const row = charge.agentId ? forAgent(charge.agentId) : undefined;
         charges += 1;
+        if (row) row.charges += 1;
         if (typeof charge.costUsd === "number" && charge.costSource !== "unknown") {
           pricedUsd += charge.costUsd;
+          if (row) row.pricedUsd += charge.costUsd;
         } else {
           unpriced += 1;
+          if (row) row.unpriced += 1;
         }
       }
     }
@@ -344,6 +366,7 @@ projectRoutes.get("/:id/spend", (c) => {
       // Rounded to the cent the toolbar renders, not to the six decimals the ledger keeps.
       pricedUsd: Number(pricedUsd.toFixed(4)),
       budgetUsd: project.budgetUsd,
+      byAgent: [...byAgent.values()].map((row) => ({ ...row, pricedUsd: Number(row.pricedUsd.toFixed(4)) })),
     });
   } catch (err) {
     return fail(c, err);

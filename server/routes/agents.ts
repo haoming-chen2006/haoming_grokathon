@@ -14,6 +14,8 @@ import {
   MEDIA_TOOLS,
 } from "../services/boundary";
 import { getProjectStore } from "../services/projectStore";
+import { DEFAULT_UNIT_RATES } from "../services/usageAccounting";
+import { DEFAULT_IMAGE_MODEL } from "../services/xai/images";
 import {
   AreaAssignmentError,
   MilestoneNotInPlanError,
@@ -78,12 +80,40 @@ agentRoutes.get("/statuses", (c) =>
  */
 agentRoutes.get("/capabilities", (c) =>
   c.json({
-    presets: CAPABILITY_PRESETS,
+    presets: CAPABILITY_PRESETS.map((preset) => ({ ...preset, unitPrices: unitPricesFor(preset) })),
     mediaTools: MEDIA_TOOLS,
     nativeSurface: GROK_NATIVE_SURFACE,
     nativeSurfaceNote: GROK_NATIVE_SURFACE_NOTE,
   }),
 );
+
+/**
+ * What a tier can be charged per unit, joined here rather than stored anywhere.
+ *
+ * The prices live in `usageAccounting`'s `DEFAULT_UNIT_RATES` and the tiers live in `boundary.ts`,
+ * and neither imports the other on purpose — boundary.ts says so in as many words: "two documents
+ * specifying the same prices is how they come to disagree". The join belongs at the route, which is
+ * the only place that has to answer "what does choosing this cost me".
+ *
+ * The mockup's inspector prints "~$0.90 / task" beside each choice. There is no such figure: a task
+ * is however many images and however many characters the agent decides on, and inventing an average
+ * would be a fabricated cost. What is real is the per-unit price, and it is what actually bounds the
+ * decision — an agent with no image endpoint cannot spend $0.02 however it is asked.
+ *
+ * A rate that is missing from the table is omitted rather than defaulted, so a tier whose prices we
+ * cannot read renders with no figures instead of with reassuring ones.
+ */
+function unitPricesFor(preset: (typeof CAPABILITY_PRESETS)[number]) {
+  const keys: string[] = [];
+  // The models the media tools actually call, not every model in the family.
+  if (preset.capabilities.images) keys.push(DEFAULT_IMAGE_MODEL, "grok-imagine-video-1.5");
+  if (preset.capabilities.voice) keys.push("tts", "stt");
+
+  return keys.flatMap((rateKey) => {
+    const rate = DEFAULT_UNIT_RATES[rateKey];
+    return rate ? [{ rateKey, unit: rate.unit, perUnitUsd: rate.perUnitUsd, source: rate.source }] : [];
+  });
+}
 
 agentRoutes.get("/", (c) => c.json(getAgentRegistry().list(c.req.query("projectId") ?? undefined)));
 
