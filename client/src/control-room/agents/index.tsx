@@ -15,10 +15,11 @@
 import { useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { AgentCard } from "./AgentCard";
+import { AgentInspector } from "./AgentInspector";
 import { AgentsRail } from "./AgentsRail";
 import { AreaColumn } from "./AreaColumn";
 import { agentsWithoutArea, launchRefusal, launchableTask } from "./board";
-import { startProject, useAgents } from "./useAgents";
+import { startBlankProject, startProject, useAgents } from "./useAgents";
 
 /**
  * A document skeleton the user can edit.
@@ -52,14 +53,24 @@ const SCAFFOLD = [
 export function StartProject({ onStarted }: { onStarted?(projectId: string): void }) {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"document" | "blank" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async () => {
-    setBusy(true);
+  /**
+   * Both ways in, sharing the landing.
+   *
+   * `blank` needs a name and nothing else; the document is written later on the Design Documents
+   * page, where an agent can help write it. The document path stays exactly as it was — it is
+   * still the richer way in, because a document declares the areas the board is made of.
+   */
+  const submit = async (kind: "document" | "blank") => {
+    setBusy(kind);
     setError(null);
     try {
-      const { projectId } = await startProject(title, text);
+      const { projectId } =
+        kind === "document"
+          ? await startProject(title, text)
+          : await startBlankProject(title.trim() || "Untitled project");
       onStarted?.(projectId);
       // Land on the project that was just created, not on whichever is first in the list. Without
       // the id in the URL the shell selects the oldest project it has, and creating a new one looks
@@ -70,7 +81,7 @@ export function StartProject({ onStarted }: { onStarted?(projectId: string): voi
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -122,16 +133,38 @@ export function StartProject({ onStarted }: { onStarted?(projectId: string): voi
         </p>
       ) : null}
 
-      <button
-        type="button"
-        data-testid="start-submit"
-        onClick={() => void submit()}
-        disabled={busy || !text.trim()}
-        title={text.trim() ? "Create the project this document declares" : "Paste a document first"}
-        className="mt-3 rounded border border-border-strong bg-surface-active px-3 py-1.5 text-[13px] text-ink hover:bg-surface-hover disabled:opacity-40"
-      >
-        {busy ? "Starting…" : "Start work"}
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          data-testid="start-submit"
+          onClick={() => void submit("document")}
+          disabled={busy !== null || !text.trim()}
+          title={text.trim() ? "Create the project this document declares" : "Paste a document first"}
+          className="rounded border border-border-strong bg-surface-active px-3 py-1.5 text-[13px] text-ink hover:bg-surface-hover disabled:opacity-40"
+        >
+          {busy === "document" ? "Starting…" : "Start work"}
+        </button>
+
+        {/* The second way in. Deliberately quieter than the first: a document declares the areas the
+            board is made of, so starting with one is still the better path and the button that says
+            so is the loud one. This is for the case where you know what you are building and have
+            not written it up — which was previously a state the product refused to hold. */}
+        <span className="text-[11px] text-ink-ghost">or</span>
+        <button
+          type="button"
+          data-testid="start-blank"
+          onClick={() => void submit("blank")}
+          disabled={busy !== null}
+          title="Create the project now and write its document later, with an agent's help"
+          className="rounded border border-border px-2.5 py-1 text-[11px] text-ink-faint hover:bg-surface-hover disabled:opacity-40"
+        >
+          {busy === "blank" ? "Creating…" : "Start without a document"}
+        </button>
+      </div>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-ink-ghost">
+        Without a document the project starts empty — no areas, no team. The Design Documents page
+        is where its brief gets written, and an X agent can draft it from a sentence.
+      </p>
     </div>
   );
 }
@@ -381,7 +414,10 @@ export function AgentsNavigator({ projectId, selectionId, onSelect }: WorkspaceP
   );
 }
 
+export { AgentInspector } from "./AgentInspector";
+
 export const AGENTS_PAGE_SLOTS = {
   main: AgentsPage,
   navigator: AgentsNavigator,
+  inspector: AgentInspector,
 };
