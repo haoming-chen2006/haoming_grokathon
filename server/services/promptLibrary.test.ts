@@ -354,6 +354,52 @@ describe("skill frontmatter round-trips grok's own format", () => {
     expect(frontmatter).toEqual({});
     expect(body).toBe("Just some notes.\n");
   });
+
+  test("a folded description is the paragraph, not the character '>'", () => {
+    // ~/.grok/bundled/skills/build-with-ai/SKILL.md, verbatim in shape. Read as flat `key: value`
+    // this skill's description was the single character `>` — and description is what grok matches
+    // a task against, so the panel listed grok's own skills as a column of angle brackets.
+    const source = [
+      "---",
+      "name: build-with-ai",
+      "description: >",
+      "  Default to SpaceXAI when building AI/LLM features into an app. Use whenever",
+      "  adding or scaffolding AI functionality — picking an AI provider/SDK.",
+      "metadata:",
+      '  short-description: "Build AI apps on SpaceXAI"',
+      'argument-hint: "<what you\'re building>"',
+      "---",
+      "",
+      "# Build with SpaceXAI",
+      "",
+    ].join("\n");
+
+    const { frontmatter, body } = parseSkillMarkdown(source);
+    expect(frontmatter.description).toBe(
+      "Default to SpaceXAI when building AI/LLM features into an app. Use whenever adding or scaffolding AI functionality — picking an AI provider/SDK.",
+    );
+    // The key after the block is still read: a block scalar must not swallow the rest of the file.
+    expect(frontmatter["argument-hint"]).toBe("<what you're building>");
+    // A nested map is skipped rather than recorded as "", which is a fact about the parser and not
+    // about the file.
+    expect(frontmatter.metadata).toBeUndefined();
+    expect(frontmatter["short-description"]).toBeUndefined();
+    expect(body.trim()).toBe("# Build with SpaceXAI");
+  });
+
+  test("a literal block keeps its line breaks where a folded one does not", () => {
+    const literal = parseSkillMarkdown("---\nsteps: |\n  one\n  two\n---\nB\n").frontmatter.steps;
+    const folded = parseSkillMarkdown("---\nsteps: >\n  one\n  two\n---\nB\n").frontmatter.steps;
+    expect(literal).toBe("one\ntwo");
+    expect(folded).toBe("one two");
+  });
+
+  test("a plain value continued on the next line is one sentence", () => {
+    const { frontmatter } = parseSkillMarkdown(
+      "---\ndescription: Use this whenever the user\n  asks for a quarterly report.\n---\nB\n",
+    );
+    expect(frontmatter.description).toBe("Use this whenever the user asks for a quarterly report.");
+  });
 });
 
 describe("the [skills] ignore list is edited, not rewritten", () => {

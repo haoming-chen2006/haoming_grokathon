@@ -285,12 +285,17 @@ export function useControlRoom() {
         if (!e) return;
 
         if (e.type === "transcript") {
-          // Only the drawer's agent, and never duplicate a sequence already shown.
-          setTranscript((prev) =>
-            e.agentId === drawerAgentIdRef.current && !prev.some((t) => t.seq === e.entry.seq)
-              ? [...prev, e.entry]
-              : prev,
-          );
+          // Only the drawer's agent. `seq` identifies an entry, and a streamed reply is republished
+          // under the same seq as it grows — so a seq already shown is REPLACED, not skipped.
+          // Skipping it (which this did) froze every reply at its first chunk.
+          setTranscript((prev) => {
+            if (e.agentId !== drawerAgentIdRef.current) return prev;
+            const at = prev.findIndex((t) => t.seq === e.entry.seq);
+            if (at < 0) return [...prev, e.entry];
+            const next = prev.slice();
+            next[at] = e.entry;
+            return next;
+          });
         } else if (e.type === "session_state" && e.agentId === drawerAgentIdRef.current) {
           setSessionState(e.state);
         } else if (e.type === "progress") {

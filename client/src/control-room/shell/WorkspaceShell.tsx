@@ -16,6 +16,7 @@
  * loops/handoff/pivot-shell.md rather than taken silently.
  */
 import { useEffect, useState } from "react";
+import { TOOLS_SECTIONS, TOOLS_SECTION_LABEL } from "./contract";
 import type { PageDescriptor, ToolsSection, WorkspacePageProps } from "./contract";
 import { NotMergedYet } from "./NotMergedYet";
 import { SlotBoundary } from "./SlotBoundary";
@@ -372,10 +373,12 @@ function CollapsedRail({
 function ToolsOverlay({
   section,
   projectId,
+  onOpenSection,
   onClose,
 }: {
   section: ToolsSection;
   projectId: string;
+  onOpenSection: (section: ToolsSection) => void;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -412,7 +415,30 @@ function ToolsOverlay({
       >
         <header className="flex items-center gap-3 border-b border-border px-3.5 py-2">
           <SectionLabel>Tools</SectionLabel>
-          <span className="text-[13px] text-ink-muted">{section}</span>
+          {/* The section was a label, so the panel showed whichever one the URL happened to say
+              and there was no way to reach the other. Skills existed, were built, and were
+              unreachable — the toolbar opens `prompts` and nothing anywhere wrote `skills`.
+
+              It belongs here rather than inside the panel because the section is ROUTE state and
+              this shell owns the route; the panel renders whichever one it is handed. */}
+          <nav aria-label="Tools sections" className="flex items-center gap-1">
+            {TOOLS_SECTIONS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                data-testid={`tools-section-${id}`}
+                aria-current={id === section ? "page" : undefined}
+                onClick={() => onOpenSection(id)}
+                className={`rounded border px-2 py-0.5 text-[12px] transition-colors ${
+                  id === section
+                    ? "border-accent bg-accent/15 text-accent"
+                    : "border-transparent text-ink-faint hover:bg-surface-hover hover:text-ink-muted"
+                }`}
+              >
+                {TOOLS_SECTION_LABEL[id]}
+              </button>
+            ))}
+          </nav>
           <div className="flex-1" />
           <button
             type="button"
@@ -687,6 +713,7 @@ export function WorkspaceShell() {
             <ToolsOverlay
               section={route.tools}
               projectId={pageProps.projectId}
+              onOpenSection={openTools}
               onClose={closeTools}
             />
           ) : null}

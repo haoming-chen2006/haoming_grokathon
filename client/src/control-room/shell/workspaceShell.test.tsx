@@ -546,7 +546,39 @@ describe("the Tools overlay", () => {
   test("a url naming a section opens that section on a cold mount", async () => {
     atUrl(workspaceUrl("assets", undefined, "skills"));
     await mount();
-    expect(screen.getByTestId("tools-panel").textContent).toContain("skills");
+    expect(screen.getByTestId("tools-section-skills").getAttribute("aria-current")).toBe("page");
+  });
+
+  test("both sections are offered, so skills is reachable without typing a URL", async () => {
+    // The section used to be a label. The toolbar opens `prompts`, nothing anywhere wrote `skills`,
+    // and so the whole skills half of the panel was built, shipped, and unreachable — the user's
+    // report was "the tools section still has just prompts".
+    atUrl(workspaceUrl("agents", undefined, "prompts"));
+    await mount();
+    expect(screen.getByTestId("tools-section-prompts")).toBeDefined();
+    expect(screen.getByTestId("tools-section-skills")).toBeDefined();
+  });
+
+  test("choosing a section writes the URL, so it is shareable and survives a reload", async () => {
+    atUrl(workspaceUrl("agents", undefined, "prompts"));
+    await mount();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("tools-section-skills"));
+    });
+    expect(location.search).toBe("?tools=skills");
+    expect(screen.getByTestId("tools-section-skills").getAttribute("aria-current")).toBe("page");
+    // The page underneath is untouched — that is the whole argument for an overlay.
+    expect(location.pathname).toBe("/agents");
+  });
+
+  test("switching sections keeps the selection under the overlay", async () => {
+    atUrl(workspaceUrl("assets", "asset_1", "prompts"));
+    await mount();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("tools-section-skills"));
+    });
+    expect(location.pathname).toBe("/assets/asset_1");
+    expect(location.search).toBe("?tools=skills");
   });
 
   test("renders the Tools panel now that pivot/tools has merged", async () => {

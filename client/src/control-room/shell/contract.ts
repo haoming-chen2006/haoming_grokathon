@@ -27,6 +27,21 @@ export type PageId = "agents" | "assets" | "designdocs" | "users" | "x";
  */
 export type ToolsSection = "prompts" | "skills";
 
+/**
+ * The sections, in the order they are offered, and what each is called.
+ *
+ * One list, because there were two: the router had its own array for deciding whether a URL's
+ * `?tools=` value was real, and the panel had a hard-coded `prompts`. Nothing drew a switcher, so
+ * `skills` was reachable only by typing the query parameter — the section was built and shipped
+ * behind a door with no handle.
+ */
+export const TOOLS_SECTIONS: ToolsSection[] = ["prompts", "skills"];
+
+export const TOOLS_SECTION_LABEL: Record<ToolsSection, string> = {
+  prompts: "Prompts",
+  skills: "Skills",
+};
+
 /** Every page component receives exactly this. The shell passes nothing else, ever. */
 export interface WorkspacePageProps {
   /** The active project. Never empty — the shell renders its own empty state instead. */

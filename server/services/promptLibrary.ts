@@ -650,21 +650,61 @@ export function describesWhenToUse(description: string): boolean {
 /**
  * Split `---\nkey: value\n---\nbody`.
  *
- * Deliberately not a YAML parser. Skill frontmatter is flat scalars, `package.json` is a hot file
- * so a dependency cannot be added, and a hand-rolled parser that accepted nesting would be a
- * second, worse YAML. Anything it cannot read is returned as body, so an exotic skill renders as
- * text the user can still edit rather than vanishing from the list.
+ * Still not a YAML parser, and `package.json` is a hot file so a dependency cannot be added. But
+ * "skill frontmatter is flat scalars" — what this used to assume — is false of the skills grok
+ * itself ships: `~/.grok/bundled/skills/build-with-ai/SKILL.md` writes its description as a folded
+ * block scalar and carries a nested `metadata:` map. Reading `key: value` off each line gave that
+ * skill the description `">"`, and description is the ONE field the feature turns on — it is what
+ * grok matches a task against and the only thing the panel can show about a skill. So the panel
+ * listed grok's own skills as a column of `>`.
+ *
+ * What is understood, and no more: block scalars (`>` folds, `|` keeps newlines), a plain value
+ * continued on following indented lines, and nested maps — which are SKIPPED rather than recorded
+ * as an empty string, because `metadata: ""` is a fact about our parser and not about the file.
+ * A skipped map is lost on rewrite; that was already true when it was stored as empty, and the
+ * skills that use one are the bundled ones, which are not editable.
  */
 export function parseSkillMarkdown(source: string): { frontmatter: Record<string, string>; body: string } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
   if (!match) return { frontmatter: {}, body: source };
 
   const frontmatter: Record<string, string> = {};
-  for (const line of match[1].split(/\r?\n/)) {
+  const lines = match[1].split(/\r?\n/);
+  const indentOf = (line: string) => line.length - line.trimStart().length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     const kv = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line);
     if (!kv) continue;
     let value = kv[2].trim();
+
+    // Everything indented under this key belongs to it, up to the next key at column zero.
+    const owned: string[] = [];
+    let next = i + 1;
+    for (; next < lines.length; next++) {
+      if (lines[next].trim() && indentOf(lines[next]) === 0) break;
+      owned.push(lines[next].trim());
+    }
+    const consume = () => {
+      i = next - 1;
+    };
+
+    if (/^[|>][-+]?$/.test(value)) {
+      // `|` is literal, `>` is folded. The chomping indicator only affects trailing newlines,
+      // which are trimmed either way.
+      const literal = value.startsWith("|");
+      value = literal ? owned.join("\n").trim() : owned.filter(Boolean).join(" ").trim();
+      consume();
+    } else if (value === "") {
+      // A nested map, or a key with nothing after it. Neither is a scalar we can honestly report.
+      consume();
+      continue;
+    } else if (owned.some((l) => l.length > 0)) {
+      value = [value, ...owned.filter(Boolean)].join(" ");
+      consume();
+    }
+
     // Strip one layer of matching quotes; `argument-hint: "<what to design>"` ships quoted.
     if (value.length >= 2 && (value.startsWith('"') || value.startsWith("'")) && value.at(-1) === value[0]) {
       value = value.slice(1, -1);
@@ -1057,7 +1097,11 @@ let skillStoreKey: string | null = null;
  */
 export function getGrokSkillStore(projectRoot?: string): GrokSkillStore {
   const grokHome = process.env.OPENUI_GROK_HOME;
-  const key = `${grokHome ?? ""} ${projectRoot ?? ""}`;
+  // The separator is written as the escape `\0` and not as a literal NUL byte. As a raw byte it
+  // made this file read as binary: `grep` reports nothing at all for a term that is on 137 lines
+  // of it, and `file` calls it data. A cache key that costs everyone their search is too
+  // expensive for what it buys.
+  const key = `${grokHome ?? ""}\0${projectRoot ?? ""}`;
   if (!skillStore || skillStoreKey !== key) {
     skillStore = new GrokSkillStore({ grokHome, projectRoot });
     skillStoreKey = key;

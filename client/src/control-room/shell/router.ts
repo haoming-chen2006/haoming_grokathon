@@ -18,7 +18,7 @@
  * more than the URL scheme allows is a second place for the URL scheme to be defined.
  */
 import { useCallback, useEffect, useState } from "react";
-import { PAGE_SEGMENTS, workspaceUrl, type PageId, type ToolsSection } from "./contract";
+import { PAGE_SEGMENTS, TOOLS_SECTIONS, workspaceUrl, type PageId, type ToolsSection } from "./contract";
 
 export interface WorkspaceRoute {
   page: PageId;
@@ -29,8 +29,6 @@ export interface WorkspaceRoute {
 const SEGMENT_TO_PAGE = new Map<string, PageId>(
   (Object.keys(PAGE_SEGMENTS) as PageId[]).map((id) => [PAGE_SEGMENTS[id], id]),
 );
-
-const TOOLS_SECTIONS: ToolsSection[] = ["prompts", "skills"];
 
 /** The page `/` resolves to. The front door is where work is declared (§3.2). */
 export const DEFAULT_PAGE: PageId = "designdocs";

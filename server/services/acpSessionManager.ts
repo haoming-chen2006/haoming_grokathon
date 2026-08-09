@@ -56,8 +56,26 @@ interface Entry {
   seq: number;
   /** Set once `auth_required` has explained the block, so the generic catch does not overwrite it. */
   authRequired?: boolean;
+  /**
+   * The streaming kind currently being written into the last transcript entry, if any.
+   *
+   * ACP delivers a reply as a run of `agent_message_chunk`s, and a chunk is often a single word.
+   * This says "the block at the end of the transcript is still being written", so the next chunk
+   * of the same kind grows it instead of starting a new one. Cleared by anything that ends the
+   * run: a different kind, a user message, the end of a turn.
+   */
+  openKind?: "agent" | "thought";
+  /** `toolCallId` → the seq of the row describing it, so its updates land on that row. */
+  toolCalls?: Map<string, number>;
 }
 
+/**
+ * How many MESSAGES a session keeps, not how many chunks.
+ *
+ * This bound was reached in a handful of sentences while entries were per-chunk: "Hello! How can I
+ * assist you today?" is nine of them. A single long reply could evict an entire conversation. Now
+ * that a run of chunks is one entry, 500 is 500 things somebody said.
+ */
 const MAX_TRANSCRIPT = 500;
 
 /**
@@ -179,11 +197,41 @@ export class AcpSessionManager {
     }
   }
 
+  /**
+   * Append to the transcript, joining a run of streamed chunks into one message.
+   *
+   * A chunk is a transport detail — ACP hands back "Hello", "!", "How", "can", each as its own
+   * update — and a transcript that stores one entry per chunk turns a sentence into a column of
+   * single words. That is what the panel rendered, because the panel was faithfully drawing the
+   * model it was given. The fix belongs here rather than in the renderer: every consumer of the
+   * transcript (the panel, the socket, the 500-entry bound) is wrong in the same way otherwise.
+   *
+   * A grown entry keeps its `seq` and is republished. `seq` identifies an entry, so a second
+   * publication of one is the same entry, longer — consumers replace by seq rather than append.
+   */
   private push(entry: Entry, kind: TranscriptEntry["kind"], text: string, status?: string): void {
     if (!text) return;
+
+    const streaming = kind === "agent" || kind === "thought";
+    const last = entry.session.transcript.at(-1);
+    if (streaming && entry.openKind === kind && last?.kind === kind) {
+      // The chunks carry their own spacing — " today", "?" — so they are concatenated, never
+      // joined with a separator we invented.
+      last.text += text;
+      getControlRoomBus().publish(entry.session.projectId, {
+        type: "transcript",
+        agentId: entry.session.agentId,
+        entry: last,
+      });
+      return;
+    }
+
     entry.seq += 1;
     const line: TranscriptEntry = { seq: entry.seq, at: new Date().toISOString(), kind, text, status };
     entry.session.transcript.push(line);
+    // A tool call, a system note or a user message ends whatever was being streamed: the agent
+    // speaking again after a tool ran is a new paragraph, not a continuation of the old one.
+    entry.openKind = streaming ? kind : undefined;
     // Bound the buffer so a long-running agent cannot grow it without limit.
     if (entry.session.transcript.length > MAX_TRANSCRIPT) {
       entry.session.transcript.splice(0, entry.session.transcript.length - MAX_TRANSCRIPT);
@@ -193,6 +241,61 @@ export class AcpSessionManager {
       agentId: entry.session.agentId,
       entry: line,
     });
+  }
+
+  /**
+   * One tool call is one row, however many updates describe it.
+   *
+   * ACP reports a call as a `tool_call` followed by `tool_call_update`s carrying its progress, and
+   * appending each one produced three rows for a single directory listing — `list_dir`, then
+   * ``List `.` ``, then `call_HWyt8Mw0TufJIbs8Mwetq7jI`. The last is the worst of the three: it is a
+   * raw provider id, shown to a user who was promised they would not have to read one, and it
+   * appeared only because the update carried no title and the id was used as a fallback label.
+   *
+   * Updates land on the row they belong to, matched by `toolCallId`. A title only ever replaces a
+   * title, and the id is never shown: "Tool call" says the same amount about an unnamed call
+   * without pretending the identifier means something to the reader.
+   */
+  private trackTool(entry: Entry, update: any): void {
+    const id: string | undefined = update.toolCallId;
+    const knownSeq = id ? entry.toolCalls?.get(id) : undefined;
+    const existing =
+      knownSeq === undefined
+        ? undefined
+        : entry.session.transcript.find((line) => line.seq === knownSeq);
+
+    if (existing) {
+      if (update.title) existing.text = update.title;
+      if (update.status) existing.status = update.status;
+      getControlRoomBus().publish(entry.session.projectId, {
+        type: "transcript",
+        agentId: entry.session.agentId,
+        entry: existing,
+      });
+    } else {
+      // Either the first update for this call, or one whose row has aged out of the buffer.
+      this.push(entry, "tool", update.title ?? "Tool call", update.status);
+      if (id) (entry.toolCalls ??= new Map()).set(id, entry.seq);
+    }
+
+    // Tool activity is also the agent's current activity (V-024).
+    if (update.title) {
+      try {
+        getAgentRegistry().updateActivity(entry.session.agentId, { tool: update.title });
+      } catch {
+        // The agent may have been removed mid-flight; transcript still stands.
+      }
+    }
+  }
+
+  /**
+   * Close the open streaming block, so the next turn starts its own message.
+   *
+   * Without this, two consecutive replies with no tool call between them would concatenate into a
+   * single wall of text with no seam where the user's question went.
+   */
+  private endTurn(entry: Entry): void {
+    entry.openKind = undefined;
   }
 
   private setState(entry: Entry, state: LiveSessionState, error?: string): void {
@@ -277,15 +380,7 @@ export class AcpSessionManager {
         } else if (update.sessionUpdate === "agent_thought_chunk") {
           this.push(entry, "thought", update.content?.text ?? "");
         } else if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
-          this.push(entry, "tool", update.title ?? update.toolCallId ?? "tool call", update.status);
-          // Tool activity is also the agent's current activity (V-024).
-          if (update.title) {
-            try {
-              getAgentRegistry().updateActivity(entry.session.agentId, { tool: update.title });
-            } catch {
-              // The agent may have been removed mid-flight; transcript still stands.
-            }
-          }
+          this.trackTool(entry, update);
         }
         break;
       }
@@ -364,6 +459,9 @@ export class AcpSessionManager {
 
     try {
       const result = await entry.connection.prompt(text, { timeoutMs: 300_000 });
+      // The turn is over, so the reply is finished. Anything the agent says next belongs to a
+      // later turn and gets its own message.
+      this.endTurn(entry);
 
       // Record what the turn actually consumed. Tokens are exact; the dollar figure is an
       // estimate from list prices and is flagged as such (V-045).

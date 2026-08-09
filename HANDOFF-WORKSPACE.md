@@ -59,17 +59,18 @@ Proof this holds: sessions the web creates appear in `grok sessions list` and re
 | | |
 |---|---|
 | Paste a design document | project, git workspace, requirements, one colour box per declared area |
+| Talking to an agent | a real conversation: a streamed reply is one message, markdown is rendered, one tool call is one row |
 | The loop | real Planner turn → human approval → launch into a worktree → agent implements, tests, commits, submits |
 | Colour boxes | one per area, each with a hue and a glyph, created empty |
 | Hire on the box | name an agent, choose capability, it lands in that area |
 | Capability gating | base agent gets no media tools; `{images,voice}` gets `generate_image` + `narrate` |
 | Media MCP tools | `create_deliverable`, `write_text`, `generate_image`, `narrate`, `list_deliverables` |
 | Assets | list, preview PDF/image/video/audio in place, import a file, serve bytes |
-| Tools panel (⌘T) | prompts and skills. Skills ARE grok skill directories — one written here works in the terminal |
+| Tools panel (⌘T) | prompts and skills, switchable in its header. Skills ARE grok skill directories — one written here works in the terminal, and grok's own 23 bundled skills list |
 | Design Documents | rail, document surface, presence entries, declaration parsing |
 | Shell | three regions, five pages, dark default, theme toggle, project switcher, error boundaries |
 
-**Gate:** `bun run typecheck` clean · 593 client tests · ~1,070 server tests · build clean.
+**Gate:** `bun run typecheck` clean · 1,897 tests across 97 files, 0 fail · build clean.
 
 ---
 
@@ -92,8 +93,14 @@ interpretation: the assets grid's second column, and the design document's line-
   per project and per agent, and the toolbar draws it. Three states, so nothing ever renders
   `$0.00`: `—` for no charges, `unknown` when nothing could be priced, `$x+` for a partial total.
 
-**No slide rendering.** There is no xAI slide API — `Grok for PowerPoint` and grok.com are UI, not
-callable. `.pptx` must be rendered by us and nothing does it.
+**Slides: grok already does this, and we nearly built it again.** There is no xAI slide *API* —
+`Grok for PowerPoint` and grok.com are UI, not callable — and this section used to conclude from
+that "`.pptx` must be rendered by us and nothing does it", with "pick a Node PPTX library" filed as
+work. That is precisely the A-00 violation: `~/.grok/bundled/skills/pptx/` ships a complete skill
+(SKILL.md, `creating.md`, `editing.md`, `scripts/`, `templates/`, `template_taxonomy.json`) that
+builds decks with PptxGenJS, and `pdf/` does the same for PDF. Every agent we launch already has
+them. **The work is to enable a skill on an agent and ask, not to write a renderer.** Nobody has
+driven that path end to end yet, and that is the open item.
 
 **No authentication at all.** `server/index.ts` says so itself; a request with no headers is the
 fully privileged user. The Users page states this rather than implying identity is enforced.
@@ -146,6 +153,10 @@ Each exists because it was violated and cost something.
 - **Do not mock a module to keep a live boundary out of a test — export a seam.** `mock.module` is
   process-wide and silently inert when another file imported first; that produced six live `grok`
   children and a suite that never finished.
+- **A stream of chunks is not a stream of messages.** ACP hands back a reply one word at a time.
+  Join the run where it arrives (`acpSessionManager.push`), not in the renderer — otherwise every
+  consumer, including the buffer bound, is wrong in the same way. Same for tool updates: one call
+  is one row, matched on `toolCallId`.
 - **Match a model's words tolerantly.** Roles and statuses come back phrased differently between
   runs; `===` works until it does not.
 
@@ -161,7 +172,8 @@ Each exists because it was violated and cost something.
    page's budget column has nothing to read and says so. It is the last thing between that page and
    a real cap.
 3. **Subscribe to the control-room socket** and drop the 5s poll.
-4. **Slide rendering** — pick a Node PPTX library, then build it.
+4. **Drive the bundled `pptx` and `pdf` skills to a real deliverable.** Enable the skill on an
+   agent, ask for a deck, land the file as an asset. No renderer to write — see §4.
 5. **Advance `CodingAgent.costUsd` from media charges.** Today `generate_image` writes onto the
    asset only, so an agent's card shows its token spend and the inspector has to sum both ledgers
    through `/spend` to tell the truth. One writer would be better than two readers.
