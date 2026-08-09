@@ -130,7 +130,15 @@ export function AgentCard({
     <div
       data-testid={`agent-card-${agent.id}`}
       data-status={agent.status}
-      className={`w-[220px] overflow-hidden rounded-[9px] border bg-surface shadow-panel ${
+      // Draggable so an agent can be moved between areas by hand. The id travels on a private
+      // mime type rather than "text/plain", so dropping a card into a text field does not paste an
+      // opaque id, and a drop target can tell an agent from anything else on the clipboard.
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/agent-id", agent.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      className={`w-[220px] cursor-grab overflow-hidden rounded-[9px] border bg-surface shadow-panel active:cursor-grabbing ${
         selected ? "border-border-strong" : style.rule
       }`}
     >

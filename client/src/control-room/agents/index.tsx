@@ -368,6 +368,7 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
               onPause={(id) => void data.pause(id)}
               onLaunch={(taskId) => void data.launch(taskId)}
               onStartAgent={(input) => void data.addAgentToArea(input)}
+              onDropAgent={(agentId) => void data.moveAgent(agentId, area.id)}
             />
           ))}
         </div>

@@ -35,6 +35,8 @@ export interface AreaColumnProps {
    * Optional so the column still renders read-only wherever the caller cannot create; the control
    * is simply absent then, rather than present and refusing.
    */
+  /** An agent card was dropped on this area. Absent means the column is not a drop target. */
+  onDropAgent?(agentId: string): void;
   onStartAgent?(input: {
     areaId: string;
     name: string;
@@ -56,7 +58,11 @@ export function AreaColumn({
   onPause,
   onLaunch,
   onStartAgent,
+  onDropAgent,
 }: AreaColumnProps) {
+  // Dragging is a hover state as well as a drop: a target that does not light up leaves the user
+  // guessing whether the gesture is even possible.
+  const [over, setOver] = useState(false);
   const accent = areaAccent(area);
   const inside = agentsInArea(area, agents);
   const spend = knownSpend(inside);
@@ -64,7 +70,25 @@ export function AreaColumn({
   return (
     <section
       data-testid={`area-${area.id}`}
-      className={`flex min-w-[268px] flex-1 flex-col rounded-[10px] border p-3 ${accent.rule} ${accent.wash}`}
+      // Drop moves an agent here. One agent per area, so the server refuses an occupied target with
+      // AREA_OCCUPIED — the column stops advertising itself when it is full rather than accepting a
+      // gesture it knows will fail.
+      onDragOver={(e) => {
+        if (!onDropAgent || area.ownerAgentId) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false);
+        if (!onDropAgent || area.ownerAgentId) return;
+        e.preventDefault();
+        const agentId = e.dataTransfer.getData("text/agent-id");
+        if (agentId) onDropAgent(agentId);
+      }}
+      className={`flex min-w-[268px] flex-1 flex-col rounded-[10px] border p-3 ${accent.rule} ${accent.wash} ${
+        over ? "ring-2 ring-accent" : ""
+      }`}
     >
       <div className="mb-2.5 flex items-center gap-2.5">
         {area.glyph ? (
@@ -142,11 +166,19 @@ export function AreaColumn({
       )}
 
       {/*
-        Hiring lives outside the empty/populated branch. It was inside the empty one, so an area
-        with one agent could never get a second — and a board where every box is filled had no way
-        to add anybody at all. An area holds a team, not a person.
+        Hiring is offered only while the area is free.
+        
+        `assignArea` refuses an occupied area with AREA_OCCUPIED — one agent per area is the
+        boundary rule, not an oversight: the area is "the one place an agent hired into it may
+        write", and two agents writing in one place is the thing it exists to prevent.
+        
+        Offering the control anyway created the agent and then failed the assignment, leaving an
+        orphan with no area — which is what "it errors and kicks the agent out" was. Drag another
+        agent's card here to move it instead.
       */}
-      {onStartAgent ? <StartAgentHere area={area} busy={busy} onStart={onStartAgent} /> : null}
+      {onStartAgent && !area.ownerAgentId ? (
+        <StartAgentHere area={area} busy={busy} onStart={onStartAgent} />
+      ) : null}
     </section>
   );
 }

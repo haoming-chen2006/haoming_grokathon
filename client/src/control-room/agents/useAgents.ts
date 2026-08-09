@@ -55,6 +55,8 @@ export interface AgentsData {
   launch(taskId: string): Promise<void>;
   pause(agentId: string): Promise<void>;
   addAgent(input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }): Promise<void>;
+  /** Move an agent into an area, or out of one with null. Drag and drop uses this. */
+  moveAgent(agentId: string, areaId: string | null): Promise<void>;
   /** Add an area by hand, for a document that declared none. */
   addArea(name: string): Promise<void>;
   /** Create an agent and put it inside one area — the box-click flow. */
@@ -219,6 +221,13 @@ export function useAgents(projectId: string): AgentsData {
     pause: (agentId: string) =>
       run("Pausing", () =>
         json(`/api/coding-agents/${agentId}/session/pause`, { method: "POST", body: "{}" }),
+      ),
+    moveAgent: (agentId: string, areaId: string | null) =>
+      run("Moving", () =>
+        json(`/api/coding-agents/${agentId}/area`, {
+          method: "PATCH",
+          body: JSON.stringify({ areaId }),
+        }),
       ),
     addArea: (name: string) =>
       run(`Adding ${name}`, () =>
