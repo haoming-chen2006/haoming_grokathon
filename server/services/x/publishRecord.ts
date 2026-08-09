@@ -20,7 +20,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { atomicWriteJson } from "../persistence";
@@ -89,6 +89,11 @@ export class PublishRecordStore {
   private readonly path: string;
 
   constructor(dir: string) {
+    // `atomicWriteJson` writes `<path>.tmp` and renames; neither step creates a missing directory,
+    // so a first run against a fresh data directory would fail at the moment it claims a key —
+    // which is the one moment in this file that must not fail. `AssetStore` does the same thing in
+    // its own constructor.
+    mkdirSync(dir, { recursive: true });
     this.path = join(dir, "x-publishes.json");
   }
 

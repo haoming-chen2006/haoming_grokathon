@@ -33,7 +33,7 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { atomicWriteJson } from "./persistence";
@@ -330,6 +330,9 @@ export class UserStore {
   private readonly path: string;
 
   constructor(dir: string) {
+    // `atomicWriteJson` writes `<path>.tmp` and renames; neither creates a missing directory, so a
+    // first run against a fresh data directory would fail at the moment it mints the owner.
+    mkdirSync(dir, { recursive: true });
     this.path = join(dir, "auth.json");
   }
 
