@@ -1311,6 +1311,30 @@ export class ProjectStore {
     return { artifact, message };
   }
 
+  /**
+   * Point a project at the design document it follows.
+   *
+   * `createProject` could always take a `designDocId`, which was enough while a document was the
+   * only way to create a project. A project may now be created first and described afterwards, so
+   * the link has to be formable after the fact.
+   *
+   * Refuses to move a project off a document it already follows: at most one project follows a
+   * document (§3.3), and silently re-pointing would strand the first document with a project that
+   * no longer reads it. Clearing is allowed — that is how a draft is discarded.
+   */
+  setDesignDocId(projectId: string, designDocId: string | undefined): Project {
+    const project = this.getProject(projectId);
+    if (designDocId && project.designDocId && project.designDocId !== designDocId) {
+      throw new Error(
+        `Project ${projectId} already follows design document ${project.designDocId}; ` +
+          `delete that document before pointing it at ${designDocId}.`,
+      );
+    }
+    if (designDocId) project.designDocId = designDocId;
+    else delete project.designDocId;
+    return this.persist(project);
+  }
+
   setMessageLimits(projectId: string, limits: MessageLimits): MessageLimits {
     const project = this.getProject(projectId);
     project.messageLimits = limits;

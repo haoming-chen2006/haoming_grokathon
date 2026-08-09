@@ -9,7 +9,7 @@
  * The client never re-parses a document. `shared/designDocument.ts` exists because the CLI and the
  * browser once had two parsers and drifted about what a project's requirements were.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentView } from "../agents/types";
 import { reportsFromAgents, type PresenceReport } from "./presence";
 
@@ -60,6 +60,17 @@ export interface DesignDocsData {
   reports: PresenceReport[];
   loading: boolean;
   error?: string;
+  /** Re-read the list. Called after drafting writes a new document. */
+  refresh(): void;
+  /**
+   * Put a saved document back into the list, in place.
+   *
+   * An edit can change a document's title — the title IS its first heading — and its declaration,
+   * so the rail and the inspector are stale the moment a save lands. The saved document comes back
+   * in the PUT's response, already parsed by the server's parser, so this replaces rather than
+   * refetches: a second GET would be a second parse of the same bytes and a visible flicker.
+   */
+  replaceDoc(saved: DesignDocView): void;
 }
 
 async function getJson(url: string): Promise<unknown> {
@@ -76,17 +87,25 @@ async function getJson(url: string): Promise<unknown> {
   return body;
 }
 
-export function useDesignDocs(selectionId?: string): DesignDocsData {
+/**
+ * @param projectId the ACTIVE project. Scopes the list, so switching project switches the document
+ *   rather than leaving every project looking at whichever document sorted first on disk.
+ */
+export function useDesignDocs(projectId: string, selectionId?: string): DesignDocsData {
   const [docs, setDocs] = useState<DesignDocView[]>([]);
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
+  const [nonce, setNonce] = useState(0);
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     let live = true;
     void (async () => {
       try {
-        const body = await getJson("/api/design-docs");
+        const body = await getJson(
+          projectId ? `/api/design-docs?projectId=${encodeURIComponent(projectId)}` : "/api/design-docs",
+        );
         // Checked, not asserted. `as DesignDocView[]` is a claim about a value that arrived over a
         // network, and when the body was anything else — an error object, a stubbed fetch in a test
         // — `docs.map` threw during render. With no error boundary above, that unmounted the whole
@@ -108,20 +127,22 @@ export function useDesignDocs(selectionId?: string): DesignDocsData {
     return () => {
       live = false;
     };
-  }, []);
+  }, [projectId, nonce]);
 
   const doc = docs.find((d) => d.id === selectionId) ?? docs[0];
-  const projectId = doc?.followedByProjectId;
+  // The project that follows the OPEN document, which is not always the active one: an unclaimed
+  // draft travels with every project and is followed by none, and it has no team to show.
+  const docProjectId = doc?.followedByProjectId;
 
   useEffect(() => {
     let live = true;
-    if (!projectId) {
+    if (!docProjectId) {
       setAgents([]);
       return;
     }
     void (async () => {
       try {
-        const body = await getJson(`/api/coding-agents?projectId=${encodeURIComponent(projectId)}`);
+        const body = await getJson(`/api/coding-agents?projectId=${encodeURIComponent(docProjectId)}`);
         if (live) setAgents(Array.isArray(body) ? (body as AgentView[]) : []);
       } catch {
         // A document still renders without its team. The failure that matters on this page is a
@@ -132,9 +153,13 @@ export function useDesignDocs(selectionId?: string): DesignDocsData {
     return () => {
       live = false;
     };
-  }, [projectId]);
+  }, [docProjectId]);
 
   const reports = useMemo(() => (doc ? reportsFromAgents(agents, doc.id) : []), [agents, doc]);
 
-  return { docs, doc, agents, reports, loading, error };
+  const replaceDoc = useCallback((saved: DesignDocView) => {
+    setDocs((prev) => prev.map((d) => (d.id === saved.id ? saved : d)));
+  }, []);
+
+  return { docs, doc, agents, reports, loading, error, refresh, replaceDoc };
 }

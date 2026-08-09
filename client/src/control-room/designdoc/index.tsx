@@ -1,9 +1,15 @@
 /**
  * DESIGN DOCUMENTS — the page where work is declared and watched. The product's centre.
  *
- * Rebuilt from `design/mockups/design-document.html`: a rail of documents with the open one and
- * what is inside it, the document itself with presence drawn over the lines being worked, and an
- * inspector that states what the document costs, who is in it, and what it declares.
+ * A rail of documents with the open one and what is inside it, the document itself, and an
+ * inspector that states what it costs, who is in it and what it declares.
+ *
+ * The document is a DOCUMENT now, not a file dump: prose rendered as prose, editable in place, with
+ * each agent's claim drawn as a comment in the margin beside the passage it is about. The old
+ * surface printed one monospace row per line with a gutter column, which is a correct rendering of
+ * a file and a poor rendering of the thing that states what a person wants. `DocumentSurface.tsx`
+ * holds that rebuild; `markdown.ts` is what keeps the two vocabularies — prose and line numbers —
+ * pointing at the same bytes.
  *
  * What is real: every document, its text, its sections, its declaration, the declared areas and
  * their line numbers, and the team of whatever project follows it. All of it from endpoints that
@@ -11,19 +17,22 @@
  *
  * What was DELETED: `mockPresence.ts`, four invented agents that made this page look inhabited on
  * a machine where nothing was running. Presence is now derived from what agents actually report
- * (`reportsFromAgents`), which yields real entries with no line range — so the inspector lists
- * them and the body highlights nothing, which is the truth. The range is filed in
- * loops/handoff/pivot-frontend.md; the highlight machinery is built and waiting for it.
+ * (`reportsFromAgents`), which yields real entries with no line range — so those agents get a
+ * comment card that says they have not reported which lines, and NOTHING is drawn over the text.
+ * The range is filed in loops/handoff/pivot-frontend.md; the highlight machinery is built, tested
+ * and waiting for it.
  */
 import { useEffect, useMemo, useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { Money } from "../agents/AgentCard";
 import { StartProject } from "../agents";
 import { DesignDocsRail, NEW_DOCUMENT } from "./DesignDocsRail";
+import { DraftDocument } from "./DraftDocument";
 import { DocumentSurface } from "./DocumentSurface";
 import { PresenceEntry, PresenceKey, areaBorder, areaGutter, areaText } from "./PresenceEntry";
 import { presenceState, type PresenceReport } from "./presence";
 import { useDesignDocs } from "./useDesignDocs";
+import { useDocumentEditor } from "./useDocumentEditor";
 
 export type { DesignDocView } from "./useDesignDocs";
 export { NEW_DOCUMENT } from "./DesignDocsRail";
@@ -64,8 +73,8 @@ export function documentSpend(reports: PresenceReport[]): number | undefined {
 
 // ───────────────────────────────────────────────────────────────────────── NAVIGATOR
 
-export function DesignDocumentsNavigator({ selectionId, onSelect }: WorkspacePageProps) {
-  const { docs, doc, reports, loading, error } = useDesignDocs(selectionId);
+export function DesignDocumentsNavigator({ projectId, selectionId, onSelect }: WorkspacePageProps) {
+  const { docs, doc, reports, loading, error } = useDesignDocs(projectId, selectionId);
   if (loading) return <p className="text-[13px] text-ink-faint">Loading design documents…</p>;
   if (error) return <p className="text-[13px] text-status-failed">{error}</p>;
   return (
@@ -80,23 +89,45 @@ export function DesignDocumentsNavigator({ selectionId, onSelect }: WorkspacePag
 
 // ───────────────────────────────────────────────────────────────────────────── MAIN
 
-export function DesignDocumentsPage({ selectionId }: WorkspacePageProps) {
-  const { docs, doc, reports, loading, error } = useDesignDocs(selectionId);
+export function DesignDocumentsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
+  const { docs, doc, reports, loading, error, refresh, replaceDoc } = useDesignDocs(
+    projectId,
+    selectionId,
+  );
   const now = useNow();
   const stateOf = useMemo(
     () => (report: PresenceReport) => presenceState(report, report.documentVersion ?? 0, now),
     [now],
   );
+  // Above every early return: a document that fails to load must not change the number of hooks
+  // this component runs.
+  const editor = useDocumentEditor(doc, replaceDoc);
 
   if (loading) return <Centered>Loading design documents…</Centered>;
   if (error) return <Centered>{error}</Centered>;
 
-  // The paste box is the front door, both when the rail asks for a new document and when there is
-  // no document at all. An empty state that only describes the way in is not a way in.
+  // Two different empty states, because they are two different situations.
+  //
+  // With a project, the missing thing is its BRIEF: the project exists, it just has not been
+  // described yet, and the way out is to draft one — offering "start a project" to someone who is
+  // standing inside one is an answer to a question they did not ask.
+  //
+  // With no project at all, the missing thing is the project, and the paste box is the front door.
+  // An empty state that only describes the way in is not a way in.
   if (selectionId === NEW_DOCUMENT || (!doc && docs.length === 0)) {
     return (
       <div data-testid="documents-empty" className="h-full overflow-auto">
-        <StartProject />
+        {projectId ? (
+          <DraftDocument
+            projectId={projectId}
+            onSaved={(docId) => {
+              refresh();
+              onSelect(docId);
+            }}
+          />
+        ) : (
+          <StartProject />
+        )}
       </div>
     );
   }
@@ -134,7 +165,16 @@ export function DesignDocumentsPage({ selectionId }: WorkspacePageProps) {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <DocumentSurface doc={doc} reports={reports} stateOf={stateOf} />
+        <DocumentSurface
+          doc={doc}
+          reports={reports}
+          stateOf={stateOf}
+          text={editor.text}
+          onEdit={editor.save}
+          saveState={editor.saveState}
+          now={now}
+          onOpenAgent={onSelect}
+        />
       </div>
     </div>
   );
@@ -142,8 +182,8 @@ export function DesignDocumentsPage({ selectionId }: WorkspacePageProps) {
 
 // ───────────────────────────────────────────────────────────────────────── INSPECTOR
 
-export function DesignDocumentInspector({ selectionId, onSelect }: WorkspacePageProps) {
-  const { doc, reports } = useDesignDocs(selectionId);
+export function DesignDocumentInspector({ projectId, selectionId, onSelect }: WorkspacePageProps) {
+  const { doc, reports } = useDesignDocs(projectId, selectionId);
   const now = useNow();
   // Not `null`: WorkspacePageComponent is typed `=> JSX.Element`, so a slot cannot opt out of
   // rendering. Filed for 07-shell as an additive widening to `JSX.Element | null`.

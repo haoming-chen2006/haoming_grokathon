@@ -38,9 +38,14 @@ const git = (args: string[], cwd: string) =>
  *
  * Idempotent: called twice for the same project it returns the same directory rather than a second
  * repository, because a retry after a failed plan must not strand the first workspace.
+ *
+ * `documentText` is optional because a project may now start before its document is written. When
+ * there is no text there is no `design.md`: an empty file named as the thing that declared the
+ * project would be a lie about a document nobody has drafted, and the drafting surface writes the
+ * real one later.
  */
-export function ensureWorkspace(documentId: string, documentTitle: string, documentText: string): string {
-  const dir = join(workspacesDir(), documentId);
+export function ensureWorkspace(key: string, title: string, documentText?: string): string {
+  const dir = join(workspacesDir(), key);
   if (existsSync(join(dir, ".git"))) return dir;
 
   mkdirSync(dir, { recursive: true });
@@ -50,15 +55,67 @@ export function ensureWorkspace(documentId: string, documentTitle: string, docum
   git(["config", "user.email", "workspace@grok-workspace.local"], dir);
   git(["config", "user.name", "grok-workspace"], dir);
 
-  writeFileSync(join(dir, "design.md"), documentText, "utf8");
+  if (documentText !== undefined) writeFileSync(join(dir, "design.md"), documentText, "utf8");
   writeFileSync(
     join(dir, "README.md"),
-    `# ${documentTitle}\n\nThe workspace for this project. \`design.md\` is the document that declared it.\n`,
+    documentText !== undefined
+      ? `# ${title}\n\nThe workspace for this project. \`design.md\` is the document that declared it.\n`
+      : `# ${title}\n\nThe workspace for this project. No design document has been written yet — the Design Documents page is where it gets drafted.\n`,
     "utf8",
   );
   git(["add", "-A"], dir);
-  git(["commit", "-m", `Open the workspace for ${documentTitle}`], dir);
+  git(["commit", "-m", `Open the workspace for ${title}`], dir);
   return dir;
+}
+
+/** A directory-safe key from a project name, uniquified so two "Untitled" projects do not collide. */
+function workspaceKeyFor(name: string): string {
+  const base =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "project";
+  if (!existsSync(join(workspacesDir(), base))) return base;
+  for (let n = 2; n < 500; n += 1) {
+    if (!existsSync(join(workspacesDir(), `${base}-${n}`))) return `${base}-${n}`;
+  }
+  throw new Error(`Too many workspaces named ${base}`);
+}
+
+export interface StartBlankResult {
+  projectId: string;
+  workspace: string;
+}
+
+/**
+ * Create a project that has no design document yet.
+ *
+ * The document was the only way in, which made "I know what I want to build but have not written
+ * it up" a state the product refused to represent. A project can now exist first and be described
+ * afterwards, on the Design Documents page, with an agent's help.
+ *
+ * No areas and no team, for the same reason `startWork` seeds none: an area is declared by the
+ * document, and this project does not have one yet. Both arrive when the document is drafted.
+ */
+export function startBlank(params: {
+  name: string;
+  goal?: string;
+  repositoryPath?: string;
+  budgetUsd?: number;
+}): StartBlankResult {
+  const name = params.name.trim();
+  if (!name) throw new Error("A project needs a name");
+
+  const workspace = params.repositoryPath ?? ensureWorkspace(workspaceKeyFor(name), name);
+  const project = getProjectStore().createProject({
+    name,
+    goal: params.goal ?? "",
+    repositoryPath: workspace,
+    budgetUsd: params.budgetUsd,
+  });
+
+  return { projectId: project.id, workspace };
 }
 
 export interface StartWorkResult {

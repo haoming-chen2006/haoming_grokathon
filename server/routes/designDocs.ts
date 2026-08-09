@@ -4,6 +4,7 @@ import { join } from "path";
 import { parseDeclaration, type DeclarationResult } from "../services/designDoc";
 import { startWork } from "../services/startWork";
 import { getProjectStore } from "../services/projectStore";
+import { draftDesignDocument } from "../services/designDocDraft";
 
 /**
  * HTTP surface for design documents — mounted at `/api/design-docs`.
@@ -106,21 +107,61 @@ function projectFollowing(docId: string): string | undefined {
   return undefined;
 }
 
+/**
+ * docId → the project following it, built once per listing.
+ *
+ * `projectFollowing` answers for one document by scanning every project, which is the right shape
+ * for the one-document `/start` check and the wrong one for a list: it re-read all 24 projects for
+ * each of the documents on disk. Same answer, one pass.
+ */
+function followerIndex(): Map<string, string> {
+  const store = getProjectStore();
+  const index = new Map<string, string>();
+  for (const summary of store.listProjects()) {
+    const docId = store.getProject(summary.id).designDocId;
+    if (docId) index.set(docId, summary.id);
+  }
+  return index;
+}
+
 function listDocuments(): DesignDocView[] {
   const dir = docsDir();
   if (!existsSync(dir)) return [];
+  const followers = followerIndex();
   return readdirSync(dir)
     .filter((f) => f.endsWith(".md"))
     .sort()
     .map((f) => {
       const doc = readDocument(f);
-      const followedBy = projectFollowing(doc.id);
+      const followedBy = followers.get(doc.id);
       return followedBy ? { ...doc, followedByProjectId: followedBy } : doc;
     });
 }
 
-/** GET /api/design-docs — every document, with its declaration already parsed. */
-designDocRoutes.get("/", (c) => c.json(listDocuments()));
+/**
+ * The documents a project's page should show: its own, and the ones no project has claimed.
+ *
+ * Switching project switches the document, which is the whole point of scoping — but a filter that
+ * returned ONLY `followedByProjectId === projectId` would hide every document nobody has started
+ * yet, including the ones sitting on disk waiting to be opened. Those are the drafts you are about
+ * to adopt, so they travel with every project rather than belonging to none.
+ */
+function documentsFor(projectId: string): DesignDocView[] {
+  return listDocuments().filter(
+    (d) => d.followedByProjectId === projectId || d.followedByProjectId === undefined,
+  );
+}
+
+/**
+ * GET /api/design-docs — every document, with its declaration already parsed.
+ *
+ * `?projectId=` scopes it to that project (its own document, plus unclaimed drafts). The parameter
+ * is optional because the CLI and the tests read the whole set; the page always sends it.
+ */
+designDocRoutes.get("/", (c) => {
+  const projectId = c.req.query("projectId");
+  return c.json(projectId ? documentsFor(projectId) : listDocuments());
+});
 
 /** GET /api/design-docs/:docId — one document. 404 rather than an empty shell. */
 designDocRoutes.get("/:docId", (c) => {
@@ -174,7 +215,7 @@ function firstHeadingOf(text: string): string | undefined {
  * would lose what they typed, which is the one thing a paste box must never do.
  */
 designDocRoutes.post("/", async (c) => {
-  let body: { title?: string; text?: string };
+  let body: { title?: string; text?: string; projectId?: string };
   try {
     body = await c.req.json();
   } catch {
@@ -188,8 +229,117 @@ designDocRoutes.post("/", async (c) => {
   const id = slugFor(body.title ?? "", text);
   writeFileSync(join(dir, `${id}.md`), text, "utf8");
 
+  // `projectId` attaches the document to a project that already exists — the path a blank project
+  // takes when its brief is finally written. Without it the document is unclaimed, which is still
+  // the ordinary case for a paste that has no project yet.
+  //
+  // The link is formed AFTER the write, and a failure to link does not unwrite the file: the user's
+  // text is the thing that must never be lost, and an orphaned document can be adopted, while a
+  // document that was refused is gone.
+  let linkError: string | undefined;
+  if (body.projectId) {
+    try {
+      getProjectStore().setDesignDocId(body.projectId, id);
+    } catch (err) {
+      linkError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
   const doc = readDocument(`${id}.md`);
-  return c.json(doc, 201);
+  const followedBy = projectFollowing(id);
+  return c.json(
+    {
+      ...doc,
+      ...(followedBy ? { followedByProjectId: followedBy } : {}),
+      ...(linkError ? { linkError } : {}),
+    },
+    201,
+  );
+});
+
+/**
+ * POST /api/design-docs/draft — ask an X agent for a document.
+ *
+ * Generates and returns; it does not save. The draft comes back with its own parse verdict so the
+ * surface can show "this will declare three areas" or the line that is wrong, before the user
+ * commits to it. Saving is a second, deliberate call to `POST /` with the text they approved.
+ *
+ * Registered before `/:docId` so the literal segment is not read as a document id.
+ */
+designDocRoutes.post("/draft", async (c) => {
+  let body: { projectName?: string; brief?: string; existing?: string; projectId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Expected a JSON body with a `brief` field" }, 400);
+  }
+  if (!body?.brief?.trim()) {
+    return c.json({ error: "brief is required — say what you want built" }, 400);
+  }
+
+  try {
+    const draft = await draftDesignDocument({
+      projectName: body.projectName?.trim() || "Untitled project",
+      brief: body.brief,
+      existing: body.existing,
+      projectId: body.projectId,
+    });
+    return c.json(draft);
+  } catch (err) {
+    // The credential message is the common one and is already a sentence a user can act on
+    // (`NO_CREDENTIAL_MESSAGE`). 502 rather than 500: the failure is upstream, not in this process.
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
+  }
+});
+
+/**
+ * PUT /api/design-docs/:docId — save an edit.
+ *
+ * The document surface edits one block at a time and sends back the WHOLE text, with only that
+ * block's line range rewritten (`client/src/control-room/designdoc/markdown.ts`). Taking the whole
+ * text is what keeps this endpoint honest about what it can promise: there are no section anchors
+ * and no per-section versions on disk, so a partial write would have to invent the boundary it
+ * wrote inside.
+ *
+ * **This is a user's write.** No agent reaches it: the MCP surface offers agents `read` and
+ * `submit_design_suggestion` and nothing that writes a document, because an agent that can rewrite
+ * the brief can rewrite the brief to match what it already did.
+ *
+ * What this does NOT do, and what the client must not imply that it does: keep history. The store
+ * in `services/designDoc.ts` is versioned and this file is not wired to it (see the note at the top
+ * of this file), so a save overwrites. `expectedText` is how a save that would clobber somebody
+ * else's is refused in the meantime — 409 with both texts, so the client can say what happened
+ * rather than silently picking a winner.
+ */
+designDocRoutes.put("/:docId", async (c) => {
+  const id = c.req.param("docId");
+  const path = join(docsDir(), `${id}.md`);
+  if (!existsSync(path)) return c.json({ error: `No design document with id ${id}` }, 404);
+
+  let body: { text?: string; expectedText?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Expected a JSON body with a `text` field" }, 400);
+  }
+  if (typeof body?.text !== "string") return c.json({ error: "text is required" }, 400);
+
+  const onDisk = readFileSync(path, "utf8");
+  if (typeof body.expectedText === "string" && body.expectedText !== onDisk) {
+    return c.json(
+      {
+        error: "This document changed since you opened it, so the edit was not saved",
+        code: "DOCUMENT_CHANGED",
+        currentText: onDisk,
+      },
+      409,
+    );
+  }
+
+  writeFileSync(path, body.text, "utf8");
+  const doc = readDocument(`${id}.md`);
+  const followedBy = projectFollowing(doc.id);
+  return c.json(followedBy ? { ...doc, followedByProjectId: followedBy } : doc);
 });
 
 /**

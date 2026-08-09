@@ -291,3 +291,51 @@ export async function startProject(title: string, text: string): Promise<{ proje
     body: "{}",
   });
 }
+
+/**
+ * A project with a name and no document yet.
+ *
+ * The document used to be the only way in, so "I know what I am building and have not written it up"
+ * was a state the product refused to hold. The brief gets written on the Design Documents page,
+ * where an agent can help write it.
+ */
+export async function startBlankProject(name: string): Promise<{ projectId: string }> {
+  return json<{ projectId: string }>("/api/projects/blank", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+/** Save a document and attach it to a project that already exists. */
+export async function saveDesignDoc(params: {
+  projectId: string;
+  title: string;
+  text: string;
+}): Promise<{ id: string; linkError?: string }> {
+  return json<{ id: string; linkError?: string }>("/api/design-docs", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export interface DraftResult {
+  text: string;
+  /** The draft declares the project and its areas. See the server's `DraftResult`. */
+  declares: boolean;
+  errors: Array<{ line: number; message: string }>;
+  costUsd: number | null;
+  model: string;
+}
+
+/** Ask the X agent for a design document. Returns the draft; saving is a separate decision. */
+export async function draftDesignDoc(params: {
+  projectId: string;
+  projectName: string;
+  brief: string;
+  existing?: string;
+}): Promise<DraftResult> {
+  return json<DraftResult>("/api/design-docs/draft", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
