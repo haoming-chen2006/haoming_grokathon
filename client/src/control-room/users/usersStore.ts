@@ -34,10 +34,6 @@ export type UsersSource = "unauthenticated" | "server";
 
 export const SOURCE: UsersSource = "unauthenticated";
 
-export const SOURCE_NOTE =
-  "There is no user record and no /api/users, so nobody can be listed here who has not signed " +
-  "in — and nobody signs in. Edits below are held in this browser tab only.";
-
 /**
  * The one person this product can honestly say is here: whoever opened the workspace.
  *

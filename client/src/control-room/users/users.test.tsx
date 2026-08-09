@@ -12,7 +12,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { UsersPage } from "./index";
-import { SOURCE, SOURCE_NOTE, THIS_MACHINE, roleCounts, visibleUsers } from "./usersStore";
+import { SOURCE, THIS_MACHINE, roleCounts, visibleUsers } from "./usersStore";
 import { isSoleOwner, type WorkspaceUser } from "./types";
 
 const realFetch = globalThis.fetch;
@@ -53,7 +53,6 @@ describe("nobody is invented", () => {
 
   test("the source says unauthenticated, not fixture", () => {
     expect(SOURCE).toBe("unauthenticated");
-    expect(SOURCE_NOTE).toContain("nobody signs in");
   });
 
   test("the owner has no cap, which renders as no cap and never as $0", () => {
@@ -82,11 +81,14 @@ describe("the page as it renders on a fresh install", () => {
     expect(screen.queryAllByTestId(/^user-row-/)).toHaveLength(1);
   });
 
-  test("the banner still says nothing here is enforced", async () => {
+  test("one line still says nothing here is enforced", async () => {
     stubProject({ id: "p1" });
     render(<UsersPage projectId="p1" onSelect={noop} />);
-    expect(await screen.findByTestId(`user-row-${THIS_MACHINE.id}`)).toBeTruthy();
-    expect(document.body.textContent).toContain("enforced");
+    // The banner and its expandable gap register are gone; the sentence they existed for is not.
+    // A page whose roles and grants apply to nothing has to say so somewhere, and once is enough.
+    const note = await screen.findByTestId("not-enforced-note");
+    expect(note.textContent).toContain("enforced");
+    expect(note.textContent).toContain("Nobody signs in");
   });
 
   test("no budgets set and no project cap say so, rather than saying $0.00", async () => {

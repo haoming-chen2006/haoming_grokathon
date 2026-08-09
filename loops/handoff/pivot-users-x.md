@@ -205,3 +205,27 @@ existed: it put the three slots into the live registry at run time and rendered 
 another worktree's file. **It has been deleted.** The page is mounted for real now, so the harness
 was scaffolding that no longer held anything up — and `bun run audit` was right to call it an
 orphan, since nothing imported it. `bun run audit` is green: 0 orphans.
+
+---
+
+## Addendum — the page was trimmed
+
+The owner asked for the parts that report on themselves to go. They have, and four files' worth of
+statement went with them:
+
+* `NotEnforcedBanner.tsx` and `enforcement.ts` — the permanent banner and the eight-row gap register
+  behind "What this means". **Deleted.** The sentence they existed for is now one line under the
+  page title (`not-enforced-note` in `UsersPage.tsx`): nobody signs in, so nothing here is enforced,
+  and edits stay in this tab. Rows 1–8 of the table above are still the record — this document is
+  where they live now, which is where a reader of the repository looks anyway.
+* `NotBuilt.tsx` — and its four uses: "waiting on approval", "people over their cap", "invite
+  someone", "remove from the workspace". **Deleted.** Naming an absent control four times on a page
+  with one person on it is more apology than page. §22.18 is not at risk: nothing was replaced by a
+  disabled button, it was replaced by nothing at all.
+* `UnmeasuredSpend` in `ui.tsx` — the hatched bar reading "spend not measured", on every row and in
+  the inspector. **Deleted**, along with `SOURCE_NOTE` and the footer's two paragraphs about what a
+  cap cannot do. The rule it enforced still holds and is still tested: no spend figure is rendered
+  for a person, not even a zero. When COST-004…006 land, the budget column is where a real one goes.
+
+Nothing interactive changed. The role select, four capability switches, budget cap, disable toggle,
+search and role filter are all still there and still do exactly what they say.

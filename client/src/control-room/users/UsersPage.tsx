@@ -3,34 +3,25 @@
  *
  * Small, because the product is deliberately less rich than what it replaces, and smaller still
  * because this is a secondary surface. It is the only page in the workspace that produces nothing
- * — no asset, no document, no agent output. Its whole job is to make one word on another page
- * true, and today it cannot even do that (§3.1), which is what the banner says.
+ * — no asset, no document, no agent output.
  *
  * The column order is the argument. §3.8's first rule is that **the capability column, not the
  * budget column, is the wide one**, because capability is the control that works: a grant is a
  * boolean and cannot be defeated by a bug in the measurement, where a dollar cap depends on a
- * meter that currently reads zero for every Grok model. The wireframe gives 150px to MAY and 210px
- * to BUDGET USED; this reverses that, and drops the budget meter entirely, because there is
- * nothing to measure with (§3.6).
+ * meter that currently reads zero for every Grok model. The budget column is therefore a cap and
+ * nothing else — no spend figure and no percentage-full bar, because per-person spend is not
+ * measured and a zero would read as "spent nothing" rather than "not counted".
  *
- * What the wireframe has that this does not, each for a stated reason:
- *
- *   - a spend figure and a percentage-full bar per person. Fabricated — see `UnmeasuredSpend`.
- *   - a pending-invite row. There is no invite record; a row for a person who cannot sign in
- *     because nobody can sign in is the page's own claim being contradicted four lines above it.
- *   - "BUDGETS TOTAL $64.00 · PROJECT CAP $50.00". The sum of the caps is real arithmetic and is
- *     kept; the comparison against a project cap is not, because per-user spend is not measured
- *     and the two numbers would invite a reader to conclude something about headroom.
- *   - "WAITING ON APPROVAL … needs Dana or Priya". The approval queue has zero production callers.
+ * One line under the title says nothing here is enforced. That is the whole of it: the page used
+ * to carry a banner, an expandable gap register and four "not built" statements, which is more
+ * apology than page.
  */
 import { useEffect, useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
-import { CAPABILITIES, CAPABILITY_KEYS, SIXTY_SECOND_EXPERIENCE_USD } from "./capabilities";
-import { NotBuilt } from "./NotBuilt";
-import { NotEnforcedBanner } from "./NotEnforcedBanner";
+import { CAPABILITIES, CAPABILITY_KEYS } from "./capabilities";
 import type { WorkspaceUser } from "./types";
-import { Avatar, CapabilityPill, Money, UnmeasuredSpend, usd } from "./ui";
-import { SOURCE_NOTE, useUsersState, visibleUsers } from "./usersStore";
+import { Avatar, CapabilityPill, Money, usd } from "./ui";
+import { useUsersState, visibleUsers } from "./usersStore";
 
 /**
  * One grid template, declared once and used by the header and every row.
@@ -113,17 +104,14 @@ function PersonRow({
         ))}
       </span>
 
-      <span className="flex flex-col gap-1.5">
-        {user.budgetUsd === undefined ? (
-          <span className="text-[12px] text-ink-faint">no cap</span>
-        ) : (
-          <span className="flex items-baseline gap-1.5">
-            <Money>{usd(user.budgetUsd)}</Money>
-            <span className="text-[11px] text-ink-ghost">a month</span>
-          </span>
-        )}
-        <UnmeasuredSpend compact />
-      </span>
+      {user.budgetUsd === undefined ? (
+        <span className="text-[12px] text-ink-faint">no cap</span>
+      ) : (
+        <span className="flex items-baseline gap-1.5">
+          <Money>{usd(user.budgetUsd)}</Money>
+          <span className="text-[11px] text-ink-ghost">a month</span>
+        </span>
+      )}
     </button>
   );
 }
@@ -171,20 +159,27 @@ function UsersMain({ projectId, selectionId, onSelect }: WorkspacePageProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <NotEnforcedBanner />
-
-      <header className="flex shrink-0 items-baseline gap-3 border-b border-border px-4 py-3">
-        <h1 className="text-[17px] text-ink">People on this project</h1>
+      <header className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <h1 className="text-[17px] text-ink">People on this project</h1>
+          {/*
+            One line, permanently, in place of the banner that used to open this page. Nobody signs
+            in, so no request carries a person and no role or grant below can be applied. Said once
+            and quietly — the page is honest, not apologetic.
+          */}
+          <p data-testid="not-enforced-note" className="mt-0.5 text-[12px] text-ink-ghost">
+            Nobody signs in yet, so nothing here is enforced — roles and grants are recorded, not
+            applied, and edits stay in this browser tab.
+          </p>
+        </div>
         <div className="flex-1" />
         <span
           data-testid="users-totals"
-          className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost"
+          className="shrink-0 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost"
         >
           {/*
             Two caps, and neither is a spend. BUDGETS TOTAL is arithmetic over what people were
-            authorised; PROJECT CAP is the project's own figure. The mockup sets one against the
-            other to imply headroom, and this does not, because per-user spend is not measured and
-            a reader comparing them would conclude something nothing here can support.
+            authorised; PROJECT CAP is the project's own figure.
           */}
           Budgets total {capped.length === 0 ? "none set" : usd(totalCaps)} · Project cap{" "}
           {projectCap === undefined ? "not set" : usd(projectCap)}
@@ -210,40 +205,6 @@ function UsersMain({ projectId, selectionId, onSelect }: WorkspacePageProps) {
             />
           ))
         )}
-
-        <footer className="flex flex-col gap-3 px-4 py-4">
-          <p
-            data-testid="spend-explanation"
-            className="max-w-3xl text-[12px] leading-snug text-ink-faint"
-          >
-            Spend is measured for the project and for each agent — the toolbar's figure is real —
-            but no charge is attributed to a PERSON, so no figure is shown here, not even a zero. A
-            cap over a meter that reads nothing never trips. The capability column is the control
-            that works in the meantime: it is a switch, not a measurement, so no bug in the
-            accounting can defeat it.
-          </p>
-
-          <p className="max-w-3xl text-[12px] leading-snug text-ink-ghost">
-            For scale — a sixty-second generated experience costs about{" "}
-            {usd(SIXTY_SECOND_EXPERIENCE_USD)} in media alone, at{" "}
-            {CAPABILITIES.video.price.split(" · ")[0]} and {CAPABILITIES.images.price.split(" · ")[0]}.
-            That is arithmetic over the published prices, not a reading from this workspace.
-          </p>
-
-          <div className="max-w-md">
-            <NotBuilt
-              what="Waiting on approval"
-              because={
-                "The wireframe queues a capability request here for a named approver to settle. " +
-                "The approval queue exists and nothing in the running product calls it, and it " +
-                "has no user ids to name."
-              }
-              closedBy="server/services/approvals.ts:133 · loop 08 stages 3–4"
-            />
-          </div>
-
-          <p className="max-w-3xl text-[11px] leading-snug text-ink-ghost">{SOURCE_NOTE}</p>
-        </footer>
       </div>
     </div>
   );

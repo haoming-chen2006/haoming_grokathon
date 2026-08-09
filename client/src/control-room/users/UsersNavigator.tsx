@@ -2,21 +2,14 @@
  * The USERS page, NAVIGATOR region.
  *
  * The shell has already rendered the page selector and the page's name above this; everything
- * here is the page's own. The wireframe puts three things in this column — a search box, the roles
- * with their counts, and a "needs a decision" section — and two of the three survive contact with
- * what exists.
+ * here is the page's own — a search box, the roles with their counts, and the people themselves.
  *
- * The one that does not is "1 person over their cap". Nothing knows whether anybody is over a cap:
- * spend is not measured, and `user` is not one of the three budget scopes the product enforces
- * (§3.6). A count of people over a limit that is not checked against a figure that is not measured
- * would be the single most confidently wrong number on the screen, so the section states what it
- * would need instead.
- *
- * "Invite someone" goes the same way and for a shorter reason: there is nobody to invite anybody
- * to be, because there is no sign-in (§3.1).
+ * The wireframe's third section, "needs a decision", is not here. Both of its rows were statements
+ * that something is missing rather than something to decide: "1 person over their cap" cannot be
+ * counted while spend is unmeasured and `user` is not a budget scope (§3.6), and "invite someone"
+ * needs a sign-in to invite anybody to (§3.1).
  */
 import type { WorkspacePageProps } from "../shell/contract";
-import { NotBuilt } from "./NotBuilt";
 import { ROLES, type Role } from "./types";
 import { SectionLabel } from "./ui";
 import {
@@ -122,26 +115,6 @@ function Navigator({ selectionId, onSelect }: WorkspacePageProps) {
             {user.displayName}
           </button>
         ))}
-      </div>
-
-      <div className="flex-1" />
-
-      <div className="flex flex-col gap-2">
-        <SectionLabel>Needs a decision</SectionLabel>
-        <NotBuilt
-          what="People over their cap"
-          because={
-            "Counting them needs spend attributed to a PERSON, and no charge carries one: a " +
-            "project's spend is now summed from both ledgers, but every row belongs to an agent " +
-            "or an asset. Budgets are enforced at agent, task and project scope only."
-          }
-          closedBy="06-tools-cost COST-004…006, then loop 08 stage 6"
-        />
-        <NotBuilt
-          what="Invite someone"
-          because="An invite needs a sign-in to invite somebody to, and nobody signs in."
-          closedBy="loop 08 stages 1–2"
-        />
       </div>
     </div>
   );

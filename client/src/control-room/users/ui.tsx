@@ -12,10 +12,6 @@
  * The utility is deliberately not spelled out above. USR-010's proof is a grep for it over this
  * directory expecting no output, and a prose mention would fail a check whose whole value is that
  * it is mechanical.
- *
- * The two inline `background-image` hatches below are the one place a colour is written by hand,
- * and they are written as `rgb(var(--token))` for the same reason — a hatch is not expressible as
- * a Tailwind utility, but it can still be expressed as a token.
  */
 import type { ReactNode } from "react";
 
@@ -80,40 +76,6 @@ export function CapabilityPill({
     >
       {granted ? label : `no ${label}`}
     </span>
-  );
-}
-
-/**
- * The spend that is not measured — loops/08-users-and-x.md §3.6.
- *
- * A bar with no fill and no percentage, because there is no figure to fill it with. The hatch says
- * "unknown" where an empty track would say "zero", and zero is the specific lie §3.6 forbids.
- *
- * Spend IS measured now — per project and per agent, summed from the token and media ledgers by
- * `GET /api/projects/:id/spend`. What is still missing is the attribution this page needs: every
- * charge belongs to an agent or an asset and none of them names a person, so `$0.00` here would be
- * read as "this person has spent nothing" rather than "nothing here counts by person".
- *
- * The words are not a tooltip. A fact a reader has to hover to find is a fact the page did not
- * tell them.
- */
-export function UnmeasuredSpend({ compact }: { compact?: boolean }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span
-        aria-hidden="true"
-        className="h-[7px] rounded border border-dashed border-border"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(45deg, rgb(var(--border-strong)) 0 2px, transparent 2px 6px)",
-        }}
-      />
-      {/* Both class strings are written out in full: Tailwind scans source text, so a class
-          assembled from an expression is a class that never reaches the stylesheet. */}
-      <span className={compact ? "text-[11px] text-ink-faint" : "text-[12px] text-ink-faint"}>
-        spend not measured
-      </span>
-    </div>
   );
 }
 

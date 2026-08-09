@@ -14,16 +14,16 @@
  *     it (§3.1), so the page has no viewer to reason about and does not pretend to have one. It
  *     renders the same for everybody because it *is* the same for everybody.
  *   - there is no `invitedAt` / `acceptedAt`. An invite needs a credential, a delivery mechanism
- *     and an acceptance, and none of the three exist. The wireframe draws a pending invite; see
- *     `enforcement.ts` for why this page states that gap instead of rendering it.
+ *     and an acceptance, and none of the three exist. The wireframe draws a pending invite; this
+ *     page draws nothing rather than a row for somebody who cannot sign in.
  */
 
 /**
  * Three roles, each a superset of the one below (§3.4).
  *
  * The wireframe names three different ones — Owner / User / Guest — and models approval as a
- * capability toggle rather than as a rank. That disagreement is recorded in `enforcement.ts` and
- * in the handoff; the loop document wins here because it is the contract this surface is built
+ * capability toggle rather than as a rank. That disagreement is recorded in the handoff; the loop
+ * document wins here because it is the contract this surface is built
  * against, and because "approver" is the word the merge gate and the approval queue already need.
  */
 export type Role = "owner" | "approver" | "member";
