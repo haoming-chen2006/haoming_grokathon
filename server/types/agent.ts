@@ -119,6 +119,16 @@ export interface CodingAgent {
    * that always fails invites a retry, and a retry against a priced endpoint is a spend loop.
    */
   capabilities?: { images: boolean; voice: boolean };
+  /**
+   * The one area this agent works in, if it has been hired into one.
+   *
+   * The relation used to live on the AREA, as a single `ownerAgentId`, which made "one agent per
+   * area" a property of the storage rather than a decision — and it was the wrong decision: an
+   * area is a part of the work and several agents can share it. Held here, the rule that survives
+   * is the one that matters: an agent belongs to exactly ONE area, because the area is where it is
+   * allowed to write and two answers to that question is no answer.
+   */
+  areaId?: string;
   avatar?: string;
   color?: string;
 
@@ -166,6 +176,16 @@ export interface AgentTemplate {
    * that always fails invites a retry, and a retry against a priced endpoint is a spend loop.
    */
   capabilities?: { images: boolean; voice: boolean };
+  /**
+   * The one area this agent works in, if it has been hired into one.
+   *
+   * The relation used to live on the AREA, as a single `ownerAgentId`, which made "one agent per
+   * area" a property of the storage rather than a decision — and it was the wrong decision: an
+   * area is a part of the work and several agents can share it. Held here, the rule that survives
+   * is the one that matters: an agent belongs to exactly ONE area, because the area is where it is
+   * allowed to write and two answers to that question is no answer.
+   */
+  areaId?: string;
   permissions: AgentPermissions;
   budgetUsd?: number;
   createdAt: string;

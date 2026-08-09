@@ -338,6 +338,16 @@ export class AgentRegistry {
     return this.list(projectId).filter((a) => !!a.acpSessionId && a.status !== "working");
   }
 
+  /** Hire this agent into an area, or release it with undefined. */
+  setArea(agentId: string, areaId: string | undefined): CodingAgent {
+    const agent = this.get(agentId);
+    if (areaId === undefined) delete agent.areaId;
+    else agent.areaId = areaId;
+    agent.updatedAt = nowIso();
+    this.touched();
+    return agent;
+  }
+
   setPosition(agentId: string, position: { x: number; y: number }): CodingAgent {
     const agent = this.get(agentId);
     agent.position = position;

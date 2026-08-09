@@ -167,16 +167,28 @@ agentRoutes.post("/templates/:templateId/instantiate", async (c) => {
  * stored nowhere, so it cannot drift from the agent and the milestone it describes.
  */
 function areaView(area: WorkArea) {
-  let ownerStatus: CodingAgent["status"] | undefined;
+  /**
+   * Who works here, derived from the agents rather than read off the area.
+   *
+   * The relation lives on `CodingAgent.areaId` now, because holding it as one `ownerAgentId` on the
+   * area made "one agent per area" true as a side effect of storage. An area is a part of the work
+   * and a part of the work can take a team.
+   *
+   * `ownerAgentId` survives as the FIRST agent hired here — the status derivation below needs a
+   * single agent to read a status from, and consumers that predate teams still resolve. When the
+   * area is empty it is absent, which is what unstaffed means.
+   */
+  const members = getAgentRegistry()
+    .list(area.projectId)
+    .filter((a) => a.areaId === area.id || (area.ownerAgentId && a.id === area.ownerAgentId));
+  const agentIds = members.map((a) => a.id);
+
+  let ownerStatus: CodingAgent["status"] | undefined = members[0]?.status;
   let unresolvedOwnerAgentId: string | undefined;
-  if (area.ownerAgentId) {
-    try {
-      ownerStatus = getAgentRegistry().get(area.ownerAgentId).status;
-    } catch {
-      // The owner no longer exists. Say which id failed to resolve rather than rendering the area
-      // as unstaffed and losing the fact that it points at nobody.
-      unresolvedOwnerAgentId = area.ownerAgentId;
-    }
+  if (!members.length && area.ownerAgentId) {
+    // The seeded owner no longer exists. Say which id failed to resolve rather than rendering the
+    // area as unstaffed and losing the fact that it points at nobody.
+    unresolvedOwnerAgentId = area.ownerAgentId;
   }
 
   let tasksTotal = 0;
@@ -194,6 +206,9 @@ function areaView(area: WorkArea) {
   const status = deriveAreaStatus({ ownerStatus, tasksTotal, tasksComplete });
   return {
     ...area,
+    // Derived, so a view never disagrees with the agents it describes.
+    agentIds,
+    ...(agentIds.length ? { ownerAgentId: agentIds[0] } : {}),
     status,
     statusPresentation: areaStatusPresentation(status),
     tasksTotal,

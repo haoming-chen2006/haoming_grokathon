@@ -199,9 +199,24 @@ export class WorkAreaStore {
     return area;
   }
 
-  /** The area an agent is hired into, or null. At most one, enforced at creation. */
+  /**
+   * The area an agent is hired into, or null.
+   *
+   * Reads `CodingAgent.areaId`, which is the authority. It used to scan areas for an
+   * `ownerAgentId`, and that scan was what made one-agent-per-area true — a single field cannot
+   * hold two names. The relation lives on the agent now, so an area can hold a team while an agent
+   * still belongs to exactly one area.
+   */
   forAgent(agentId: string): WorkArea | null {
-    return this.list().find((a) => a.ownerAgentId === agentId) ?? null;
+    let areaId: string | undefined;
+    try {
+      areaId = getAgentRegistry().get(agentId).areaId;
+    } catch {
+      // An agent the registry does not know is in no area, which is not an error to raise here.
+      return null;
+    }
+    if (!areaId) return null;
+    return this.list().find((a) => a.id === areaId) ?? null;
   }
 
   /**
@@ -235,8 +250,10 @@ export class WorkAreaStore {
 
     // An agent belongs to exactly one area. Allowing a second would make "the area this agent
     // writes in" a question with two answers, and the write guard needs exactly one.
+    // Seeding an owner at creation is a convenience for tests and fixtures. The authority is
+    // `CodingAgent.areaId`, so this only guards against the same seed being used twice.
     if (input.ownerAgentId) {
-      const owned = this.forAgent(input.ownerAgentId);
+      const owned = this.list(projectId).find((a) => a.ownerAgentId === input.ownerAgentId);
       if (owned) {
         throw new Error(`Agent ${input.ownerAgentId} already owns area ${owned.id} (${owned.name})`);
       }
@@ -291,12 +308,12 @@ export interface AreaAssignment {
  * Hire an agent into an area — the relation `loops/01-agents.md` A-3 calls "an agent is assigned
  * exactly one area".
  *
- * The authority is the area record's `ownerAgentId`, not a field on the agent: `CodingAgent` lives
- * in a hot file this worktree does not edit, and one writer of a relation is the whole point.
- * `CodingAgent.areaId` is requested in the handoff as a mirror of this, for display.
+ * The authority is `CodingAgent.areaId`. It was the area record's `ownerAgentId`, which is why an
+ * area could hold only one agent — a single field cannot hold two names, so the storage decided a
+ * product rule nobody chose. Moving it onto the agent keeps the rule that matters (an agent works
+ * in exactly one area, because that is where it may write) and drops the one that did not.
  *
- * Pass `null` to remove the agent from whatever area it holds. That is the remedy an occupied area
- * names, so the refusal below is actionable rather than a dead end.
+ * Pass `null` to remove the agent from whatever area it holds.
  */
 export function assignArea(agentId: string, areaId: string | null): AreaAssignment {
   const store = getWorkAreaStore();
@@ -304,7 +321,7 @@ export function assignArea(agentId: string, areaId: string | null): AreaAssignme
   const held = store.forAgent(agentId);
 
   if (areaId === null) {
-    if (held) store.setOwner(held.id, undefined);
+    getAgentRegistry().setArea(agentId, undefined);
     return { area: null, previousAreaId: held?.id };
   }
 
@@ -319,18 +336,12 @@ export function assignArea(agentId: string, areaId: string | null): AreaAssignme
     );
   }
 
-  if (area.ownerAgentId && area.ownerAgentId !== agentId) {
-    throw new AreaAssignmentError(
-      "AREA_OCCUPIED",
-      `Area ${areaId} (${area.name}) is already worked by agent ${area.ownerAgentId}. ` +
-        `Free it first: PATCH /api/coding-agents/${area.ownerAgentId}/area with { "areaId": null }.`,
-    );
-  }
-
-  // A move, not a second hiring: an agent works in exactly one area, so the old one is released
-  // before the new one is taken.
-  if (held && held.id !== areaId) store.setOwner(held.id, undefined);
-  return { area: store.setOwner(areaId, agentId), previousAreaId: held && held.id !== areaId ? held.id : undefined };
+  // An area may hold SEVERAL agents. It used to refuse a second with AREA_OCCUPIED, which came from
+  // storing the relation as one `ownerAgentId` on the area rather than from anything the boundary
+  // needs: an area is a part of the work, and a part of the work can take a team. What survives is
+  // the rule that matters — an agent works in exactly ONE area, because that is where it may write.
+  getAgentRegistry().setArea(agentId, areaId);
+  return { area: store.get(areaId), previousAreaId: held && held.id !== areaId ? held.id : undefined };
 }
 
 // ─────────────────────────────────────────────── the area's work: one milestone, and its tasks

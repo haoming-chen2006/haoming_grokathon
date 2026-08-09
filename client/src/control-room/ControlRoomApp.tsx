@@ -336,6 +336,7 @@ export function ControlRoomApp() {
             acpSessionId={room.acpSessionId ?? undefined}
             state={room.sessionState}
             transcript={room.transcript}
+            projectId={room.projectId ?? undefined}
             onSend={(text) => room.sendMessage(drawerAgent.id, text)}
             onPause={() => room.sessionAction(drawerAgent.id, "pause")}
             onResume={() => room.sessionAction(drawerAgent.id, "resume")}

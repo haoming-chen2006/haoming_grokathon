@@ -90,13 +90,23 @@ describe("the record", () => {
     expect(() => area(store, { projectId: "p2", name: "Video", milestoneId: "m3" })).not.toThrow();
   });
 
-  test("an agent may not be hired into a second area", () => {
+  /**
+   * An AREA may hold several agents; an AGENT belongs to exactly one area.
+   *
+   * This used to read "an agent may not be hired into a second area" and was satisfied by the area
+   * record holding a single `ownerAgentId` — which also, as a side effect nobody chose, made one
+   * agent per area. The relation now lives on `CodingAgent.areaId`, so the surviving rule is the
+   * one the boundary needs: an area is where an agent may write, and that must have one answer.
+   *
+   * `forAgent` therefore reads the registry, and a store-only test cannot see it — what this can
+   * still assert is that seeding the same owner twice at creation is refused.
+   */
+  test("seeding the same owner into two areas at creation is refused", () => {
     const store = makeStore();
     area(store, { name: "Slides", milestoneId: "m3", ownerAgentId: "agent_1" });
     expect(() => area(store, { name: "Video", milestoneId: "m4", ownerAgentId: "agent_1" })).toThrow(
       /already owns area/,
     );
-    expect(store.forAgent("agent_1")?.name).toBe("Slides");
     expect(store.forAgent("agent_nobody")).toBeNull();
   });
 });

@@ -12,6 +12,7 @@
  */
 import type { Block, Inline } from "./markdown";
 import { declarationLines, parseInline } from "./markdown";
+import { MentionLink } from "../mentions/MentionLink";
 import { areaBorder, areaText } from "./PresenceEntry";
 
 export function InlineText({ nodes }: { nodes: Inline[] }) {
@@ -56,6 +57,11 @@ export function InlineText({ nodes }: { nodes: Inline[] }) {
                 <InlineText nodes={node.children} />
               </a>
             );
+          case "mention":
+            // A mention points INWARD — at an asset or another document in this same project — so
+            // it routes rather than loading a page. `MentionLink` is shared with the agent
+            // transcript so the same link looks and behaves the same in both.
+            return <MentionLink key={i} mention={node.mention} />;
         }
       })}
     </>

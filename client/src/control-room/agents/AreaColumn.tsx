@@ -70,18 +70,18 @@ export function AreaColumn({
   return (
     <section
       data-testid={`area-${area.id}`}
-      // Drop moves an agent here. One agent per area, so the server refuses an occupied target with
-      // AREA_OCCUPIED — the column stops advertising itself when it is full rather than accepting a
-      // gesture it knows will fail.
+      // Drop moves an agent here. An area holds a team, so every column is a target — the old
+      // occupancy gate came from the relation being stored as one ownerAgentId on the area, which
+      // made a storage detail into a product rule nobody chose.
       onDragOver={(e) => {
-        if (!onDropAgent || area.ownerAgentId) return;
+        if (!onDropAgent) return;
         e.preventDefault();
         setOver(true);
       }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
         setOver(false);
-        if (!onDropAgent || area.ownerAgentId) return;
+        if (!onDropAgent) return;
         e.preventDefault();
         const agentId = e.dataTransfer.getData("text/agent-id");
         if (agentId) onDropAgent(agentId);
@@ -168,17 +168,11 @@ export function AreaColumn({
       {/*
         Hiring is offered only while the area is free.
         
-        `assignArea` refuses an occupied area with AREA_OCCUPIED — one agent per area is the
-        boundary rule, not an oversight: the area is "the one place an agent hired into it may
-        write", and two agents writing in one place is the thing it exists to prevent.
-        
-        Offering the control anyway created the agent and then failed the assignment, leaving an
-        orphan with no area — which is what "it errors and kicks the agent out" was. Drag another
-        agent's card here to move it instead.
+        An area holds a team. The relation lives on the agent (`CodingAgent.areaId`), so several
+        agents can share an area while each still belongs to exactly one — which is the rule the
+        boundary needs, since the area is where an agent may write.
       */}
-      {onStartAgent && !area.ownerAgentId ? (
-        <StartAgentHere area={area} busy={busy} onStart={onStartAgent} />
-      ) : null}
+      {onStartAgent ? <StartAgentHere area={area} busy={busy} onStart={onStartAgent} /> : null}
     </section>
   );
 }

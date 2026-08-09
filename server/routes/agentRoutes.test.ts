@@ -685,21 +685,28 @@ describe("hiring an agent into an area", () => {
     expect(owners["Video assets"]).toBe(agent.id);
   });
 
-  test("an occupied area is refused, and the refusal names the remedy", async () => {
-    // A refusal that does not say what to do instead produces a retry.
+  /**
+   * An area takes a team.
+   *
+   * This asserted a 409 AREA_OCCUPIED on the second agent. That refusal existed because the
+   * relation was one `ownerAgentId` on the area — a single field cannot hold two names — so the
+   * storage decided a product rule nobody chose, and the board's third agent was created and then
+   * orphaned when the assignment failed. Several agents may now share an area; what still holds is
+   * that an agent belongs to exactly one, which the move test above covers.
+   */
+  test("a second agent may be hired into the same area", async () => {
     const first = makeAgent();
     const second = makeAgent({ name: "Second" });
     const area = await makeArea();
     await req("PATCH", `/api/coding-agents/${first.id}/area`, { areaId: area.id });
 
     const { status, json } = await req("PATCH", `/api/coding-agents/${second.id}/area`, { areaId: area.id });
-    expect(status).toBe(409);
-    expect(json.code).toBe("AREA_OCCUPIED");
-    expect(json.error).toContain(first.id);
-    expect(json.error).toContain(`PATCH /api/coding-agents/${first.id}/area`);
-    expect(json.error).toContain('"areaId": null');
+    expect(status).toBe(200);
+    expect(json.area.id).toBe(area.id);
+    expect(json.area.agentIds).toContain(first.id);
+    expect(json.area.agentIds).toContain(second.id);
 
-    // The remedy works, and the second agent can then be hired.
+    // Leaving still works, and does not disturb the other member.
     const freed = await req("PATCH", `/api/coding-agents/${first.id}/area`, { areaId: null });
     expect(freed.status).toBe(200);
     expect(freed.json.area).toBeNull();

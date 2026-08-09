@@ -18,8 +18,10 @@
  */
 import { useEffect, useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
+import { SessionDrawer } from "../SessionDrawer";
 import { Money } from "./AgentCard";
 import { areaAccent, bucketOf } from "./board";
+import { useAgentSession } from "./useAgentSession";
 import { useAgents } from "./useAgents";
 import type { AgentCapabilities, AgentView, AreaView } from "./types";
 
@@ -236,8 +238,9 @@ export function AgentInspector({ projectId, selectionId, onSelect }: WorkspacePa
   // One selection slot serves two kinds of object on this page — an area id filters the board, an
   // agent id selects a card — so an id that is not an agent is not an error, it is the other kind.
   const agent = agents.find((a) => a.id === selectionId);
-  // Called unconditionally: hooks may not sit behind the early return below.
+  // Both called unconditionally: hooks may not sit behind the early return below.
   const spend = useAgentSpend(projectId, agent?.id);
+  const session = useAgentSession(agent?.id);
   if (!agent) {
     return (
       <>
@@ -325,11 +328,34 @@ export function AgentInspector({ projectId, selectionId, onSelect }: WorkspacePa
       <div className="flex-1" />
 
       {/*
-        One control, and it is the one that works. The mockup draws three — Answer its question,
-        Open the conversation, Pause · Stop — and the conversation drawer is reached by the card's
-        own Open today. A row of buttons that look live and do nothing is the affordance defect this
-        codebase keeps deleting, so the panel offers the deselect and says where the rest live.
+        "Open the conversation", which the mockup draws and the shell did not have.
+
+        `SessionDrawer.tsx` was built, tested and unreachable: its only call site was
+        `ControlRoomApp.tsx`, which `main.tsx` stopped mounting when the shell took over. So an
+        agent could be hired, given an area and a capability, and never spoken to. This is the
+        control that opens it, and `useAgentSession` is the four endpoints behind it.
       */}
+      {session.error ? (
+        <p role="alert" data-testid="session-error" className="text-[12px] leading-snug text-status-failed">
+          {session.error}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        data-testid="open-conversation"
+        onClick={() => void (session.session ? undefined : session.open())}
+        disabled={!!session.busy}
+        title={
+          session.busy
+            ? `${session.busy}…`
+            : session.session
+              ? `The conversation with ${agent.name} is open below`
+              : `Start a Grok session for ${agent.name} and talk to it. This runs a real agent process.`
+        }
+        className="rounded-md border border-border-strong bg-surface-active px-2 py-2 text-center text-[13px] text-ink hover:bg-surface-hover disabled:opacity-40"
+      >
+        {session.busy ?? (session.session ? "Conversation open" : "Open the conversation")}
+      </button>
       <button
         type="button"
         data-testid="inspector-deselect"
@@ -339,6 +365,33 @@ export function AgentInspector({ projectId, selectionId, onSelect }: WorkspacePa
       >
         Clear the selection
       </button>
+
+      {/*
+        Rendered over the window rather than inside this 320px column: a transcript in a rail is a
+        transcript nobody can read. The drawer owns its own close.
+      */}
+      {session.session ? (
+        <div data-testid="conversation-overlay" className="fixed inset-0 z-40 flex items-end justify-center bg-scrim/40 p-6">
+          <div className="max-h-[80%] w-full max-w-4xl overflow-hidden rounded-lg border border-border-strong shadow-panel">
+            <SessionDrawer
+              agentName={agent.name}
+              agentId={agent.id}
+              acpSessionId={session.session.acpSessionId}
+              state={session.session.state}
+              transcript={session.session.transcript}
+              {...(session.session.error ? { error: session.session.error } : {})}
+              // What `@` can reach. Without it the picker stays shut rather than offering a list
+              // that is empty for the wrong reason.
+              projectId={projectId}
+              onSend={(text) => void session.send(text)}
+              onPause={() => void session.pause()}
+              onResume={() => void session.resume()}
+              onStop={() => void session.stop()}
+              onClose={session.close}
+            />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

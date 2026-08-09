@@ -15,8 +15,14 @@
  * block is markdown that means something, and an editor that hid the markup would be an editor that
  * could not type a heading. Mono while editing says the same thing — this is the machine-readable
  * form — and the block returns to prose the moment it commits.
+ *
+ * `@` opens the picker (`../mentions`), which writes `[@title](asset:id)` at the caret. That is
+ * still markdown and still the source, so nothing about the paragraph above changes: the link form
+ * is what is stored, what the file on disk shows, and what an edit writes back.
  */
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { MentionPicker } from "../mentions/MentionPicker";
+import { useMentionInput } from "../mentions/useMentionInput";
 
 export interface BlockEditorProps {
   /** The block's own markdown, as it is in the file. */
@@ -33,6 +39,7 @@ export interface BlockEditorProps {
 
 export function BlockEditor({ value, onChange, onCommit, onCancel, onCommitAndNext, label }: BlockEditorProps) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const mentions = useMentionInput(ref, onChange);
 
   useEffect(() => {
     const el = ref.current;
@@ -51,15 +58,27 @@ export function BlockEditor({ value, onChange, onCommit, onCancel, onCommitAndNe
   }, [value]);
 
   return (
-    <div className="rounded-[8px] border border-accent/50 bg-canvas">
+    // `relative` so the picker hangs off this box rather than off the page.
+    <div className="relative rounded-[8px] border border-accent/50 bg-canvas">
       <textarea
         ref={ref}
         data-testid="block-editor"
         aria-label={label}
         value={value}
         spellCheck
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          onChange(e.target.value);
+          mentions.sync(e.target);
+        }}
+        // A caret moved by a click or an arrow key can leave or enter an `@`, and neither fires
+        // onChange.
+        onKeyUp={(e) => mentions.sync(e.currentTarget)}
+        onClick={(e) => mentions.sync(e.currentTarget)}
         onKeyDown={(e) => {
+          // The picker gets first refusal, and takes only the keys it is using: Escape with the
+          // list shut still cancels the edit, and Enter with nothing highlighted is still a
+          // newline.
+          if (mentions.handleKey(e)) return;
           if (e.key === "Escape") {
             e.preventDefault();
             onCancel();
@@ -80,9 +99,11 @@ export function BlockEditor({ value, onChange, onCommit, onCancel, onCommitAndNe
       <div className="flex items-center gap-3 border-t border-border px-3.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost">
         <span>⌘↵ save</span>
         <span>esc cancel</span>
+        <span>@ link</span>
         <span className="flex-1" />
         <span>markdown</span>
       </div>
+      <MentionPicker input={mentions} />
     </div>
   );
 }
