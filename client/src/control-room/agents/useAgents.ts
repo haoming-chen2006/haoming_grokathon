@@ -57,6 +57,11 @@ export interface AgentsData {
   addAgent(input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }): Promise<void>;
   /** Move an agent into an area, or out of one with null. Drag and drop uses this. */
   moveAgent(agentId: string, areaId: string | null): Promise<void>;
+  /**
+   * Dismiss an agent for good: its process is stopped, its work session is deleted from grok's
+   * history, and any task it held is released. Not reversible.
+   */
+  deleteAgent(agentId: string): Promise<void>;
   /** Add an area by hand, for a document that declared none. */
   addArea(name: string): Promise<void>;
   /** Create an agent and put it inside one area — the box-click flow. */
@@ -222,6 +227,8 @@ export function useAgents(projectId: string): AgentsData {
       run("Pausing", () =>
         json(`/api/coding-agents/${agentId}/session/pause`, { method: "POST", body: "{}" }),
       ),
+    deleteAgent: (agentId: string) =>
+      run("Dismissing", () => json(`/api/coding-agents/${agentId}`, { method: "DELETE" })),
     moveAgent: (agentId: string, areaId: string | null) =>
       run("Moving", () =>
         json(`/api/coding-agents/${agentId}/area`, {

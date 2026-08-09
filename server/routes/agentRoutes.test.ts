@@ -7,6 +7,8 @@ import { agentRoutes } from "./agents";
 import { ProjectStore } from "../services/projectStore";
 import { getAgentRegistry } from "../services/agentRegistry";
 import { getControlRoomBus } from "../services/controlRoomEvents";
+import { setGrokSessionDeleter } from "../services/acpSessionManager";
+import { getProjectStore } from "../services/projectStore";
 
 /**
  * HTTP coverage for the agent router.
@@ -829,5 +831,127 @@ describe("the capability choices are served, not invented by the form", () => {
     expect(json.id).toBeUndefined();
     // And a real agent id still resolves to the agent.
     expect((await req("GET", `/api/coding-agents/${agent.id}`)).json.id).toBe(agent.id);
+  });
+});
+
+// ═══════════════════════════════ deleting an agent, and deleting a work session
+//
+// DELETE used to be one line — forget the record — and returned {success: true} for an id that had
+// never existed. Everything the agent had acquired outlived it: its `grok` child process, its
+// session handle, and its task, which stayed assigned to an id that no longer resolved and so could
+// never be relaunched.
+
+describe("dismissing an agent", () => {
+  beforeEach(() => {
+    // No subprocess in a unit test. The real deleter runs `grok sessions delete`.
+    setGrokSessionDeleter(() => ({ ok: true }));
+  });
+  afterEach(() => setGrokSessionDeleter(null));
+
+  test("an id that does not exist says nothing was deleted, while staying idempotent", async () => {
+    // DELETE stays idempotent — a double-clicked button must not raise a red banner over work that
+    // succeeded. What changes is that `success: true` no longer says the same thing for an id that
+    // never existed as for an agent actually dismissed.
+    const { status, json } = await req("DELETE", "/api/coding-agents/agent_never");
+    expect(status).toBe(200);
+    expect(json.deleted).toBe(false);
+
+    const agent = makeAgent();
+    expect((await req("DELETE", `/api/coding-agents/${agent.id}`)).json.deleted).toBe(true);
+    expect((await req("DELETE", `/api/coding-agents/${agent.id}`)).json.deleted).toBe(false);
+  });
+
+  test("the agent is gone from the list afterwards", async () => {
+    const agent = makeAgent();
+    expect((await req("DELETE", `/api/coding-agents/${agent.id}`)).status).toBe(200);
+    const { json } = await req("GET", `/api/coding-agents?projectId=${projectId}`);
+    expect(json.find((a: any) => a.id === agent.id)).toBeUndefined();
+    expect((await req("GET", `/api/coding-agents/${agent.id}`)).status).toBe(404);
+  });
+
+  test("its task is released rather than left assigned to nobody", async () => {
+    const agent = makeAgent();
+    const store = getProjectStore();
+    const USER = { kind: "user" as const, id: "user" };
+    store.createPlan(projectId, { milestones: [] }, USER);
+    store.addTask(projectId, { id: "t-held", objective: "Wire the form", assignedAgentId: agent.id }, USER);
+
+    const { json } = await req("DELETE", `/api/coding-agents/${agent.id}`);
+    expect(json.releasedTaskIds).toEqual(["t-held"]);
+
+    const after = store.getProject(projectId).tasks.find((t) => t.id === "t-held")!;
+    expect(after.assignedAgentId).toBeUndefined();
+  });
+
+  test("the board is told the agent is gone, not that it changed status", async () => {
+    // There is no runtime status for "no longer exists"; a listener should drop the card rather
+    // than restyle it.
+    const agent = makeAgent();
+    const seen: any[] = [];
+    const stop = getControlRoomBus().subscribe(projectId, (p) => seen.push(p.event));
+    await req("DELETE", `/api/coding-agents/${agent.id}`);
+    stop();
+    expect(seen.some((e) => e.type === "agent_removed" && e.agentId === agent.id)).toBe(true);
+    expect(seen.some((e) => e.type === "agent_status")).toBe(false);
+  });
+
+  test("an agent that never opened a session reports that there was none to discard", async () => {
+    const agent = makeAgent();
+    const { json } = await req("DELETE", `/api/coding-agents/${agent.id}`);
+    expect(json.sessionDiscarded).toBe(false);
+  });
+
+  test("grok keeping its copy is reported, not swallowed and not fatal", async () => {
+    // The two halves fail independently. The workspace always lets go; grok's history may not.
+    setGrokSessionDeleter(() => ({ ok: false, error: "leader socket unavailable" }));
+    const agent = makeAgent();
+    getAgentRegistry().setAcpSession(agent.id, "sess-abc");
+
+    const { status, json } = await req("DELETE", `/api/coding-agents/${agent.id}`);
+    expect(status).toBe(200);
+    expect(json.sessionDiscarded).toBe(true);
+    expect(json.historyDeleted).toBe(false);
+    expect(json.historyError).toContain("leader socket");
+    // Deleted here regardless — a half-failure must not leave an undeletable agent on the board.
+    expect((await req("GET", `/api/coding-agents/${agent.id}`)).status).toBe(404);
+  });
+});
+
+describe("deleting a work session but keeping the agent", () => {
+  beforeEach(() => setGrokSessionDeleter(() => ({ ok: true })));
+  afterEach(() => setGrokSessionDeleter(null));
+
+  test("the session id is forgotten, so starting again is a new conversation", async () => {
+    // Unlike stop, which retains the id on purpose so `grok --resume` reaches the same transcript.
+    const agent = makeAgent();
+    getAgentRegistry().setAcpSession(agent.id, "sess-old");
+
+    const { status, json } = await req("DELETE", `/api/coding-agents/${agent.id}/session`);
+    expect(status).toBe(200);
+    expect(json.historyDeleted).toBe(true);
+    expect(getAgentRegistry().get(agent.id).acpSessionId).toBeUndefined();
+  });
+
+  test("the agent survives it", async () => {
+    const agent = makeAgent();
+    getAgentRegistry().setAcpSession(agent.id, "sess-old");
+    await req("DELETE", `/api/coding-agents/${agent.id}/session`);
+    expect((await req("GET", `/api/coding-agents/${agent.id}`)).status).toBe(200);
+  });
+
+  test("the id it asked grok to delete is the one the agent held", async () => {
+    const asked: string[] = [];
+    setGrokSessionDeleter((id) => {
+      asked.push(id);
+      return { ok: true };
+    });
+    const agent = makeAgent();
+    getAgentRegistry().setAcpSession(agent.id, "sess-42");
+    await req("DELETE", `/api/coding-agents/${agent.id}/session`);
+    expect(asked).toEqual(["sess-42"]);
+  });
+
+  test("an unknown agent is a 404", async () => {
+    expect((await req("DELETE", "/api/coding-agents/agent_never/session")).status).toBe(404);
   });
 });

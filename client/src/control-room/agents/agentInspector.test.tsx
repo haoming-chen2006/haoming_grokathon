@@ -7,7 +7,7 @@
  * the one this codebase keeps getting wrong.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AgentInspector } from "./AgentInspector";
 import type { AgentView, AreaView } from "./types";
 
@@ -230,5 +230,79 @@ describe("the area, and the money", () => {
     await mount(AGENT.id);
     await waitFor(() => expect(screen.getByTestId("inspector-name")).toBeDefined());
     expect(document.body.textContent).not.toContain("Started by");
+  });
+});
+
+describe("dismissing an agent", () => {
+  /** Records the calls, so a test can assert the method as well as the path. */
+  function recordingServer() {
+    const calls: Array<{ method: string; url: string }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ method: init?.method ?? "GET", url });
+      const body = url.includes("/capabilities")
+        ? { presets: PRESETS }
+        : url.includes("/areas")
+          ? [AREA]
+          : url.includes("/api/coding-agents")
+            ? [AGENT]
+            : {};
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+    return calls;
+  }
+
+  test("it takes two clicks, because none of it can be undone", async () => {
+    // The process is stopped, the conversation is deleted from grok's history, and the spend
+    // record goes with it. One button beside the harmless "Clear the selection" would put that a
+    // misclick away.
+    const calls = recordingServer();
+    await mount(AGENT.id);
+    await waitFor(() => expect(screen.getByTestId("inspector-dismiss")).toBeDefined());
+
+    fireEvent.click(screen.getByTestId("inspector-dismiss"));
+    expect(screen.getByTestId("inspector-dismiss-confirm")).toBeDefined();
+    // Nothing has been sent yet.
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+
+    fireEvent.click(screen.getByTestId("inspector-dismiss-yes"));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith(`/api/coding-agents/${AGENT.id}`))).toBe(true),
+    );
+  });
+
+  test("keeping it sends nothing and restores the plain control", async () => {
+    const calls = recordingServer();
+    await mount(AGENT.id);
+    await waitFor(() => expect(screen.getByTestId("inspector-dismiss")).toBeDefined());
+
+    fireEvent.click(screen.getByTestId("inspector-dismiss"));
+    fireEvent.click(screen.getByTestId("inspector-dismiss-no"));
+
+    expect(screen.queryByTestId("inspector-dismiss-confirm")).toBeNull();
+    expect(screen.getByTestId("inspector-dismiss")).toBeDefined();
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  test("the confirmation names the agent and says what else goes with it", async () => {
+    recordingServer();
+    await mount(AGENT.id);
+    await waitFor(() => expect(screen.getByTestId("inspector-dismiss")).toBeDefined());
+    fireEvent.click(screen.getByTestId("inspector-dismiss"));
+
+    const text = screen.getByTestId("inspector-dismiss-confirm").textContent ?? "";
+    expect(text).toContain("Slidewright");
+    expect(text.toLowerCase()).toContain("grok history");
+    expect(text.toLowerCase()).toContain("cannot be undone");
+  });
+
+  test("nothing offers to dismiss when no agent is selected", async () => {
+    recordingServer();
+    await mount();
+    await waitFor(() => expect(screen.getByTestId("inspector-empty")).toBeDefined());
+    expect(screen.queryByTestId("inspector-dismiss")).toBeNull();
   });
 });

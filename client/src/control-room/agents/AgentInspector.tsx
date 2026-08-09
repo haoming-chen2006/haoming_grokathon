@@ -229,8 +229,70 @@ function AreaRow({ area }: { area?: AreaView }) {
   );
 }
 
+/**
+ * Dismissing an agent, in two clicks.
+ *
+ * Two rather than one because this is not reversible in any part: the `grok` process is stopped,
+ * the work session is deleted from grok's own history, and the agent's spend record goes with it.
+ * A single button beside "Clear the selection" — which is harmless — would put a permanent action
+ * one misclick from a routine one.
+ *
+ * `window.confirm` would do the same job and is worse: it is a modal the page cannot style, cannot
+ * word carefully, and cannot show the agent's name inside.
+ */
+function DismissAgent({ agent, onDelete }: { agent: AgentView; onDelete: () => Promise<void> }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  if (!asking) {
+    return (
+      <button
+        type="button"
+        data-testid="inspector-dismiss"
+        onClick={() => setAsking(true)}
+        title={`Dismiss ${agent.name}: stop it, delete its conversation, and release its work`}
+        className="rounded-md border border-border px-2 py-2 text-center text-[13px] text-ink-faint hover:border-status-failed hover:text-status-failed-ink"
+      >
+        Dismiss this agent
+      </button>
+    );
+  }
+
+  return (
+    <div data-testid="inspector-dismiss-confirm" className="flex flex-col gap-1.5">
+      <p className="text-[12px] leading-snug text-ink-faint">
+        Stop {agent.name}, delete its conversation from your grok history, and hand back any task it
+        is holding. This cannot be undone.
+      </p>
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          data-testid="inspector-dismiss-yes"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void onDelete().finally(() => setBusy(false));
+          }}
+          className="flex-1 rounded-md border border-status-failed px-2 py-1.5 text-[13px] text-status-failed-ink disabled:opacity-40"
+        >
+          {busy ? "Dismissing…" : "Dismiss"}
+        </button>
+        <button
+          type="button"
+          data-testid="inspector-dismiss-no"
+          disabled={busy}
+          onClick={() => setAsking(false)}
+          className="flex-1 rounded-md border border-border px-2 py-1.5 text-[13px] text-ink-faint hover:bg-surface-hover disabled:opacity-40"
+        >
+          Keep it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AgentInspector({ projectId, selectionId, onSelect }: WorkspacePageProps) {
-  const { agents, areas, vocabulary } = useAgents(projectId);
+  const { agents, areas, vocabulary, deleteAgent } = useAgents(projectId);
   const presets = useCapabilityPresets();
 
   // One selection slot serves two kinds of object on this page — an area id filters the board, an
@@ -339,6 +401,16 @@ export function AgentInspector({ projectId, selectionId, onSelect }: WorkspacePa
       >
         Clear the selection
       </button>
+
+      <DismissAgent
+        agent={agent}
+        onDelete={async () => {
+          await deleteAgent(agent.id);
+          // The selection would otherwise point at an agent that no longer exists, and the
+          // inspector would fall back to "pick an agent" without saying anything happened.
+          onSelect(undefined);
+        }}
+      />
     </>
   );
 }

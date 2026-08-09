@@ -305,9 +305,13 @@ export class AgentRegistry {
    * Record the live ACP session id so the agent can be reopened after a restart (V-007).
    * Persisted with the rest of the agent record.
    */
-  setAcpSession(agentId: string, acpSessionId: string): CodingAgent {
+  setAcpSession(agentId: string, acpSessionId: string | undefined): CodingAgent {
     const agent = this.get(agentId);
-    agent.acpSessionId = acpSessionId;
+    // `undefined` FORGETS the session, which is what discarding one means. Assigning it would
+    // leave the key present with an undefined value, and that serialises as `"acpSessionId": null`
+    // — a record claiming a session whose id is null rather than one with no session.
+    if (acpSessionId === undefined) delete agent.acpSessionId;
+    else agent.acpSessionId = acpSessionId;
     agent.updatedAt = nowIso();
     this.touched();
     return agent;

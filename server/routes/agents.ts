@@ -267,9 +267,99 @@ agentRoutes.get("/:agentId", (c) => {
   }
 });
 
+/**
+ * Dismiss an agent.
+ *
+ * This used to be one line — forget the record — and every consequence of having hired the agent
+ * survived it. The `grok` child process kept running, spending money against a card that was no
+ * longer on screen. Its session handle stayed in the manager's map. Its task stayed assigned to an
+ * id that now resolves to nothing, so the task could never be relaunched. And an id that never
+ * existed returned `{success: true}`, which is the one answer a delete must never give.
+ *
+ * Order matters: the session goes first, because tearing down a process needs the agent record it
+ * reads its session id from.
+ */
 agentRoutes.delete("/:agentId", (c) => {
-  getAgentRegistry().remove(c.req.param("agentId"));
-  return c.json({ success: true });
+  const agentId = c.req.param("agentId");
+  try {
+    const agent = (() => {
+      try {
+        return getAgentRegistry().get(agentId);
+      } catch {
+        return null;
+      }
+    })();
+
+    // Deleting twice is not an error — DELETE is idempotent and a double-clicked button must not
+    // raise a red banner over work that succeeded. But `success: true` alone said the same thing
+    // for an id that never existed as for one we actually dismissed, so `deleted` distinguishes
+    // them. There is no tombstone, so "never existed" and "already gone" are genuinely the same
+    // answer and this does not pretend otherwise.
+    if (!agent) return c.json({ success: true, agentId, deleted: false });
+
+    const session = getAcpSessionManager().discard(agentId);
+
+    // Hand back any work it was holding. A task assigned to a deleted agent is unlaunchable and
+    // reads as in-progress forever; released, it can be given to somebody else.
+    const released: string[] = [];
+    try {
+      const project = getProjectStore().getProject(agent.projectId);
+      for (const task of project.tasks) {
+        if (task.assignedAgentId !== agentId) continue;
+        getProjectStore().updateTask(
+          agent.projectId,
+          task.id,
+          { assignedAgentId: undefined, status: task.status === "working" ? "pending" : task.status },
+          { kind: "user", id: "user" },
+        );
+        released.push(task.id);
+      }
+    } catch {
+      // A project that has gone missing must not strand the agent as undeletable.
+    }
+
+    getAgentRegistry().remove(agentId);
+    getControlRoomBus().publish(agent.projectId, { type: "agent_removed", agentId });
+
+    return c.json({
+      success: true,
+      agentId,
+      deleted: true,
+      releasedTaskIds: released,
+      // Named separately because they fail independently: the workspace always lets go, and
+      // grok's own history may not. The caller says which happened rather than implying both.
+      sessionDiscarded: session.acpSessionId !== null,
+      historyDeleted: session.historyDeleted,
+      ...(session.historyError ? { historyError: session.historyError } : {}),
+    });
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/**
+ * Throw away an agent's work session, keeping the agent.
+ *
+ * Distinct from `POST /session/stop`, and the distinction is the point: stop retains the session id
+ * so `grok --resume` reaches the same conversation (V-007), which is what you want when an agent is
+ * merely idle and the wrong thing when you are clearing out a demo — reopening would bring the old
+ * transcript back. This deletes it from grok's history too, via `grok sessions delete`.
+ */
+agentRoutes.delete("/:agentId/session", (c) => {
+  const agentId = c.req.param("agentId");
+  try {
+    getAgentRegistry().get(agentId);
+    const session = getAcpSessionManager().discard(agentId);
+    return c.json({
+      success: true,
+      agentId,
+      sessionDiscarded: session.acpSessionId !== null,
+      historyDeleted: session.historyDeleted,
+      ...(session.historyError ? { historyError: session.historyError } : {}),
+    });
+  } catch (err) {
+    return fail(c, err);
+  }
 });
 
 agentRoutes.patch("/:agentId/status", async (c) => {

@@ -302,7 +302,7 @@ export function useControlRoom() {
           setState((s) => ({ ...s, progress: { percent: e.percent, completed: e.completed, total: e.total } }));
         } else if (e.type === "cost") {
           setState((s) => ({ ...s, costUsd: e.projectCostUsd }));
-        } else if (e.type === "agent_status" || e.type === "agent_activity") {
+        } else if (e.type === "agent_status" || e.type === "agent_activity" || e.type === "agent_removed") {
           if (state.projectId) void loadProject(state.projectId);
         } else if (e.type === "requirement_status" || e.type === "task_status") {
           if (state.projectId) void loadProject(state.projectId);

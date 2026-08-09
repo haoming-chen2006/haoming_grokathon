@@ -1,4 +1,5 @@
 import { AcpConnection, type AcpEvent } from "./acpClient";
+import { grokBinaryPath } from "./grokDetect";
 import { getAgentRegistry } from "./agentRegistry";
 import { getControlRoomBus } from "./controlRoomEvents";
 import { estimateCost } from "./usageAccounting";
@@ -562,6 +563,101 @@ export class AcpSessionManager {
     if (!entry) return;
     entry.connection.stop();
     this.entries.delete(agentId);
+  }
+
+  /**
+   * Throw a work session away for good — the opposite of `stop`.
+   *
+   * `stop` deliberately KEEPS the session id so `grok --resume <id>` reaches the same conversation
+   * (V-007). That is the right default and the wrong thing when someone is clearing out a demo:
+   * the conversation stays in grok's history and the agent keeps pointing at it, so "start a
+   * session" reopens the old one and the transcript everyone thought was deleted comes back.
+   *
+   * So this drives `grok sessions delete <id>`, which grok already provides (A-00). Our sessions
+   * ARE grok sessions — same store, same ids — and deleting only our copy would leave the user's
+   * `grok sessions list` full of conversations they removed from the workspace.
+   *
+   * Returns what actually happened, because the two halves fail independently: the local handle is
+   * always dropped, and the history deletion can fail for reasons we do not control. A caller must
+   * be able to tell the user "removed here, still in your grok history" rather than claiming both.
+   */
+  discard(agentId: string): { acpSessionId: string | null; historyDeleted: boolean; historyError?: string } {
+    const entry = this.entries.get(agentId);
+    const registry = getAgentRegistry();
+
+    // The id may outlive the live entry: an agent that was stopped, or that the server restarted
+    // under, keeps its session id on its record and nowhere else.
+    let acpSessionId: string | null = entry?.session.acpSessionId ?? null;
+    if (!acpSessionId) {
+      try {
+        acpSessionId = registry.get(agentId).acpSessionId ?? null;
+      } catch {
+        // The agent is already gone; there is still a live entry to tear down below.
+      }
+    }
+
+    if (entry) {
+      entry.connection.stop();
+      this.setState(entry, "stopped");
+      this.entries.delete(agentId);
+    }
+
+    try {
+      registry.setAcpSession(agentId, undefined);
+    } catch {
+      // Already removed. Dropping the handle was the part that mattered.
+    }
+
+    if (!acpSessionId) return { acpSessionId: null, historyDeleted: false };
+
+    const result = deleteGrokSession(acpSessionId);
+    return { acpSessionId, historyDeleted: result.ok, historyError: result.error };
+  }
+}
+
+export interface GrokSessionDeleter {
+  (sessionId: string): { ok: boolean; error?: string };
+}
+
+let sessionDeleter: GrokSessionDeleter = runGrokSessionsDelete;
+
+/**
+ * Swap the history deletion for a test double.
+ *
+ * A seam rather than `mock.module`, which is process-wide and silently inert when another file
+ * imported first — that combination once produced six live `grok` children and a suite that never
+ * finished. Without this, testing the delete path would spawn a real `grok sessions delete` per
+ * assertion.
+ */
+export function setGrokSessionDeleter(deleter: GrokSessionDeleter | null): void {
+  sessionDeleter = deleter ?? runGrokSessionsDelete;
+}
+
+function deleteGrokSession(sessionId: string): { ok: boolean; error?: string } {
+  return sessionDeleter(sessionId);
+}
+
+/**
+ * `grok sessions delete <id>`, run for its exit status.
+ *
+ * Synchronous because every caller is inside a request that must report the outcome, and the
+ * command is a short local write. A failure is returned rather than thrown: the workspace has
+ * already let go of the session by the time this runs, and turning "grok kept its copy" into a
+ * 500 would tell the user nothing was deleted when half of it was.
+ */
+function runGrokSessionsDelete(sessionId: string): { ok: boolean; error?: string } {
+  const bin = grokBinaryPath();
+  if (!bin) return { ok: false, error: "The grok binary was not found, so its history was left alone." };
+  try {
+    const proc = Bun.spawnSync([bin, "sessions", "delete", sessionId], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (proc.exitCode === 0) return { ok: true };
+    const stderr = new TextDecoder().decode(proc.stderr).trim();
+    return { ok: false, error: stderr || `grok sessions delete exited ${proc.exitCode}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 

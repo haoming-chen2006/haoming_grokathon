@@ -61,6 +61,8 @@ function Session({ agentId, agentName }: { agentId: string; agentName: string })
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Deleting a conversation cannot be undone in either place it lives, so it is asked for twice.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const bottom = useRef<HTMLDivElement | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
   // `@` opens a list of this project's assets and design documents and inserts a link to the one
@@ -142,6 +144,28 @@ function Session({ agentId, agentName }: { agentId: string; agentName: string })
     act(action, () =>
       json(`/api/coding-agents/${agentId}/session/${action}`, { method: "POST", body: "{}" }),
     );
+
+  /**
+   * Throw the conversation away, as opposed to stopping it.
+   *
+   * `stop` keeps the session id so `grok --resume` reaches the same transcript — right for an agent
+   * you are pausing, wrong for one you are clearing out, because starting again would reopen the
+   * old conversation. This deletes it from grok's history too, so it is gone from both places.
+   */
+  const discard = () =>
+    act("Deleting", async () => {
+      const result = await json<{ historyDeleted?: boolean; historyError?: string }>(
+        `/api/coding-agents/${agentId}/session`,
+        { method: "DELETE" },
+      );
+      setSession(null);
+      setConfirmingDelete(false);
+      // The workspace always lets go; grok's own history may not. Saying so beats a silent
+      // half-success the user discovers later in `grok sessions list`.
+      if (result && result.historyDeleted === false && result.historyError) {
+        setError(`Removed here, but grok kept its copy: ${result.historyError}`);
+      }
+    });
 
   const transcript = session?.transcript ?? [];
   const live = !!session && session.state !== "stopped";
@@ -264,7 +288,49 @@ function Session({ agentId, agentName }: { agentId: string; agentName: string })
             >
               Stop
             </button>
+            {/* Beside Stop, because the pair is the whole distinction: Stop keeps the conversation
+                so it can be resumed, Delete does not. */}
+            <button
+              type="button"
+              data-testid="session-delete"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={!!busy || confirmingDelete}
+              title="Delete this conversation from the workspace and from your grok history. Cannot be undone."
+              className="rounded border border-border px-2 py-1 text-[12px] text-ink-faint hover:border-status-failed hover:text-status-failed-ink disabled:opacity-40"
+            >
+              Delete
+            </button>
           </div>
+
+          {confirmingDelete ? (
+            <div
+              data-testid="session-delete-confirm"
+              className="mt-1.5 flex flex-wrap items-center gap-2 rounded border border-status-failed/50 px-2 py-1.5"
+            >
+              <span className="min-w-0 flex-1 text-[12px] leading-snug text-ink-faint">
+                Delete this conversation here and from your grok history? Stop keeps it; this does
+                not.
+              </span>
+              <button
+                type="button"
+                data-testid="session-delete-yes"
+                onClick={() => void discard()}
+                disabled={!!busy}
+                className="rounded border border-status-failed px-2 py-0.5 text-[12px] text-status-failed-ink disabled:opacity-40"
+              >
+                {busy === "Deleting" ? "Deleting…" : "Delete it"}
+              </button>
+              <button
+                type="button"
+                data-testid="session-delete-no"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={!!busy}
+                className="rounded border border-border px-2 py-0.5 text-[12px] text-ink-faint hover:bg-surface-hover disabled:opacity-40"
+              >
+                Keep it
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

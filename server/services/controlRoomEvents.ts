@@ -9,6 +9,14 @@ import type { EffectiveTaskStatus, RequirementStatus, TaskStatus } from "../type
 export type ControlRoomEvent =
   | { type: "agent_status"; agentId: string; status: AgentRuntimeStatus; statusDetail?: string }
   | { type: "agent_activity"; agentId: string; activity: AgentActivity }
+  /**
+   * The agent is gone — deleted, not stopped.
+   *
+   * Its own event rather than an `agent_status`, because there is no runtime status for "no longer
+   * exists" and inventing one would have every board that reads a status draw a card for an agent
+   * that has none. A listener should drop the agent, not restyle it.
+   */
+  | { type: "agent_removed"; agentId: string }
   | {
       type: "task_status";
       taskId: string;
