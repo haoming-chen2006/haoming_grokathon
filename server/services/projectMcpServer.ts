@@ -753,9 +753,10 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
             documentId,
             from: fromLine,
             to: toLine,
-            // Spread-in rather than assigned, so an argument the agent did not pass stays absent
-            // from the record instead of being stored as an explicit `undefined` that serialises
-            // to `null` — a claim asserting it has no verb, rather than one that never said.
+            // Spread-in rather than assigned. Assigning `kind: undefined` leaves the key PRESENT
+            // on the record — a claim that has answered "which verb?" with nothing, rather than
+            // one that was never asked. Everything downstream reads absence as "did not say", and
+            // the two must not be the same shape.
             ...(kind !== undefined ? { kind } : {}),
             ...(documentVersion !== undefined ? { documentVersion } : {}),
             // The server's clock, not the agent's. Presence freshness decides whether a highlight
