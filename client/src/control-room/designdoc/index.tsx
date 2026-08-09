@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { Money } from "../agents/AgentCard";
 import { StartProject } from "../agents";
+import { MentionTargetsProvider } from "../mentions";
 import { DesignDocsRail, NEW_DOCUMENT } from "./DesignDocsRail";
 import { DraftDocument } from "./DraftDocument";
 import { DocumentSurface } from "./DocumentSurface";
@@ -89,7 +90,22 @@ export function DesignDocumentsNavigator({ projectId, selectionId, onSelect }: W
 
 // ───────────────────────────────────────────────────────────────────────────── MAIN
 
-export function DesignDocumentsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
+/**
+ * The page, with what an `@` can reach in scope for the whole of it.
+ *
+ * Above every early return and above the document itself, because both halves of a mention need
+ * the same list: the picker offers it, and a mention already in the prose checks itself against it
+ * before it is allowed to say its target is gone. One list, so the two cannot disagree.
+ */
+export function DesignDocumentsPage(props: WorkspacePageProps) {
+  return (
+    <MentionTargetsProvider projectId={props.projectId}>
+      <DesignDocuments {...props} />
+    </MentionTargetsProvider>
+  );
+}
+
+function DesignDocuments({ projectId, selectionId, onSelect }: WorkspacePageProps) {
   const { docs, doc, reports, loading, error, refresh, replaceDoc } = useDesignDocs(
     projectId,
     selectionId,

@@ -1,4 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { MentionPicker } from "./mentions/MentionPicker";
+import { MentionText } from "./mentions/MentionLink";
+import { MentionTargetsProvider } from "./mentions/targets";
+import { useMentionInput } from "./mentions/useMentionInput";
 
 export interface TranscriptEntryView {
   seq: number;
@@ -46,6 +50,12 @@ interface Props {
   state: LiveSessionStateView;
   transcript: TranscriptEntryView[];
   error?: string;
+  /**
+   * The project whose assets and design documents `@` can reach. OPTIONAL, and absent means the
+   * picker does not open: a drawer that has not been told which project it belongs to must not
+   * offer an empty list and let the user read it as "there is nothing here".
+   */
+  projectId?: string;
   onSend?: (text: string) => void;
   onPause?: () => void;
   onResume?: () => void;
@@ -56,8 +66,20 @@ interface Props {
 /**
  * The live session drawer (V-023): transcript and tool activity, a message box, and pause/stop.
  * Opened by clicking an agent card.
+ *
+ * `@` in the message box links to an asset or a design document, and the transcript draws the same
+ * link back. Both halves matter: a message the user wrote as a link that came back as
+ * `[@deck](asset:…)` would teach them not to use the feature.
  */
-export function SessionDrawer({
+export function SessionDrawer(props: Props) {
+  return (
+    <MentionTargetsProvider projectId={props.projectId ?? ""}>
+      <Drawer {...props} />
+    </MentionTargetsProvider>
+  );
+}
+
+function Drawer({
   agentName,
   agentId,
   acpSessionId,
@@ -71,6 +93,8 @@ export function SessionDrawer({
   onClose,
 }: Props) {
   const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const mentions = useMentionInput(inputRef, setDraft);
   const busy = state === "working" || state === "starting";
   const dead = state === "stopped" || state === "failed";
 
@@ -138,7 +162,9 @@ export function SessionDrawer({
                       : "text-white/85"
                 }
               >
-                {entry.text}
+                {/* Mentions only. A transcript is not a document, so nothing else in the text is
+                    interpreted: the asterisks in a shell command stay asterisks. */}
+                <MentionText text={entry.text} />
               </span>
             </div>
           ))
@@ -146,15 +172,30 @@ export function SessionDrawer({
       </div>
 
       <div className="border-t border-white/10 p-3">
-        <textarea
-          data-testid="drawer-input"
-          aria-label="Message to agent"
-          value={draft}
-          disabled={dead}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={dead ? "Session is not running" : "Send a message to this agent…"}
-          className="mb-2 h-16 w-full resize-none rounded border border-white/10 bg-neutral-900 p-2 text-xs text-white/90 disabled:opacity-40"
-        />
+        {/* `relative` so the picker hangs off the message box rather than off the drawer. */}
+        <div className="relative mb-2">
+          <textarea
+            ref={inputRef}
+            data-testid="drawer-input"
+            aria-label="Message to agent"
+            value={draft}
+            disabled={dead}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              mentions.sync(e.target);
+            }}
+            onKeyUp={(e) => mentions.sync(e.currentTarget)}
+            onClick={(e) => mentions.sync(e.currentTarget)}
+            // The picker takes ↑↓ ↵ ⇥ and Escape only while it is open; every other key, and every
+            // key at all when it is shut, reaches the box unchanged.
+            onKeyDown={(e) => mentions.handleKey(e)}
+            placeholder={dead ? "Session is not running" : "Send a message to this agent — @ links to an asset or a document"}
+            className="h-16 w-full resize-none rounded border border-white/10 bg-neutral-900 p-2 text-xs text-white/90 disabled:opacity-40"
+          />
+          {/* Above: the message box is the bottom of the drawer, so a list below it would open
+              over the Send button and off the edge of the panel. */}
+          <MentionPicker input={mentions} placement="above" />
+        </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
