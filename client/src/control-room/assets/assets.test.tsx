@@ -6,9 +6,12 @@
  * the records below live in this file only. The empty suites are what stop it coming back.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AssetRow, rowSubtitle } from "./AssetRow";
 import { AssetsInspector } from "./AssetsInspector";
+import { readAssetFilter, resetAssetFilter, setAssetFilter } from "./filter";
 import { ROW_LIMIT, matchingAssets, recentAssets } from "./AssetsNavigator";
 import { ASSET_CHIPS, chipAdmits, type AssetType, type AssetView } from "./types";
 import { formatCost } from "./useAssets";
@@ -229,5 +232,42 @@ describe("a deliverable is credited to whoever actually made it", () => {
 
   test("only an asset with no producing agent at all is an upload", async () => {
     expect(await madeBy(uploaded)).toContain("uploaded");
+  });
+});
+
+describe("one filter, shared by the rail and the grid", () => {
+  /**
+   * There were two. The navigator held the mockup's chips; MAIN held a second chip row of its own,
+   * in a separate `useState` in a separate component instance. So the rail could read "All" while
+   * the grid showed only slides, and narrowing either did nothing to the other — two controls with
+   * one name, disagreeing.
+   */
+  afterEach(resetAssetFilter);
+
+  test("it starts unfiltered, so a fresh page shows the whole shelf", () => {
+    expect(readAssetFilter()).toEqual({ query: "", chipId: "all" });
+  });
+
+  test("what one region sets, the other reads", () => {
+    setAssetFilter({ chipId: "slides" });
+    expect(readAssetFilter().chipId).toBe("slides");
+    setAssetFilter({ query: "chair" });
+    // The patch is partial: setting a query must not silently drop the chip.
+    expect(readAssetFilter()).toEqual({ query: "chair", chipId: "slides" });
+  });
+
+  test("both regions narrow to the same records, because they run the same function", () => {
+    const deck = asset("sales_deck", { type: "slides" });
+    const doc = asset("launch_plan", { type: "document" });
+    setAssetFilter({ chipId: "slides" });
+    const { query, chipId } = readAssetFilter();
+    expect(matchingAssets([deck, doc], query, chipId).map((a) => a.id)).toEqual(["sales_deck"]);
+  });
+
+  test("it does not survive a reload, so a shelf never comes back looking empty", () => {
+    // Region widths persist; a filter must not. A page that reopens filtered looks like a page
+    // with nothing on it, and the first thing anyone does then is report missing deliverables.
+    const source = readFileSync(join(import.meta.dir, "filter.ts"), "utf8");
+    expect(source).not.toContain("localStorage");
   });
 });

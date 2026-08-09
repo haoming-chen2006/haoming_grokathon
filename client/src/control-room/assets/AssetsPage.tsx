@@ -10,8 +10,10 @@
 import { useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { AssetPreview, FilePreview } from "./AssetPreview";
-import { TYPE_LABELS, type AssetView, type AssetType } from "./types";
-import { byType, formatCost, useAssets } from "./useAssets";
+import { matchingAssets } from "./AssetsNavigator";
+import { useAssetFilter } from "./filter";
+import { TYPE_LABELS, type AssetView } from "./types";
+import { formatCost, useAssets } from "./useAssets";
 
 /** The mono, tracked, uppercase micro-label the shell uses for every region heading. */
 function Label({ children }: { children: React.ReactNode }) {
@@ -136,40 +138,6 @@ function OpenAsset({ asset, onClose }: { asset: AssetView; onClose(): void }) {
   );
 }
 
-/** Filter chips. Local view state on purpose: it is a preference, not a location. */
-function TypeFilter({
-  counts,
-  active,
-  onPick,
-}: {
-  counts: { type: AssetType; items: AssetView[] }[];
-  active: AssetType | "all";
-  onPick(next: AssetType | "all"): void;
-}) {
-  const chip = (key: AssetType | "all", label: string, count: number) => (
-    <button
-      key={key}
-      type="button"
-      data-testid={`asset-filter-${key}`}
-      onClick={() => onPick(key)}
-      aria-pressed={active === key}
-      className={`rounded-full border px-2.5 py-[2px] text-[12px] ${
-        active === key
-          ? "border-accent text-ink"
-          : "border-border text-ink-faint hover:bg-surface-hover"
-      }`}
-    >
-      {label} <span className="font-mono text-[10px] text-ink-ghost">{count}</span>
-    </button>
-  );
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-5 pt-4">
-      {chip("all", "All", counts.reduce((n, c) => n + c.items.length, 0))}
-      {counts.map((c) => chip(c.type, TYPE_LABELS[c.type], c.items.length))}
-    </div>
-  );
-}
-
 /**
  * Bring a deliverable in from outside.
  *
@@ -248,11 +216,13 @@ function ImportAsset({ projectId, onDone }: { projectId: string; onDone(): void 
 
 export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePageProps) {
   const { assets, refresh } = useAssets(projectId);
-  const [filter, setFilter] = useState<AssetType | "all">("all");
+  // The navigator's filter, not a second one. MAIN used to hold its own chip row, so the rail could
+  // say "All" while the grid showed only slides and narrowing either did nothing to the other.
+  const { query, chipId } = useAssetFilter();
 
-  const counts = byType(assets);
   const open = assets.find((a) => a.id === selectionId);
-  const shown = filter === "all" ? assets : assets.filter((a) => a.type === filter);
+  const shown = matchingAssets(assets, query, chipId);
+  const narrowed = shown.length !== assets.length;
 
   if (assets.length === 0) {
     return (
@@ -269,15 +239,21 @@ export function AssetsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-3 pr-5">
-        <TypeFilter counts={counts} active={filter} onPick={setFilter} />
+      <div className="flex shrink-0 items-center justify-end gap-3 px-5 pt-4">
+        {/* What the rail's filter is currently hiding, said out loud. A grid that silently shows
+            three of twelve deliverables reads as a shelf with three things on it. */}
+        {narrowed ? (
+          <span data-testid="assets-narrowed" className="mr-auto font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost">
+            {shown.length} of {assets.length} — narrowed by the search
+          </span>
+        ) : null}
         <ImportAsset projectId={projectId} onDone={refresh} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-5">
         {open ? <OpenAsset asset={open} onClose={() => onSelect(undefined)} /> : null}
         {shown.length === 0 ? (
-          <p className="py-8 text-center text-[13px] text-ink-faint">
-            No {TYPE_LABELS[filter as AssetType].toLowerCase()} yet.
+          <p data-testid="assets-grid-empty" className="py-8 text-center text-[13px] text-ink-faint">
+            Nothing matches what the list on the left is filtered to.
           </p>
         ) : null}
         <div className="grid grid-cols-1 content-start gap-4 xl:grid-cols-2">

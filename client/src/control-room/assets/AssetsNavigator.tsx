@@ -9,9 +9,9 @@
  * The count is derived, never written: "4 OF 212 MATCH" is `shown.length` of `assets.length`. On a
  * fresh install it reads "0 OF 0 MATCH", which is correct and is what an empty shelf looks like.
  */
-import { useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { AssetRow } from "./AssetRow";
+import { setAssetFilter, useAssetFilter } from "./filter";
 import { ASSET_CHIPS, chipAdmits, type AssetView } from "./types";
 import { useAssets } from "./useAssets";
 
@@ -47,8 +47,10 @@ export function recentAssets(assets: AssetView[], limit = 5): AssetView[] {
 
 export function AssetsNavigator({ projectId, selectionId, onSelect }: WorkspacePageProps) {
   const { assets, loading, error } = useAssets(projectId);
-  const [query, setQuery] = useState("");
-  const [chipId, setChipId] = useState("all");
+  // Shared with MAIN, which used to hold a second chip row of its own. See ./filter.ts.
+  const { query, chipId } = useAssetFilter();
+  const setQuery = (next: string) => setAssetFilter({ query: next });
+  const setChipId = (next: string) => setAssetFilter({ chipId: next });
 
   const shown = matchingAssets(assets, query, chipId);
   const listed = shown.slice(0, ROW_LIMIT);
