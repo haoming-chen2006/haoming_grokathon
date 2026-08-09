@@ -16,6 +16,7 @@ import { useState } from "react";
 import type { WorkspacePageProps } from "../shell/contract";
 import { AgentCard } from "./AgentCard";
 import { AgentInspector } from "./AgentInspector";
+import { AgentSession } from "./AgentSession";
 import { AgentsRail } from "./AgentsRail";
 import { AreaColumn } from "./AreaColumn";
 import { agentsWithoutArea, launchRefusal, launchableTask } from "./board";
@@ -181,6 +182,33 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
   const [addingArea, setAddingArea] = useState(false);
 
   if (!projectId || starting) return <StartProject />;
+
+  /**
+   * Selecting an AGENT opens its conversation; selecting an AREA filters the board.
+   *
+   * One selection slot serves two kinds of object, which the inspector already handles the same
+   * way. Opening an agent used to show a panel of facts about it — a supervisor who cannot speak to
+   * the thing being supervised is watching, not supervising — so the conversation takes MAIN, where
+   * there is room for it, rather than being squeezed into a 320px inspector.
+   */
+  const openAgent = data.agents.find((a) => a.id === selectionId);
+  if (openAgent) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <button
+          type="button"
+          data-testid="session-back"
+          onClick={() => onSelect(undefined)}
+          className="shrink-0 self-start px-3 py-1.5 text-[12px] text-ink-faint hover:text-ink"
+        >
+          ← Back to the board
+        </button>
+        <div className="min-h-0 flex-1">
+          <AgentSession agentId={openAgent.id} agentName={openAgent.name} />
+        </div>
+      </div>
+    );
+  }
   if (data.loading && !project) {
     return <p className="p-6 text-[13px] text-ink-faint">Loading the board…</p>;
   }
