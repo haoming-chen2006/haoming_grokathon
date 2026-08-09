@@ -92,6 +92,8 @@ export interface MilestoneView {
 }
 
 export interface ProjectView {
+  /** Where the project's work happens. A hand-made area roots itself here. */
+  repositoryPath?: string;
   id: string;
   name: string;
   goal?: string;

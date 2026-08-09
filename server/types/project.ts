@@ -271,6 +271,16 @@ export const DEFAULT_MESSAGE_LIMITS: MessageLimits = {
 };
 
 export interface Project {
+  /**
+   * The design document this project follows, when it was started from one.
+   *
+   * The cardinality rule — at most one project per document — used to be checked by comparing the
+   * project's document TITLE to the document's. Two documents with the same heading were the same
+   * document as far as that check could tell, so pasting the offered skeleton twice answered 409
+   * DOCUMENT_ALREADY_FOLLOWED for a document nothing followed, and the user got no project and no
+   * explanation. An id cannot collide.
+   */
+  designDocId?: string;
   id: string;
   name: string;
   goal: string;

@@ -55,6 +55,8 @@ export interface AgentsData {
   launch(taskId: string): Promise<void>;
   pause(agentId: string): Promise<void>;
   addAgent(input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }): Promise<void>;
+  /** Add an area by hand, for a document that declared none. */
+  addArea(name: string): Promise<void>;
   /** Create an agent and put it inside one area — the box-click flow. */
   addAgentToArea(input: {
     areaId: string;
@@ -217,6 +219,23 @@ export function useAgents(projectId: string): AgentsData {
     pause: (agentId: string) =>
       run("Pausing", () =>
         json(`/api/coding-agents/${agentId}/session/pause`, { method: "POST", body: "{}" }),
+      ),
+    addArea: (name: string) =>
+      run(`Adding ${name}`, () =>
+        json("/api/coding-agents/areas", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId,
+            name,
+            // A hand-made area has no line in the brief to anchor to, and saying so is better than
+            // pointing at line 1 as though the document declared it there.
+            briefSectionAnchor: "by hand",
+            // Unique per area: the store refuses two areas sharing a milestone, because both would
+            // claim the same tasks and show the same number under two names.
+            milestoneId: `m-${Date.now().toString(36)}`,
+            rootPath: project?.repositoryPath ?? ".",
+          }),
+        }),
       ),
     addAgentToArea: (input: {
       areaId: string;

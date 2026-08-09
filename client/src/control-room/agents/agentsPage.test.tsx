@@ -64,10 +64,13 @@ describe("a workspace with nothing in it", () => {
     );
   });
 
-  test("the board says there are no areas and no agents, in plain language", async () => {
+  test("the board says there are no areas, and offers a way to make one", async () => {
     render(<AgentsPage projectId="p1" onSelect={noop} />);
     await waitFor(() => expect(screen.getByTestId("board-empty")).toBeTruthy());
-    expect(screen.getByTestId("board-empty").textContent).toContain("No areas yet, and no agents yet");
+    expect(screen.getByTestId("board-empty").textContent).toContain("No areas yet");
+    // The wording alone is not the point. A board that explains areas and offers nothing to click
+    // is where a user with a document that declared none gets stuck — which is most documents.
+    expect(screen.getByTestId("add-area-submit")).toBeTruthy();
   });
 
   test("not one column and not one card is drawn", async () => {

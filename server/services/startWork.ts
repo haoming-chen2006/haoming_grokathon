@@ -100,6 +100,7 @@ export function startWork(params: {
     name: declared?.name ?? params.documentTitle,
     goal: declared ? `${declared.category} — ${declared.areas.length} area(s)` : "",
     repositoryPath: workspace,
+    designDocId: params.documentId,
     documentTitle: params.documentTitle,
     documentContent: params.documentText,
     budgetUsd: declared?.budget,

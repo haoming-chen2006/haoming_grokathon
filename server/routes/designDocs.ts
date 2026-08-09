@@ -91,19 +91,17 @@ function readDocument(file: string): DesignDocView {
 /**
  * The project that followed this document, if any.
  *
- * Matched on the document TITLE stored with the project, because a project records the document it
- * was created from as `document.title` and there is no foreign key yet. That is a weaker join than
- * an id and it is stated here rather than hidden: when the design-document store is wired, this
- * becomes a lookup and the cardinality rule stops depending on a string.
+ * Matched on `project.designDocId`, which startWork records.
+ *
+ * This compared document TITLES until it bit: the start screen offers a skeleton whose heading is
+ * "Name your project", so the second person to use it hit 409 DOCUMENT_ALREADY_FOLLOWED for a
+ * document nothing followed — no project, no boxes, no explanation. Two documents may share a
+ * heading; they cannot share an id.
  */
 function projectFollowing(docId: string): string | undefined {
-  const doc = (() => {
-    try { return readDocument(`${docId}.md`); } catch { return undefined; }
-  })();
-  if (!doc) return undefined;
   for (const summary of getProjectStore().listProjects()) {
     const full = getProjectStore().getProject(summary.id);
-    if (full.document?.title === doc.title) return full.id;
+    if (full.designDocId === docId) return full.id;
   }
   return undefined;
 }

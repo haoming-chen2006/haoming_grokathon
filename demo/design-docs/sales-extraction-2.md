@@ -1,0 +1,1 @@
+extract sales info

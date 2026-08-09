@@ -253,11 +253,19 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
 
       <div className="dotted-field min-h-0 flex-1 overflow-auto bg-canvas p-4">
         {areas.length === 0 && agents.length === 0 ? (
-          <p data-testid="board-empty" className="max-w-lg text-[13px] leading-relaxed text-ink-faint">
-            No areas yet, and no agents yet. An area names a section of the brief and the one place
-            an agent hired into it may write; an agent is hired into exactly one. Generate a plan
-            and the Planner proposes the work this document declares.
-          </p>
+          <div data-testid="board-empty" className="max-w-lg">
+            <p className="text-[13px] leading-relaxed text-ink-faint">
+              No areas yet. An area names a part of the work and is the one place an agent hired
+              into it may write. Add one and you can put an agent in it.
+            </p>
+            {/*
+              The board used to explain the concept and offer nothing to click. A document that
+              declares no `areas:` block produces no boxes — which is most documents someone writes
+              in a hurry — so the page said "generate a plan" and left the user with no area to hire
+              into and no way to make one.
+            */}
+            <AddArea busy={!!data.busy} onAdd={(name) => void data.addArea(name)} />
+          </div>
         ) : null}
 
         <div className="flex flex-wrap gap-3.5">
@@ -322,6 +330,40 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** Name a part of the work, and get a box for it. */
+function AddArea({ busy, onAdd }: { busy: boolean; onAdd(name: string): void }) {
+  const [name, setName] = useState("");
+  return (
+    <form
+      data-testid="add-area-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onAdd(name.trim());
+        setName("");
+      }}
+      className="mt-3 flex gap-1.5"
+    >
+      <input
+        data-testid="add-area-name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name a part of the work — Research, Narrative, Visuals…"
+        aria-label="Area name"
+        className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-1 text-[13px] text-ink placeholder:text-ink-ghost"
+      />
+      <button
+        type="submit"
+        data-testid="add-area-submit"
+        disabled={!name.trim() || busy}
+        title={name.trim() ? "Create this area" : "Name the area first"}
+        className="rounded border border-border-strong bg-surface-active px-2.5 py-1 text-[13px] text-ink disabled:opacity-40"
+      >
+        Add area
+      </button>
+    </form>
   );
 }
 

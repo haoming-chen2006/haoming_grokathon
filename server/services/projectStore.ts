@@ -202,6 +202,8 @@ export class ProjectStore {
     baseBranch?: string;
     documentTitle?: string;
     documentContent?: string;
+    /** The design document this project follows, if it was started from one. */
+    designDocId?: string;
     budgetUsd?: number;
   }): Project {
     const createdAt = nowIso();
@@ -210,6 +212,7 @@ export class ProjectStore {
       name: params.name,
       goal: params.goal,
       repositoryPath: params.repositoryPath,
+      ...(params.designDocId ? { designDocId: params.designDocId } : {}),
       baseBranch: params.baseBranch ?? "main",
       document: {
         id: newId("doc"),
