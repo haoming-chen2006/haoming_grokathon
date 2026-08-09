@@ -216,9 +216,9 @@ function UsersMain({ projectId, selectionId, onSelect }: WorkspacePageProps) {
             data-testid="spend-explanation"
             className="max-w-3xl text-[12px] leading-snug text-ink-faint"
           >
-            Spend is not measured, so no figure is shown — not even a zero. The rate table holds no
-            Grok model, so an unpriced turn costs nothing in the data, and there is no ledger behind
-            it. A cap over a meter reading zero never trips. The capability column is the control
+            Spend is measured for the project and for each agent — the toolbar's figure is real —
+            but no charge is attributed to a PERSON, so no figure is shown here, not even a zero. A
+            cap over a meter that reads nothing never trips. The capability column is the control
             that works in the meantime: it is a switch, not a measurement, so no bug in the
             accounting can defeat it.
           </p>

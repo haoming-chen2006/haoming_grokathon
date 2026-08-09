@@ -13,8 +13,29 @@
 import { Hono } from "hono";
 import { basename, join, resolve, sep } from "path";
 import { getAssetStore, persistFile, ASSET_TYPES, AssetNotFoundError, type AssetType } from "../services/assetStore";
+import { getAgentRegistry } from "../services/agentRegistry";
 
 export const assetRoutes = new Hono();
+
+/**
+ * Resolve the producing agent's name, when there is one and the registry still knows it.
+ *
+ * The store keeps `producedByAgentId` and nothing else, which is right — an id is stable and a name
+ * is not. But the page has only the name to show, so with nothing resolving it every generated
+ * asset fell through to the client's "Uploaded by you", and the first real image was attributed to
+ * a person who did not make it. That is the fabricated-value defect wearing an attribution.
+ *
+ * An id the registry no longer holds resolves to nothing rather than to the id: a raw
+ * `agent_msl1y8…` on a card is not a name, and the client already says "an agent" for that case.
+ */
+function withAgentName<T extends { producedByAgentId?: string }>(asset: T): T & { producedByAgentName?: string } {
+  if (!asset.producedByAgentId) return asset;
+  try {
+    return { ...asset, producedByAgentName: getAgentRegistry().get(asset.producedByAgentId).name };
+  } catch {
+    return asset;
+  }
+}
 
 function fail(c: any, err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
@@ -43,10 +64,12 @@ assetRoutes.get("/", (c) => {
 
   try {
     return c.json(
-      getAssetStore().listAssets(projectId, {
-        type: type as AssetType | undefined,
-        q: c.req.query("q") ?? undefined,
-      }),
+      getAssetStore()
+        .listAssets(projectId, {
+          type: type as AssetType | undefined,
+          q: c.req.query("q") ?? undefined,
+        })
+        .map(withAgentName),
     );
   } catch (err) {
     return fail(c, err);
@@ -170,7 +193,7 @@ assetRoutes.get("/:assetId/files/:fileId", async (c) => {
 assetRoutes.get("/:assetId", (c) => {
   const assetId = c.req.param("assetId");
   try {
-    return c.json(getAssetStore().getAsset(assetId));
+    return c.json(withAgentName(getAssetStore().getAsset(assetId)));
   } catch (err) {
     // The store's own typed miss, distinguished from a real failure: anything else is a 400 with
     // its message, not a 404 that would tell the caller the asset does not exist when the disk is

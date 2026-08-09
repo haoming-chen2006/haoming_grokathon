@@ -36,6 +36,15 @@ afternoon once.
 it considered and why it was insufficient. We already reimplemented worktrees and capability
 tables before checking. See `grok-workspace.md` §3.3.0.
 
+Two of those are now settled and neither should be relitigated without reading the note first:
+
+- **The area boundary is `--sandbox workspace`**, passed in `acpClient.ts`'s `ACP_ARGS`. Our own
+  path comparison is deleted. Seatbelt/Landlock, applied to the whole process, covering `bash` and
+  subagents. `GROK_SANDBOX` overrides it; `off` turns the boundary off, deliberately and by name.
+- **`--tools` cannot express capability** and the reasons are written into `boundary.ts` with a
+  test that fails if they are deleted. It allowlists built-ins, cannot name an MCP tool, and is
+  subtractive where A-0 requires addition.
+
 **A-0 — every agent is a real `grok` process over ACP**, retaining grok's whole tool surface.
 Never a chat-completion wrapper, never a job runner wearing an agent's name. Capability *adds*
 tools; it never subtracts an agent. See §3.3.1.
@@ -66,16 +75,22 @@ Proof this holds: sessions the web creates appear in `grok sessions list` and re
 
 ## 4. What does not work
 
-**The pages do not look like the mockups.** Palette and fonts match; layout is interpretation.
-`design/mockups/` holds the rendered DOM of all four designs, recovered from the bundles'
-`__bundler/template` block — read `design/mockups/README.md`. This is the largest open piece.
+**The pages still do not fully match the mockups**, though the chrome now does. `design/mockups/`
+holds the rendered DOM of all four designs — read `design/mockups/README.md`. Done: the toolbar and
+the horizontal page strip all four designs draw (the pages used to sit in the navigator, stacking a
+global list on top of each page's own), and the AGENTS inspector, which did not exist. Still
+interpretation: the assets grid's second column, and the design document's line-range gutter.
 
-**Nothing has ever generated an image.** The client, the tools and the capability gate are all
-wired and tested with an injected transport. No real call has been made. First one costs $0.02.
+**No slide rendering** — see below. Two entries that used to sit here are done:
 
-**Cost reads `unknown` everywhere.** `usageAccounting.ts` `DEFAULT_RATES` has three OpenAI models
-and no Grok model, so every figure is unpriced. Real token counts DO flow (2M tokens recorded), so
-this is a rate table, not a plumbing problem.
+- *Nothing has ever generated an image* — an image exists. `generate_image` was called over the
+  real MCP endpoint by an agent hired with `{images}`: 179 KB of JPEG, 1280×720, `$0.02` recorded
+  with `costSource: "billed"`, persisted and served. The base-Grok gate was checked on the same
+  server in the same minute: 38 tools, no `generate_image`, no `narrate`.
+- *Cost reads `unknown` everywhere* — `DEFAULT_RATES` has held `grok-4.5` for a while; the toolbar
+  was passing a literal. `GET /api/projects/:id/spend` sums the token ledger and the media ledger,
+  per project and per agent, and the toolbar draws it. Three states, so nothing ever renders
+  `$0.00`: `—` for no charges, `unknown` when nothing could be priced, `$x+` for a partial total.
 
 **No slide rendering.** There is no xAI slide API — `Grok for PowerPoint` and grok.com are UI, not
 callable. `.pptx` must be rendered by us and nothing does it.
@@ -138,15 +153,18 @@ Each exists because it was violated and cost something.
 
 ## 7. The next pieces, in order of value
 
-1. **Rebuild the pages against `design/mockups/`.** Structure only — everything starts empty, and
+1. **Finish the pages against `design/mockups/`.** Structure only — everything starts empty, and
    the test is whether a real record renders correctly, not whether the page looks full. Do not add
-   sample data; three mock modules have already been deleted for exactly that.
-2. **Make one real image.** Hire an agent with images, call `generate_image`, confirm the asset
-   lands with its charge. Everything is wired; nothing has been spent.
-3. **Add Grok rates** to `DEFAULT_RATES` so cost stops reading `unknown`.
-4. **Swap our boundary code for `--sandbox`, and our capability table for `--tools`** (A-00).
-5. **Subscribe to the control-room socket** and drop the poll.
-6. **Slide rendering** — pick a Node PPTX library, then build it.
+   sample data; three mock modules have already been deleted for exactly that. The chrome and the
+   AGENTS inspector are done; the assets grid and the document gutter are not.
+2. **Attribute a charge to a person.** Every row belongs to an agent or an asset, so the Users
+   page's budget column has nothing to read and says so. It is the last thing between that page and
+   a real cap.
+3. **Subscribe to the control-room socket** and drop the 5s poll.
+4. **Slide rendering** — pick a Node PPTX library, then build it.
+5. **Advance `CodingAgent.costUsd` from media charges.** Today `generate_image` writes onto the
+   asset only, so an agent's card shows its token spend and the inspector has to sum both ledgers
+   through `/spend` to tell the truth. One writer would be better than two readers.
 
 ---
 

@@ -131,9 +131,9 @@ function Navigator({ selectionId, onSelect }: WorkspacePageProps) {
         <NotBuilt
           what="People over their cap"
           because={
-            "Counting them needs measured spend and a user-scoped budget. Neither exists: the " +
-            "rate table has no Grok model, and budgets are enforced at agent, task and project " +
-            "scope only."
+            "Counting them needs spend attributed to a PERSON, and no charge carries one: a " +
+            "project's spend is now summed from both ledgers, but every row belongs to an agent " +
+            "or an asset. Budgets are enforced at agent, task and project scope only."
           }
           closedBy="06-tools-cost COST-004…006, then loop 08 stage 6"
         />

@@ -78,8 +78,17 @@ function AssetCard({
           </Label>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {/*
+            Three cases, and the middle one used to be missing. An asset the registry can name is
+            named; an asset produced by an agent whose name we cannot resolve says an agent made it;
+            and only an asset with NO producing agent is an upload. Falling through to "Uploaded by
+            you" whenever the name was absent attributed the first real generated image to a person
+            who did not make it — the server resolved no name, so every generated asset hit it.
+          */}
           {asset.producedByAgentName ? (
             <Chip>{asset.producedByAgentName}</Chip>
+          ) : asset.producedByAgentId ? (
+            <Chip>An agent</Chip>
           ) : (
             <Chip>Uploaded by you</Chip>
           )}

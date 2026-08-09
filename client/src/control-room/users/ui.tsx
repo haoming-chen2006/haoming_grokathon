@@ -87,9 +87,12 @@ export function CapabilityPill({
  * The spend that is not measured — loops/08-users-and-x.md §3.6.
  *
  * A bar with no fill and no percentage, because there is no figure to fill it with. The hatch says
- * "unknown" where an empty track would say "zero", and zero is the specific lie §3.6 forbids: the
- * rate table holds no Grok model, so an unpriced turn costs `$0.00` in the data and `$0.00` on
- * screen would be read as "this person has spent nothing".
+ * "unknown" where an empty track would say "zero", and zero is the specific lie §3.6 forbids.
+ *
+ * Spend IS measured now — per project and per agent, summed from the token and media ledgers by
+ * `GET /api/projects/:id/spend`. What is still missing is the attribution this page needs: every
+ * charge belongs to an agent or an asset and none of them names a person, so `$0.00` here would be
+ * read as "this person has spent nothing" rather than "nothing here counts by person".
  *
  * The words are not a tooltip. A fact a reader has to hover to find is a fact the page did not
  * tell them.
