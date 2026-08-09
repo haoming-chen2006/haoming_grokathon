@@ -204,7 +204,9 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
           ← Back to the board
         </button>
         <div className="min-h-0 flex-1">
-          <AgentSession agentId={openAgent.id} agentName={openAgent.name} />
+          {/* projectId is what `@` in the message box can reach: this project's assets and
+              design documents, and nothing from another project's shelf. */}
+          <AgentSession agentId={openAgent.id} agentName={openAgent.name} projectId={projectId} />
         </div>
       </div>
     );

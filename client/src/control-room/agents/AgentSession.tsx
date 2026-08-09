@@ -16,13 +16,12 @@
  * a cost attached.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MentionPicker } from "../mentions/MentionPicker";
+import { MentionTargetsProvider } from "../mentions/targets";
+import { useMentionInput } from "../mentions/useMentionInput";
+import { Transcript, type TranscriptEntry } from "./Transcript";
 
-export interface TranscriptEntry {
-  seq: number;
-  at?: string;
-  kind: string;
-  text?: string;
-}
+export type { TranscriptEntry } from "./Transcript";
 
 interface SessionView {
   agentId: string;
@@ -42,37 +41,31 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-/** How each kind of line reads. An unknown kind keeps its own name rather than being hidden. */
-const KIND_LABEL: Record<string, string> = {
-  user: "You",
-  agent: "Agent",
-  agent_message_chunk: "Agent",
-  agent_thought_chunk: "Thinking",
-  thought: "Thinking",
-  tool_call: "Tool",
-  tool: "Tool",
-  system: "System",
-  error: "Error",
-};
+/**
+ * The agent window, with `@` in its message box.
+ *
+ * Wrapped in the provider so the picker and the transcript's links read ONE list of targets: a
+ * transcript that could not resolve an id the box had just offered would render "missing" against a
+ * deliverable that plainly exists.
+ */
+export function AgentSession(props: { agentId: string; agentName: string; projectId: string }) {
+  return (
+    <MentionTargetsProvider projectId={props.projectId}>
+      <Session {...props} />
+    </MentionTargetsProvider>
+  );
+}
 
-const KIND_CLASS: Record<string, string> = {
-  user: "text-ink",
-  agent: "text-ink-muted",
-  agent_message_chunk: "text-ink-muted",
-  agent_thought_chunk: "text-ink-ghost italic",
-  thought: "text-ink-ghost italic",
-  tool_call: "text-accent",
-  tool: "text-accent",
-  system: "text-ink-faint",
-  error: "text-status-failed-ink",
-};
-
-export function AgentSession({ agentId, agentName }: { agentId: string; agentName: string }) {
+function Session({ agentId, agentName }: { agentId: string; agentName: string }) {
   const [session, setSession] = useState<SessionView | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
+  const input = useRef<HTMLTextAreaElement | null>(null);
+  // `@` opens a list of this project's assets and design documents and inserts a link to the one
+  // picked. The link carries the id, so it survives the deliverable being renamed.
+  const mentions = useMentionInput(input, setDraft);
 
   /** Read whatever session already exists, without starting one. */
   const peek = useCallback(async () => {
@@ -99,9 +92,17 @@ export function AgentSession({ agentId, agentName }: { agentId: string; agentNam
   }, [peek]);
 
   // Follow the conversation as it arrives, the way a terminal does.
+  //
+  // Keyed on the LAST message's length as well as the count, because a streaming reply grows one
+  // entry rather than adding entries: on count alone the view stopped following after the first
+  // chunk and the reply scrolled away under the fold.
+  // Indexed rather than `.at(-1)`: this client's tsconfig lib predates es2022, so `.at` does not
+  // typecheck here and the build fails on it.
+  const lines = session?.transcript;
+  const tail = lines && lines.length > 0 ? lines[lines.length - 1] : undefined;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [session?.transcript?.length]);
+  }, [session?.transcript?.length, tail?.seq, tail?.text?.length]);
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
@@ -194,29 +195,32 @@ export function AgentSession({ agentId, agentName }: { agentId: string; agentNam
             Session open, nothing said yet. Type below and the agent answers here.
           </p>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            {transcript.map((entry) => (
-              <div key={entry.seq} data-testid="transcript-line" className="text-[13px] leading-snug">
-                <span className="mr-2 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-ghost">
-                  {KIND_LABEL[entry.kind] ?? entry.kind}
-                </span>
-                <span className={`whitespace-pre-wrap ${KIND_CLASS[entry.kind] ?? "text-ink-muted"}`}>
-                  {entry.text}
-                </span>
-              </div>
-            ))}
+          <div>
+            <Transcript entries={transcript} agentName={agentName} />
             <div ref={bottom} />
           </div>
         )}
       </div>
 
       {session ? (
-        <div className="shrink-0 border-t border-border p-2">
+        <div className="relative shrink-0 border-t border-border p-2">
+          {/* Above the box: the message box sits at the bottom of the panel, so a list drawn
+              below it would open off the end of the window. */}
+          <MentionPicker input={mentions} placement="above" />
           <textarea
+            ref={input}
             data-testid="session-input"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              mentions.sync(e.currentTarget);
+            }}
+            onClick={(e) => mentions.sync(e.currentTarget)}
+            onBlur={mentions.close}
             onKeyDown={(e) => {
+              // The picker gets first refusal, and says whether it took the key. Without that,
+              // Enter with the list open would send a half-typed "@cha" instead of inserting.
+              if (mentions.handleKey(e)) return;
               // Enter sends, Shift+Enter is a newline — the convention every chat uses, and the one
               // a user will try first.
               if (e.key === "Enter" && !e.shiftKey) {
@@ -225,7 +229,7 @@ export function AgentSession({ agentId, agentName }: { agentId: string; agentNam
               }
             }}
             rows={3}
-            placeholder="Say something to this agent…"
+            placeholder="Say something to this agent — @ links to an asset or a document"
             aria-label={`Message ${agentName}`}
             className="w-full resize-none rounded border border-border bg-surface px-2 py-1.5 text-[13px] text-ink placeholder:text-ink-ghost"
           />
