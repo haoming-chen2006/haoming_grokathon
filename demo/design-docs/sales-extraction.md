@@ -1,1 +1,0 @@
-extract sales information and make a sales plan and deliverable

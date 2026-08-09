@@ -176,6 +176,9 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
   // only when there were none, so anyone who had ever used the product could not find it — which is
   // the state every real machine is in.
   const [starting, setStarting] = useState(false);
+  // Adding an area was only reachable from the empty board, so a project that had one area could
+  // never get a second — and a document that declared three could never gain a fourth.
+  const [addingArea, setAddingArea] = useState(false);
 
   if (!projectId || starting) return <StartProject />;
   if (data.loading && !project) {
@@ -215,6 +218,17 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
         </span>
       </div>
 
+      {addingArea ? (
+        <div className="border-b border-border px-4 py-2">
+          <AddArea
+            busy={!!data.busy}
+            onAdd={(name) => {
+              void data.addArea(name).then(() => setAddingArea(false));
+            }}
+          />
+        </div>
+      ) : null}
+
       {/*
         Not in the mockup, and present only while there is a decision to make. The plan gate is
         what stands between a pasted document and any agent running at all, and the mockup draws a
@@ -239,6 +253,15 @@ export function AgentsPage({ projectId, selectionId, onSelect }: WorkspacePagePr
               {data.busy}…
             </span>
           ) : null}
+          <button
+            type="button"
+            data-testid="add-area-open"
+            onClick={() => setAddingArea((v) => !v)}
+            title="Name another part of the work. An agent is hired into exactly one area."
+            className="rounded border border-border px-2.5 py-1 text-[13px] text-ink-faint hover:bg-surface-hover"
+          >
+            Add area
+          </button>
           <button
             type="button"
             data-testid="new-project"
