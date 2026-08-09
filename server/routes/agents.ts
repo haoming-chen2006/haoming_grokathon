@@ -117,13 +117,38 @@ function unitPricesFor(preset: (typeof CAPABILITY_PRESETS)[number]) {
 
 agentRoutes.get("/", (c) => c.json(getAgentRegistry().list(c.req.query("projectId") ?? undefined)));
 
+/**
+ * Hire an agent, optionally straight into an area.
+ *
+ * `areaId` is accepted here so that hiring on a box is ONE call. It used to be two — create, then
+ * PATCH the area — and when the second failed the first had already happened, so the agent existed
+ * outside every box and the user watched it get "kicked out" of the area they hired it into. Two
+ * calls cannot be made atomic from the browser; one can.
+ *
+ * A rejected area still yields the agent, and says why in `areaError`. Refusing to create it would
+ * throw away a decision the user already made — the name, the role, the capability — over a
+ * placement they can fix by dragging.
+ */
 agentRoutes.post("/", async (c) => {
   try {
     const body = await c.req.json();
     if (!body?.projectId) return c.json({ error: "projectId is required" }, 400);
     if (!body?.name) return c.json({ error: "name is required" }, 400);
     if (!body?.role) return c.json({ error: "role is required" }, 400);
-    return c.json(getAgentRegistry().create(body), 201);
+
+    const { areaId, ...rest } = body;
+    const agent = getAgentRegistry().create(rest);
+    if (!areaId) return c.json(agent, 201);
+
+    try {
+      assignArea(agent.id, areaId);
+      return c.json({ ...getAgentRegistry().get(agent.id) }, 201);
+    } catch (err) {
+      return c.json(
+        { ...agent, areaError: err instanceof Error ? err.message : String(err) },
+        201,
+      );
+    }
   } catch (err) {
     return fail(c, err);
   }
@@ -417,6 +442,28 @@ agentRoutes.patch("/:agentId/task", async (c) => {
  * about where this one is running. Reporting that as done would be the same dead control the Tools
  * panel is forbidden from showing.
  */
+/**
+ * Rewrite what an agent is for.
+ *
+ * `appliesAtNextStart` is the honest part. The description composes into the session's `rules`,
+ * which are handed over at `session/new` — so editing it while the agent is running changes the
+ * record and not the running agent. Saying "saved" without saying that would have the user watch
+ * an agent keep ignoring an instruction they can see on its card.
+ */
+agentRoutes.patch("/:agentId/persona", async (c) => {
+  try {
+    const body = await c.req.json();
+    if (body?.persona !== undefined && typeof body.persona !== "string") {
+      return c.json({ error: "persona must be a string; pass an empty string to clear it" }, 400);
+    }
+    const agentId = c.req.param("agentId");
+    const agent = getAgentRegistry().setPersona(agentId, body?.persona);
+    return c.json({ ...agent, appliesAtNextStart: getAcpSessionManager().has(agentId) });
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
 agentRoutes.patch("/:agentId/area", async (c) => {
   try {
     const body = await c.req.json();

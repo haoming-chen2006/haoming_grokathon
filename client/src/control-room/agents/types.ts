@@ -18,12 +18,35 @@ export interface AgentCapabilities {
   voice: boolean;
 }
 
+/**
+ * `DocumentFocus`, `server/types/agent.ts` — the lines an agent said it is working in, written by
+ * the `report_document_focus` MCP tool and carried here unchanged by `GET /api/coding-agents`.
+ *
+ * `kind` is `string` here where the server has a two-value union, and that is deliberate: this
+ * shape describes a JSON body that arrived over a network, and narrowing it to `"reading" |
+ * "writing"` would be a claim about bytes nothing in the browser has checked. `presence.ts`
+ * validates the numbers before any of it reaches a highlight.
+ */
+export interface DocumentFocusView {
+  documentId: string;
+  /** 1-based and inclusive at both ends. */
+  from: number;
+  to: number;
+  kind?: string;
+  /** The document version the range was measured against. Absent means the claim named none. */
+  documentVersion?: number;
+  /** When the claim itself was made — not when the agent was last active at all. */
+  reportedAt?: string;
+}
+
 /** `AgentActivity`, `server/types/agent.ts`. Every field optional, by that type's own design. */
 export interface AgentActivityView {
   command?: string;
   tool?: string;
   taskId?: string;
   latestFile?: string;
+  /** Where in a design document this agent last claimed to be. Absent until it reports one. */
+  documentFocus?: DocumentFocusView;
   blocker?: string;
   testsPassing?: number;
   testsTotal?: number;
@@ -52,6 +75,8 @@ export interface AgentView {
    * board groups by that. When the mirror lands, `agentsInArea` reads it with no other change.
    */
   areaId?: string;
+  /** What this agent is for, in the user's words. Composes into its session rules. */
+  persona?: string;
 }
 
 export interface TaskView {

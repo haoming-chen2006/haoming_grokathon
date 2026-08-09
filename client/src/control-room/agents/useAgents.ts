@@ -54,7 +54,7 @@ export interface AgentsData {
   approvePlan(): Promise<void>;
   launch(taskId: string): Promise<void>;
   pause(agentId: string): Promise<void>;
-  addAgent(input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }): Promise<void>;
+  addAgent(input: { name: string; role: string; persona?: string; capabilities?: { images: boolean; voice: boolean } }): Promise<void>;
   /** Move an agent into an area, or out of one with null. Drag and drop uses this. */
   moveAgent(agentId: string, areaId: string | null): Promise<void>;
   /**
@@ -69,8 +69,12 @@ export interface AgentsData {
     areaId: string;
     name: string;
     role: string;
+    /** What it should do, in the user's words. Composes into the session's rules. */
+    persona?: string;
     capabilities?: { images: boolean; voice: boolean };
   }): Promise<void>;
+  /** Rewrite what an agent is for. Takes effect the next time its session starts. */
+  setPersona(agentId: string, persona: string): Promise<void>;
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -253,32 +257,42 @@ export function useAgents(projectId: string): AgentsData {
           }),
         }),
       ),
+    setPersona: (agentId: string, persona: string) =>
+      run("Saving", () =>
+        json(`/api/coding-agents/${agentId}/persona`, {
+          method: "PATCH",
+          body: JSON.stringify({ persona }),
+        }),
+      ),
     addAgentToArea: (input: {
       areaId: string;
       name: string;
       role: string;
+      persona?: string;
       capabilities?: { images: boolean; voice: boolean };
     }) =>
-      // Two calls, not one: the registry creates agents and `workArea` owns which area an agent is
-      // in, and collapsing them into a create-with-area would give the boundary rule two homes. If
-      // the assignment fails the agent still exists and is visible, unassigned — a half-made agent
-      // you can see beats a silent rollback.
+      // ONE call. This was two — create, then PATCH the area — and the browser cannot make two
+      // atomic: when the second failed the agent had already been created, so it appeared outside
+      // every box and the user watched it get kicked out of the area they hired it into. The route
+      // does both, and reports a rejected placement on the agent it still returns.
       run(`Starting ${input.name}`, async () => {
-        const created = await json<{ id: string }>("/api/coding-agents", {
+        const created = await json<{ id: string; areaError?: string }>("/api/coding-agents", {
           method: "POST",
           body: JSON.stringify({
             projectId,
             name: input.name,
             role: input.role,
+            areaId: input.areaId,
+            ...(input.persona ? { persona: input.persona } : {}),
             ...(input.capabilities ? { capabilities: input.capabilities } : {}),
           }),
         });
-        await json(`/api/coding-agents/${created.id}/area`, {
-          method: "PATCH",
-          body: JSON.stringify({ areaId: input.areaId }),
-        });
+        // The agent exists either way; say so rather than leaving it silently in no box.
+        if (created?.areaError) {
+          throw new Error(`${input.name} was hired but not placed: ${created.areaError}`);
+        }
       }),
-    addAgent: (input: { name: string; role: string; capabilities?: { images: boolean; voice: boolean } }) =>
+    addAgent: (input: { name: string; role: string; persona?: string; capabilities?: { images: boolean; voice: boolean } }) =>
       run("Adding", () =>
         json("/api/coding-agents", {
           method: "POST",
@@ -289,6 +303,7 @@ export function useAgents(projectId: string): AgentsData {
             projectId,
             name: input.name,
             role: input.role,
+            ...(input.persona ? { persona: input.persona } : {}),
             ...(input.capabilities ? { capabilities: input.capabilities } : {}),
           }),
         }),

@@ -21,7 +21,7 @@ import {
   type PresenceReport,
   type PresenceState,
 } from "./presence";
-import type { AgentView } from "../agents/types";
+import type { AgentView, DocumentFocusView } from "../agents/types";
 
 const NOW = 1_700_000_000_000;
 
@@ -199,5 +199,132 @@ describe("where reports come from, now that the mock is deleted", () => {
 
   test("no agents is no reports — the ordinary state of a fresh install", () => {
     expect(reportsFromAgents([], "chair_launch_plan")).toEqual([]);
+  });
+});
+
+/**
+ * The second source: a claim the agent made on purpose, through `report_document_focus`.
+ *
+ * This is the only thing on the page that can put colour over a user's prose, so the assertions
+ * below are about what must NOT be drawn as much as what must: a claim for another document, a
+ * range that covers nothing, a claim with no timestamp, and a claim measured against text that has
+ * since changed.
+ */
+describe("a focus claim is what puts a highlight on the text", () => {
+  const agent = (id: string, extra: Partial<AgentView> = {}): AgentView => ({
+    id,
+    name: id,
+    role: "writer",
+    status: "working",
+    ...extra,
+  });
+
+  const claiming = (extra: Partial<DocumentFocusView> = {}) =>
+    agent("agent_scribe", {
+      name: "Scribe",
+      activity: {
+        documentFocus: {
+          documentId: "chair_launch_plan",
+          from: 12,
+          to: 19,
+          kind: "writing",
+          reportedAt: new Date(NOW - 8_000).toISOString(),
+          ...extra,
+        },
+      },
+    });
+
+  test("the claimed range reaches the report, and the report is live", () => {
+    const [r] = reportsFromAgents([claiming()], "chair_launch_plan");
+    expect(r.lines).toEqual({ from: 12, to: 19 });
+    expect(r.kind).toBe("writing");
+    expect(r.reportedAt).toBe(NOW - 8_000);
+    expect(presenceState(r, 0, NOW)).toBe("live");
+    expect(drawsHighlight(presenceState(r, 0, NOW))).toBe(true);
+  });
+
+  test("a claim for another document does not place the agent in this one", () => {
+    const elsewhere = claiming({ documentId: "showroom_plan" });
+    expect(reportsFromAgents([elsewhere], "chair_launch_plan")).toEqual([]);
+  });
+
+  test("the version the claim was measured against travels with it", () => {
+    const [r] = reportsFromAgents([claiming({ documentVersion: 3 })], "chair_launch_plan");
+    expect(r.documentVersion).toBe(3);
+    expect(presenceState(r, 3, NOW)).toBe("live");
+  });
+
+  test("a claim against an OLDER document is not drawn — its lines point at the wrong text", () => {
+    const [r] = reportsFromAgents([claiming({ documentVersion: 3 })], "chair_launch_plan");
+    expect(presenceState(r, 7, NOW)).toBe("unknown");
+    expect(drawsHighlight(presenceState(r, 7, NOW))).toBe(false);
+  });
+
+  test("a claim that named no version carries none, rather than a fabricated 0", () => {
+    const [r] = reportsFromAgents([claiming()], "chair_launch_plan");
+    expect(r.documentVersion).toBeUndefined();
+    // A version of 0 would be compared against the document's and fail, hiding a live agent.
+    expect(presenceState(r, 7, NOW)).toBe("live");
+  });
+
+  test("a claim with no timestamp of its own is positioned but not fresh", () => {
+    const [r] = reportsFromAgents([claiming({ reportedAt: undefined })], "chair_launch_plan");
+    expect(r.lines).toEqual({ from: 12, to: 19 });
+    expect(r.reportedAt).toBeUndefined();
+    expect(presenceState(r, 0, NOW)).toBe("unknown");
+  });
+
+  test("the claim's own age is used, never the age of the agent's last activity", () => {
+    // The agent claimed lines ten minutes ago and has been busy elsewhere since. `updatedAt` moved;
+    // the claim did not. Reading `updatedAt` here would paint a ten-minute-old range as "working
+    // now" over prose the agent has not looked at since.
+    const stale = agent("a", {
+      activity: {
+        latestFile: "chair_launch_plan.md",
+        updatedAt: new Date(NOW).toISOString(),
+        documentFocus: {
+          documentId: "chair_launch_plan",
+          from: 12,
+          to: 19,
+          reportedAt: new Date(NOW - 5 * 60_000).toISOString(),
+        },
+      },
+    });
+    const [r] = reportsFromAgents([stale], "chair_launch_plan");
+    expect(r.reportedAt).toBe(NOW - 5 * 60_000);
+    expect(presenceState(r, 0, NOW)).toBe("stale");
+  });
+
+  test("only latestFile matches, so the report is still positionless — the old path is intact", () => {
+    const byFile = agent("a", {
+      activity: { latestFile: "/docs/chair_launch_plan.md", tool: "write", updatedAt: new Date(NOW).toISOString() },
+    });
+    const [r] = reportsFromAgents([byFile], "chair_launch_plan");
+    expect(r.lines).toBeUndefined();
+    expect(r.kind).toBe("write");
+    expect(r.reportedAt).toBe(NOW);
+    expect(presenceState(r, 0, NOW)).toBe("unknown");
+  });
+
+  test("a nonsense range is dropped to positionless rather than washing nothing in silence", () => {
+    // Each of these arrives from the network as a plain JSON object; none of them can be drawn.
+    const bad = [
+      claiming({ from: 0, to: 4 }),
+      claiming({ to: 3 }),
+      claiming({ from: Number.NaN }),
+      claiming({ to: "nineteen" as unknown as number }),
+    ];
+    for (const one of bad) {
+      const [r] = reportsFromAgents([{ ...one, activity: { ...one.activity, latestFile: "chair_launch_plan.md" } }], "chair_launch_plan");
+      expect(r.lines).toBeUndefined();
+      expect(presenceState(r, 0, NOW)).toBe("unknown");
+    }
+  });
+
+  test("a claim from a finished agent is history, not presence", () => {
+    const done = { ...claiming(), status: "complete" };
+    const [r] = reportsFromAgents([done], "chair_launch_plan");
+    expect(r.sessionRunning).toBe(false);
+    expect(presenceState(r, 0, NOW)).toBe("ended");
   });
 });

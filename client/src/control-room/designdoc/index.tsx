@@ -32,7 +32,7 @@ import { DraftDocument } from "./DraftDocument";
 import { DocumentSurface } from "./DocumentSurface";
 import { PresenceEntry, PresenceKey, areaBorder, areaGutter, areaText } from "./PresenceEntry";
 import { presenceState, type PresenceReport } from "./presence";
-import { useDesignDocs } from "./useDesignDocs";
+import { useDesignDocs, type DesignDocView } from "./useDesignDocs";
 import { useDocumentEditor } from "./useDocumentEditor";
 
 export type { DesignDocView } from "./useDesignDocs";
@@ -171,6 +171,7 @@ function DesignDocuments({ projectId, selectionId, onSelect }: WorkspacePageProp
           </span>
         )}
         <span className="flex-1" />
+        <StartWorking doc={doc} onChanged={refresh} />
         <span
           data-testid="doc-summary"
           className="flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-faint"
@@ -340,3 +341,181 @@ export const DESIGNDOCS_PAGE_SLOTS = {
   navigator: DesignDocumentsNavigator,
   inspector: DesignDocumentInspector,
 };
+
+// ─────────────────────────────────────────────────────────────────── STARTING THE WORK
+
+interface DispatchResult {
+  dispatched?: Array<{ agentId: string; agentName: string; areaName: string; hired: boolean; error?: string }>;
+  emptyAreaNames?: string[];
+}
+
+/**
+ * The control that turns a written document into work being done.
+ *
+ * Everything needed for this existed and none of it was connected: `/start` creates the project and
+ * its colour boxes, hiring puts an agent in a box, and a session can be opened and spoken to. What
+ * a user actually had to do was paste a document, switch to Agents, create an agent per box, open
+ * each one, and paste its instructions in by hand — five surfaces for one intention. The product's
+ * claim is that you write the brief and watch it get done, and the brief is on THIS page.
+ *
+ * Three states, because they are three different situations and merging any two of them lies:
+ *
+ *   no project        the document has not been started. One click makes the project and the boxes.
+ *   project, nobody   the boxes exist and are empty. The user is asked whether to staff them.
+ *   working           agents are running. Nothing is offered, because it is already happening.
+ *
+ * The staffing question is a question and not a default. Dispatching starts a real `grok` process
+ * per area and every one of them spends money, so it is never something that happens because you
+ * clicked "start". "Set it up for me" hires one agent per empty box and briefs them; "I will build
+ * the team" creates nothing and leaves you on the Agents board — which is what somebody who wants
+ * to choose each agent's capability needs, and choosing that is the whole point of the money dial.
+ */
+function StartWorking({ doc, onChanged }: { doc: DesignDocView; onChanged: () => void }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<DispatchResult | null>(null);
+
+  const post = async (path: string, body: unknown) => {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    const parsed = text ? JSON.parse(text) : null;
+    if (!res.ok) throw new Error(parsed?.error ?? `${res.status} ${res.statusText}`);
+    return parsed;
+  };
+
+  const act = async (label: string, fn: () => Promise<void>) => {
+    setBusy(label);
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Nothing follows this document yet: the first move is to make the project and its boxes, which
+  // costs nothing and starts no agent.
+  if (!doc.followedByProjectId) {
+    return (
+      <button
+        type="button"
+        data-testid="doc-start-project"
+        disabled={!!busy}
+        title="Create the project this document declares, with one empty box per area. No agent is started and nothing is spent."
+        onClick={() =>
+          void act("Starting", async () => {
+            await post(`/api/design-docs/${doc.id}/start`, {});
+            onChanged();
+          })
+        }
+        className="shrink-0 rounded border border-border-strong bg-surface-active px-2.5 py-1 text-[13px] text-ink disabled:opacity-40"
+      >
+        {busy ? "Starting…" : "Start this project"}
+      </button>
+    );
+  }
+
+  if (result) {
+    const started = (result.dispatched ?? []).filter((d) => !d.error);
+    const failed = (result.dispatched ?? []).filter((d) => d.error);
+    return (
+      <span data-testid="doc-dispatch-result" className="shrink-0 text-[12px] text-ink-faint">
+        {started.length > 0
+          ? `${started.length} ${started.length === 1 ? "agent is" : "agents are"} working${
+              started.some((d) => d.hired) ? `, ${started.filter((d) => d.hired).length} newly hired` : ""
+            }.`
+          : "Nobody was started."}
+        {/* Never silently. An area with nobody in it produces nothing, and the user is the only one
+            who can fix that. */}
+        {result.emptyAreaNames && result.emptyAreaNames.length > 0
+          ? ` Still empty: ${result.emptyAreaNames.join(", ")}.`
+          : ""}
+        {failed.length > 0 ? ` ${failed.length} could not start: ${failed[0].error}` : ""}
+      </span>
+    );
+  }
+
+  if (!asking) {
+    return (
+      <>
+        {error ? (
+          <span data-testid="doc-start-error" className="shrink-0 text-[12px] text-status-failed-ink">
+            {error}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          data-testid="doc-start-working"
+          disabled={!!busy}
+          onClick={() => setAsking(true)}
+          title="Brief every agent with its own section of this document and set it going"
+          className="shrink-0 rounded border border-border-strong bg-surface-active px-2.5 py-1 text-[13px] text-ink disabled:opacity-40"
+        >
+          Start working
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <div
+      data-testid="doc-start-choice"
+      className="flex shrink-0 items-center gap-1.5 rounded border border-border-strong px-2 py-1"
+    >
+      <span className="text-[12px] text-ink-faint">Who does the work?</span>
+      <button
+        type="button"
+        data-testid="doc-start-auto"
+        disabled={!!busy}
+        title="Hire one agent into every empty area, brief each with its own section, and start them. This spends money."
+        onClick={() =>
+          void act("Dispatching", async () => {
+            setResult(await post(`/api/design-docs/${doc.id}/dispatch`, { hire: true }));
+            setAsking(false);
+            onChanged();
+          })
+        }
+        className="rounded border border-border-strong bg-surface-active px-2 py-0.5 text-[12px] text-ink disabled:opacity-40"
+      >
+        {busy === "Dispatching" ? "Starting…" : "Set it up for me"}
+      </button>
+      <button
+        type="button"
+        data-testid="doc-start-manual"
+        disabled={!!busy}
+        title="Start only the agents you have already hired. Areas with nobody in them are left alone and named."
+        onClick={() =>
+          void act("Dispatching", async () => {
+            setResult(await post(`/api/design-docs/${doc.id}/dispatch`, { hire: false }));
+            setAsking(false);
+            onChanged();
+          })
+        }
+        className="rounded border border-border px-2 py-0.5 text-[12px] text-ink-faint hover:bg-surface-hover disabled:opacity-40"
+      >
+        Only who I hired
+      </button>
+      <button
+        type="button"
+        data-testid="doc-start-cancel"
+        disabled={!!busy}
+        onClick={() => setAsking(false)}
+        className="rounded border border-transparent px-1.5 py-0.5 text-[12px] text-ink-ghost hover:text-ink-faint disabled:opacity-40"
+      >
+        Not yet
+      </button>
+      {error ? (
+        <span data-testid="doc-start-error" className="text-[12px] text-status-failed-ink">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}

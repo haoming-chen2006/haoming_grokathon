@@ -199,6 +199,9 @@ function StartAgentHere({
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  // What the agent is for, in the user's words. It composes into the session's rules, so it is the
+  // difference between an agent that knows its job and one waiting to be told.
+  const [description, setDescription] = useState("");
   const [capability, setCapability] = useState<"base" | "images" | "voice" | "both">("base");
 
   if (!open) {
@@ -225,6 +228,7 @@ function StartAgentHere({
           // The area is the role. A separate role field would be a second name for the same thing,
           // and this agent exists to do this area's work.
           role: area.name,
+          ...(description.trim() ? { persona: description.trim() } : {}),
           ...(capability === "base"
             ? {}
             : {
@@ -235,6 +239,7 @@ function StartAgentHere({
               }),
         });
         setName("");
+        setDescription("");
         setCapability("base");
         setOpen(false);
       }}
@@ -247,6 +252,18 @@ function StartAgentHere({
         placeholder="Name this agent"
         aria-label="Agent name"
         className="rounded border border-border bg-surface px-2 py-1 text-[13px] text-ink placeholder:text-ink-ghost"
+      />
+      {/* Optional, and offered here rather than only later: an agent hired with no instruction has
+          to be told its job in a chat message before it can do anything, which is a second step
+          nobody realises they are about to need. It can still be rewritten from the inspector. */}
+      <textarea
+        data-testid={`start-agent-description-${area.id}`}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        rows={2}
+        placeholder="What should it do? (optional)"
+        aria-label="What this agent should do"
+        className="resize-none rounded border border-border bg-surface px-2 py-1 text-[13px] text-ink placeholder:text-ink-ghost"
       />
       <select
         data-testid={`start-agent-capability-${area.id}`}

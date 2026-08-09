@@ -24,7 +24,14 @@ import { assetRoutes } from "../../routes/assets";
 import { resetXaiClient, setXaiTransport, type XaiHttpRequest } from "../xai/client";
 import { setMediaDownloader } from "../xai/assets";
 import { TTS_USD_PER_CHARACTER } from "../xai/speech";
-import { chargeFromCostEvent, registerMediaTools, textFileNaming, type MediaToolContext } from "./media";
+import {
+  chargeFromCostEvent,
+  DELIVERABLE_TOOLS,
+  INLINE_TEXT_LIMIT,
+  registerMediaTools,
+  textFileNaming,
+  type MediaToolContext,
+} from "./media";
 
 const PROJECT = "proj_media";
 const AGENT = "agent_writer";
@@ -578,10 +585,12 @@ describe("MEDIA-6: refusals are clear, and nothing is ever charged at $0.00", ()
 // ─────────────────────────────────────────────────────────────────── capability is registration
 
 describe("a priced endpoint an agent may not reach is not registered at all", () => {
-  test("base Grok gets the three free tools and neither generator", async () => {
+  test("base Grok gets every free tool and neither generator", async () => {
     const client = await connect({ capabilities: { images: false, voice: false } });
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["create_deliverable", "list_deliverables", "write_text"]);
+    // Asserted against the exported list rather than a literal, so a tool added to one and not the
+    // other is a failure here instead of a tool `PROJECT_MCP_TOOLS` names and nobody registers.
+    expect(names).toEqual([...DELIVERABLE_TOOLS].sort());
   });
 
   test("images alone registers generate_image and withholds narrate", async () => {
@@ -622,5 +631,119 @@ describe("charges survive alongside the files they paid for", () => {
     // Read back from disk, not from memory: the charge writer is a second writer of an envelope
     // AssetStore owns, and the thing to prove is that it did not lose the file the store wrote.
     expect(existsSync(join(store.assetDir(asset.id), "asset.json"))).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────── reading a deliverable back out
+
+describe("an agent can open what is on the shelf", () => {
+  test("a text file it wrote comes back inline", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    await call(client, "write_text", { assetId: created.assetId, filename: "brief.md", text: "# Brief\n\nBody." });
+
+    const { data } = await call(client, "read_deliverable", { assetId: created.assetId });
+    expect(data.title).toBe("Brief");
+    expect(data.files).toHaveLength(1);
+    expect(data.files[0].text).toBe("# Brief\n\nBody.");
+    expect(data.files[0].mime).toBe("text/markdown");
+  });
+
+  test("a binary comes back as an absolute path that exists, and never as bytes", async () => {
+    respondWith(IMAGE_OK);
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    await call(client, "generate_image", { assetId: created.assetId, prompt: "one grey square" });
+
+    const { data } = await call(client, "read_deliverable", { assetId: created.assetId });
+    const file = data.files[0];
+    expect(file.mime).toBe("image/png");
+    expect(file.text).toBeUndefined();
+    // The path is what makes this tool useful: the agent's own read_file opens PDFs and images,
+    // and re-implementing extraction here would be a second, worse answer.
+    expect(file.path.startsWith("/")).toBe(true);
+    expect(existsSync(file.path)).toBe(true);
+    expect(readFileSync(file.path).byteLength).toBe(file.bytes);
+  });
+
+  test("the path names the file itself and sits under this asset's directory", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    const { data: written } = await call(client, "write_text", {
+      assetId: created.assetId,
+      filename: "notes.txt",
+      text: "hello",
+    });
+
+    const { data } = await call(client, "read_deliverable", { assetId: created.assetId });
+    // `AssetFile.path` is stored relative to the asset directory and would mean nothing in the
+    // agent's worktree, which is its cwd. What goes out has to be absolute.
+    expect(data.files[0].path).toBe(join(store.filesDir(created.assetId), `${written.fileId}.txt`));
+    expect(readFileSync(data.files[0].path, "utf8")).toBe("hello");
+  });
+
+  test("one file can be asked for by id", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    await call(client, "write_text", { assetId: created.assetId, filename: "a.md", text: "first" });
+    const { data: second } = await call(client, "write_text", { assetId: created.assetId, filename: "b.md", text: "second" });
+
+    const { data } = await call(client, "read_deliverable", { assetId: created.assetId, fileId: second.fileId });
+    expect(data.fileCount).toBe(2);
+    expect(data.files).toHaveLength(1);
+    expect(data.files[0].text).toBe("second");
+  });
+
+  test("a long text file is truncated with the count said out loud, never silently", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Long" });
+    const long = "x".repeat(INLINE_TEXT_LIMIT + 500);
+    await call(client, "write_text", { assetId: created.assetId, filename: "long.md", text: long });
+
+    const { data } = await call(client, "read_deliverable", { assetId: created.assetId });
+    expect(data.files[0].text).toHaveLength(INLINE_TEXT_LIMIT);
+    expect(data.files[0].truncated.characters).toBe(long.length);
+    expect(data.files[0].truncated.note).toContain(data.files[0].path);
+  });
+
+  test("another project's deliverable is refused in the same words as a missing one", async () => {
+    const client = await connect();
+    const theirs = store.createAsset({
+      projectId: "proj_someone_else",
+      type: "document",
+      title: "Theirs",
+      origin: "generated",
+      authorId: "agent_theirs",
+    });
+
+    const mine = await call(client, "read_deliverable", { assetId: theirs.id });
+    const absent = await call(client, "read_deliverable", { assetId: "asset_nope" });
+    expect(mine.isError).toBe(true);
+    expect(absent.isError).toBe(true);
+    // Identical, so an agent cannot tell "exists elsewhere" from "does not exist" and cannot probe.
+    expect(mine.data.error.replace(theirs.id, "ID")).toBe(absent.data.error.replace("asset_nope", "ID"));
+  });
+
+  test("a file id that is not on this asset is refused", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    const { isError } = await call(client, "read_deliverable", { assetId: created.assetId, fileId: "file_nope" });
+    expect(isError).toBe(true);
+  });
+
+  test("an envelope naming bytes that are gone reports it and still returns the others", async () => {
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    const { data: gone } = await call(client, "write_text", { assetId: created.assetId, filename: "gone.md", text: "x" });
+    await call(client, "write_text", { assetId: created.assetId, filename: "kept.md", text: "still here" });
+    rmSync(join(store.assetDir(created.assetId), "files", `${gone.fileId}.md`));
+
+    const { data } = await call(client, "read_deliverable", { assetId: created.assetId });
+    const missing = data.files.find((f: any) => f.fileId === gone.fileId);
+    const kept = data.files.find((f: any) => f.fileId !== gone.fileId);
+    expect(missing.unreadable).toBeTruthy();
+    expect(missing.text).toBeUndefined();
+    // The point of reporting rather than throwing: the readable file is still readable.
+    expect(kept.text).toBe("still here");
   });
 });

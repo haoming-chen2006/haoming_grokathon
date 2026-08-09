@@ -5,13 +5,22 @@
  * could read the project, change files in its worktree, submit for review and message other agents,
  * and at the end of all that the Assets page was still empty. The work existed; nothing shipped.
  *
- * Five tools close that:
+ * Six tools close that:
  *
  *   create_deliverable   start one of the five asset types and get its id
  *   write_text           put readable text on it — the tool that makes the product a product
  *   generate_image       $0.02 a picture, persisted, charged
  *   narrate              speech with its per-character timings kept
  *   list_deliverables    read the shelf, because an agent that can only write is half an agent
+ *   read_deliverable     open one, because a shelf you cannot take anything off is a catalogue
+ *
+ * ── Why `read_deliverable` had to exist ───────────────────────────────────────────────────────
+ * `loops/02-assets.md:23` states the loop's own scenario: "The research agent reads existing
+ * material *out of* the asset store." Nothing could. `list_deliverables` returned `fileId`, `role`,
+ * `mime` and `bytes` — enough to know a 41 KB PDF was there and no way whatsoever to open it — and
+ * `get_artifact` (`projectMcpServer.ts`) reads the *project store's* artifacts, a different record
+ * type that answers "not found" for every asset id. A user who uploaded two PDFs and `@`-mentioned
+ * them at an agent was mentioning something the agent could not reach.
  *
  * ── Identity is not a parameter ───────────────────────────────────────────────────────────────
  * `projectId` and `agentId` are bound when the server is constructed, from the URL the agent was
@@ -28,6 +37,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { readFileSync } from "fs";
 import { join } from "path";
 import {
   ASSET_TYPES,
@@ -64,7 +74,12 @@ export interface MediaToolContext {
  * and `VOICE_TOOLS`, which are gated, and a gated tool in the ungated list would be a tool the
  * capability check silently fails to withhold.
  */
-export const DELIVERABLE_TOOLS = ["create_deliverable", "write_text", "list_deliverables"] as const;
+export const DELIVERABLE_TOOLS = [
+  "create_deliverable",
+  "write_text",
+  "list_deliverables",
+  "read_deliverable",
+] as const;
 
 // ─────────────────────────────────────────────────────────────────────── tool result plumbing
 
@@ -209,6 +224,35 @@ export function textFileNaming(filename: string): { mime: string; ext: string } 
   return { mime: TEXT_MIME_BY_EXT[ext] ?? "text/plain", ext };
 }
 
+// ─────────────────────────────────────────────────────────────────────── reading a deliverable
+
+/**
+ * How much of a text file `read_deliverable` will inline before it stops and points at the path.
+ *
+ * A cap and not a refusal: the first 100k characters of a long document are usually the part that
+ * answers the question, and an agent that needs the rest has the path and its own `read_file`, which
+ * takes an offset. A tool that returned nothing at 100,001 characters would be worse than one that
+ * returns the beginning.
+ */
+export const INLINE_TEXT_LIMIT = 100_000;
+
+/**
+ * Whether this file's bytes are text we can put in a tool result.
+ *
+ * Decided from the mime the store recorded at write time, never from the extension: `persistFile`
+ * derives the extension *from* the mime, so the mime is the earlier fact and the one an uploaded
+ * file carries from the browser.
+ *
+ * Everything else — PDF, PPTX, XLSX, images, audio, video — comes back as a path instead, and that
+ * is not a shortfall. `read_file` in Grok Build extracts PDF and PPTX text itself
+ * (`.refs/grok-build/…/implementations/grok_build/read_file/mod.rs:431`), and images reach the model
+ * as images. Re-implementing document extraction on this side would produce a second, worse answer
+ * for formats the agent already reads better than we could.
+ */
+export function isInlineableText(mime: string): boolean {
+  return mime.startsWith("text/") || mime === "application/json" || mime === "image/svg+xml";
+}
+
 // ─────────────────────────────────────────────────────────────────────── registration
 
 export function registerMediaTools(server: McpServer, ctx: MediaToolContext): void {
@@ -340,6 +384,87 @@ export function registerMediaTools(server: McpServer, ctx: MediaToolContext): vo
             })),
             cost: summariseCharges(asset.charges),
           })),
+        };
+      }),
+  );
+
+  // ------------------------------------------------------------------ M-6
+
+  server.registerTool(
+    "read_deliverable",
+    {
+      description:
+        "Open a deliverable and read what is on it. Text files come back inline. Anything else — " +
+        "PDF, slides, spreadsheet, image, audio — comes back as an absolute path you open with " +
+        "your own read_file, which extracts PDF and PPTX text for you. Costs nothing.",
+      inputSchema: {
+        assetId: z
+          .string()
+          .describe("From list_deliverables, or from an asset: mention resolved in your message"),
+        fileId: z
+          .string()
+          .optional()
+          .describe("One file on the deliverable. Omit to get every file on it."),
+      },
+    },
+    async ({ assetId, fileId }) =>
+      guard(() => {
+        const asset = ownAsset(assetId);
+
+        // A named file that is not on this asset is the same refusal as a missing asset, and for
+        // the same reason: an agent must not be able to learn which file ids exist elsewhere.
+        const files = fileId ? asset.files.filter((f) => f.id === fileId) : asset.files;
+        if (fileId && files.length === 0) {
+          throw new Error(`No file ${fileId} on deliverable ${assetId}.`);
+        }
+
+        return {
+          assetId: asset.id,
+          type: asset.type,
+          title: asset.title,
+          origin: asset.origin,
+          version: asset.currentVersion,
+          producedByAgentId: asset.producedByAgentId,
+          declaredBy: asset.declaredBy,
+          fileCount: asset.files.length,
+          files: files.map((file) => {
+            // The absolute path, not the stored relative one. `AssetFile.path` is relative to the
+            // asset directory and means nothing in the agent's worktree, which is its cwd.
+            const path = join(store().assetDir(asset.id), file.path);
+            const base = {
+              fileId: file.id,
+              role: file.role,
+              mime: file.mime,
+              bytes: file.bytes,
+              sha256: file.sha256,
+              createdAt: file.createdAt,
+              // Readable because the sandbox profile is `workspace`, which confines writes to the
+              // agent's own area and leaves reads open (`server/services/acpClient.ts`). Under
+              // `strict` this path would be outside the agent's reach and the text below would be
+              // the only way in — which is why the text is inlined rather than only pointed at.
+              path,
+            };
+            if (!isInlineableText(file.mime)) return base;
+
+            let text: string;
+            try {
+              text = readFileSync(path, "utf8");
+            } catch (err) {
+              // The envelope says the file is there and the bytes are not. Reported, not thrown:
+              // the other files on the deliverable are still readable and still worth returning.
+              return { ...base, unreadable: err instanceof Error ? err.message : String(err) };
+            }
+            if (text.length <= INLINE_TEXT_LIMIT) return { ...base, text };
+            return {
+              ...base,
+              text: text.slice(0, INLINE_TEXT_LIMIT),
+              truncated: {
+                inlined: INLINE_TEXT_LIMIT,
+                characters: text.length,
+                note: `Inlined the first ${INLINE_TEXT_LIMIT} of ${text.length} characters. Read ${path} with an offset for the rest.`,
+              },
+            };
+          }),
         };
       }),
   );

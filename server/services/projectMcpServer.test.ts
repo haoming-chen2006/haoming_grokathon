@@ -289,3 +289,131 @@ describe("V-031: agent communication tools work through MCP", () => {
     expect(data.messageId).toBeTruthy();
   });
 });
+
+/**
+ * The tool that gives the design document its live highlights.
+ *
+ * Everything asserted here is about a range that will be DRAWN over a user's prose. A range that
+ * covers nothing, starts before line 1, or names a document this project does not follow is
+ * recorded as presence and then quietly fails to appear — the agent believes it reported its
+ * position and the user sees "position unknown" with nothing to explain the gap. So each of those
+ * is refused at the door, and refused with a sentence an agent can act on rather than retry.
+ */
+describe("report_document_focus records where an agent is working", () => {
+  const DOC = "auth-design";
+
+  beforeEach(() => {
+    // The project must follow a document before an agent can claim lines in one — that relation is
+    // what `startWork` records and what the design-documents page matches on.
+    store.setDesignDocId(projectId, DOC);
+  });
+
+  test("a valid claim reaches the agent's activity, verb and version included", async () => {
+    const { client } = await connect({ projectId, agentId: backendId });
+    const data = textOf(
+      await client.callTool({
+        name: "report_document_focus",
+        arguments: { documentId: DOC, fromLine: 12, toLine: 19, kind: "writing", documentVersion: 3 },
+      }),
+    );
+    expect(data.recorded).toContain("lines 12–19");
+    expect(data.recorded).toContain(DOC);
+
+    const focus = registry.get(backendId).activity.documentFocus;
+    expect(focus).toBeTruthy();
+    expect(focus).toMatchObject({ documentId: DOC, from: 12, to: 19, kind: "writing", documentVersion: 3 });
+    // Timestamped by the server, because presence freshness decides whether anything is drawn and
+    // an agent that timestamped its own claim could keep a highlight alive forever.
+    expect(Number.isNaN(Date.parse(focus!.reportedAt!))).toBe(false);
+  });
+
+  test("a claim that names no verb and no version records neither, rather than defaulting them", async () => {
+    const { client } = await connect({ projectId, agentId: backendId });
+    await client.callTool({
+      name: "report_document_focus",
+      arguments: { documentId: DOC, fromLine: 4, toLine: 4 },
+    });
+    const focus = registry.get(backendId).activity.documentFocus!;
+    // Not 0, and not "reading": a version of 0 would be checked against the real one and fail,
+    // hiding a live agent, and an invented verb is a sentence the agent never said.
+    expect("documentVersion" in focus).toBe(false);
+    expect("kind" in focus).toBe(false);
+    expect(focus.from).toBe(4);
+    expect(focus.to).toBe(4);
+  });
+
+  test("an inverted range is refused, not stored", async () => {
+    const { client } = await connect({ projectId, agentId: backendId });
+    const result: any = await client.callTool({
+      name: "report_document_focus",
+      arguments: { documentId: DOC, fromLine: 30, toLine: 12 },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result).error).toContain("before fromLine");
+    expect(registry.get(backendId).activity.documentFocus).toBeUndefined();
+  });
+
+  test("a range starting below line 1 is refused — document lines are 1-based", async () => {
+    const { client } = await connect({ projectId, agentId: backendId });
+    const result: any = await client.callTool({
+      name: "report_document_focus",
+      arguments: { documentId: DOC, fromLine: 0, toLine: 8 },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result).error).toContain("at least 1");
+    expect(registry.get(backendId).activity.documentFocus).toBeUndefined();
+  });
+
+  test("a document this project does not follow is refused, and says which one it does", async () => {
+    const { client } = await connect({ projectId, agentId: backendId });
+    const result: any = await client.callTool({
+      name: "report_document_focus",
+      arguments: { documentId: "some-other-plan", fromLine: 1, toLine: 2 },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result).error).toContain("some-other-plan");
+    expect(textOf(result).error).toContain(DOC);
+    expect(registry.get(backendId).activity.documentFocus).toBeUndefined();
+  });
+
+  test("a project following no document says so rather than accepting any id", async () => {
+    store.setDesignDocId(projectId, undefined);
+    const { client } = await connect({ projectId, agentId: backendId });
+    const result: any = await client.callTool({
+      name: "report_document_focus",
+      arguments: { documentId: DOC, fromLine: 1, toLine: 2 },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result).error).toContain("follows no design document");
+  });
+
+  test("reporting a new range replaces the old one whole, never merging two claims", async () => {
+    const { client } = await connect({ projectId, agentId: backendId });
+    await client.callTool({
+      name: "report_document_focus",
+      arguments: { documentId: DOC, fromLine: 12, toLine: 19, kind: "reading", documentVersion: 3 },
+    });
+    await client.callTool({
+      name: "report_document_focus",
+      arguments: { documentId: DOC, fromLine: 40, toLine: 41 },
+    });
+    const focus = registry.get(backendId).activity.documentFocus!;
+    expect(focus.from).toBe(40);
+    expect(focus.to).toBe(41);
+    // The first claim's verb and version must not survive onto the second range — that would be a
+    // claim assembled from two the agent never made together.
+    expect("kind" in focus).toBe(false);
+    expect("documentVersion" in focus).toBe(false);
+  });
+
+  test("the description tells an agent when to call it, since that is all a model reads", async () => {
+    const { client } = await connect({ projectId, agentId: backendId });
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "report_document_focus")!;
+    expect(tool.description).toContain("BEFORE you read");
+    expect(tool.description).toContain("writing");
+    expect(tool.inputSchema.properties).toHaveProperty("fromLine");
+    expect(tool.inputSchema.properties).toHaveProperty("toLine");
+    expect(tool.inputSchema.required).toEqual(expect.arrayContaining(["documentId", "fromLine", "toLine"]));
+  });
+});

@@ -6,6 +6,7 @@ import { estimateCost } from "./usageAccounting";
 import { getProjectStore } from "./projectStore";
 import { getPromptLibrary, rulesForAgent } from "./promptLibrary";
 import { buildTaskBriefing } from "./taskBriefing";
+import { withResolvedMentions } from "./mentionResolution";
 import { projectMcpUrl } from "../routes/mcp";
 import type { CodingAgent } from "../types/agent";
 
@@ -443,6 +444,23 @@ export class AcpSessionManager {
     return this.get(agentId).transcript.filter((line) => line.seq > sinceSeq);
   }
 
+  /**
+   * The prompt text, with any `@`-mentions in it resolved.
+   *
+   * Swallows its own failure on purpose. A message is the user asking for work and resolution is a
+   * convenience on top of it; an asset store that cannot be read must cost them the footer, not the
+   * message. The unresolved text is still a complete instruction — it is what was sent before this
+   * existed.
+   */
+  private withMentions(text: string, projectId: string): string {
+    try {
+      return withResolvedMentions(text, projectId);
+    } catch (err) {
+      log(`[mentions] resolution failed, sending the message as written: ${String(err)}`);
+      return text;
+    }
+  }
+
   /** Send a user message and stream the reply into the transcript. */
   async send(agentId: string, text: string): Promise<TranscriptEntry[]> {
     const entry = this.entries.get(agentId);
@@ -452,6 +470,9 @@ export class AcpSessionManager {
     if (!text?.trim()) throw new Error("Message text is required");
 
     const before = entry.seq;
+    // The transcript gets what the person wrote. `@` inserted `[@name](asset:id)` and the drawer
+    // draws that back as the link they clicked to make it, so rewriting it here would show them
+    // our footer as their own message.
     this.push(entry, "user", text);
     this.setState(entry, "working");
     try {
@@ -459,7 +480,11 @@ export class AcpSessionManager {
     } catch {}
 
     try {
-      const result = await entry.connection.prompt(text, { timeoutMs: 300_000 });
+      // The agent gets the mentions resolved. Without this the scheme is decoration: `asset:` means
+      // nothing outside this product and the id is opaque, so a mentioned deliverable was a thing
+      // the agent was told about and could not reach. See `mentionResolution.ts`.
+      const prompt = this.withMentions(text, entry.session.projectId);
+      const result = await entry.connection.prompt(prompt, { timeoutMs: 300_000 });
       // The turn is over, so the reply is finished. Anything the agent says next belongs to a
       // later turn and gets its own message.
       this.endTurn(entry);

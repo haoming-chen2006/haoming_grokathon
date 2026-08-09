@@ -69,6 +69,50 @@ export const AGENT_STATUS_PRESENTATION: Record<AgentRuntimeStatus, AgentStatusPr
   },
 };
 
+/**
+ * Where in a design document an agent says it is working, reported by the agent itself through
+ * the `report_document_focus` tool.
+ *
+ * **The whole claim or none of it.** `documentId`, `from` and `to` are required *inside* this
+ * object so that a range without a document, or a document without a range, cannot be written
+ * down: the design-document page draws this range over real prose, and a half-claim would either
+ * highlight the wrong document or highlight nothing while insisting someone is there. The optional
+ * part is the object itself — an agent that has not said where it is simply has no focus, which is
+ * the ordinary case and the one the page already renders as "position unknown".
+ *
+ * `kind` and `documentVersion` are separately optional because an agent may genuinely not say
+ * which verb it is doing or which version it measured against. Neither is defaulted: a claim with
+ * no version cannot be checked against the document and is not pretended to have passed a check,
+ * and a claim with no verb is drawn without one rather than being called "reading".
+ */
+export interface DocumentFocus {
+  /** The design document's id — its file's basename, as `/api/design-docs` publishes it. */
+  documentId: string;
+  /** First line of the claimed range. 1-based and inclusive, like every line number in this product. */
+  from: number;
+  /** Last line of the claimed range, inclusive. Equal to `from` for a single line. */
+  to: number;
+  /** The verb the agent claimed. Omitted when it did not say — never guessed from the tool it used. */
+  kind?: "reading" | "writing";
+  /**
+   * The document version this range was measured against.
+   *
+   * Omitted when the agent did not state one, and NEVER defaulted to 0: `presenceState` treats a
+   * report that makes no version claim as one that cannot be wrong about a version, while a
+   * fabricated `0` would be checked against the real version, fail, and hide a live agent.
+   */
+  documentVersion?: number;
+  /**
+   * When this claim was made, set by the server's clock rather than taken from the agent.
+   *
+   * It exists because `AgentActivity.updatedAt` is bumped by *every* activity update — a shell
+   * command, a changed file, a blocker — and a range is only as fresh as the moment it was
+   * reported. Without a timestamp of its own, an agent that claimed lines 12–19 ten minutes ago
+   * and has been busy elsewhere since would be drawn over those lines as "working now".
+   */
+  reportedAt?: string;
+}
+
 /** Observable coding activity surfaced in the UI (V-024). Every field is optional — the design
  * says "where available" — but the shape is fixed so the UI never invents values. */
 export interface AgentActivity {
@@ -79,6 +123,14 @@ export interface AgentActivity {
   taskId?: string;
   /** Most recently changed file. */
   latestFile?: string;
+  /**
+   * Which lines of which design document this agent last claimed.
+   *
+   * Replaced wholesale by each report rather than merged field by field — `updateActivity` spreads
+   * one activity over another, and spreading a new `from` onto an old `to` would assemble a range
+   * no agent ever claimed out of two it did.
+   */
+  documentFocus?: DocumentFocus;
   branch?: string;
   testsPassing?: number;
   testsTotal?: number;

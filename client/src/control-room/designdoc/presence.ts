@@ -183,21 +183,86 @@ export function documentIdOfPath(path: string): string | undefined {
   return file.slice(0, -3);
 }
 
+/** An ISO timestamp as milliseconds, or nothing. Never NaN, and never "now" for an unreadable one. */
+function parsedTime(value: string | undefined): number | undefined {
+  // The typeof check is not redundant with the signature: this reads a field of a JSON body, and
+  // `Date.parse` coerces whatever it is handed rather than refusing it.
+  if (typeof value !== "string" || value === "") return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** A focus claim, validated, in the vocabulary a `PresenceReport` uses. */
+interface FocusClaim {
+  lines: { from: number; to: number };
+  kind?: string;
+  documentVersion?: number;
+  reportedAt?: number;
+}
+
+/**
+ * The claim this agent made about THIS document, if it made one that can be drawn.
+ *
+ * Every field is checked rather than trusted. `AgentActivityView` describes a JSON body that
+ * arrived over the network, so `from` and `to` are whatever the server sent — and a NaN or a string
+ * reaching `coverage()` in `DocumentSurface.tsx` produces a comparison that is false for every
+ * block, which is a highlight that silently covers nothing. A claim that fails these checks is
+ * dropped here, so the agent falls back to the positionless report below and the page says
+ * "position unknown" instead of washing an empty set of lines.
+ *
+ * Anything the claim did not carry stays absent. A version of 0 or a verb of "reading" invented
+ * here would be indistinguishable, downstream, from one the agent actually reported.
+ */
+function focusOn(agent: AgentView, documentId: string): FocusClaim | undefined {
+  const focus = agent.activity?.documentFocus;
+  if (!focus || focus.documentId !== documentId) return undefined;
+
+  const { from, to, kind, documentVersion } = focus;
+  if (typeof from !== "number" || typeof to !== "number") return undefined;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return undefined;
+  // 1-based lines, ending at or after they start. `report_document_focus` refuses both of these on
+  // the way in; they are checked again because a record on disk predates any check the tool added.
+  if (from < 1 || to < from) return undefined;
+
+  const reportedAt = parsedTime(focus.reportedAt);
+  return {
+    lines: { from, to },
+    ...(typeof kind === "string" && kind !== "" ? { kind } : {}),
+    ...(typeof documentVersion === "number" && Number.isFinite(documentVersion)
+      ? { documentVersion }
+      : {}),
+    ...(reportedAt !== undefined ? { reportedAt } : {}),
+  };
+}
+
 /**
  * Who is in this document, derived from what agents actually report.
  *
- * **There is no presence service.** `server/services/presence.ts` and the `report_document_focus`
- * tool named in the design do not exist, so nothing on the server says "agent X is in document Y
- * at lines N–M". What DOES exist is `AgentActivity.latestFile` — the last file an agent touched,
- * reported by the agent itself — and a document that lives at a known path. An agent whose own
- * latest file IS this document is in this document; that is a derivation from two real fields, not
- * a guess.
+ * **Two real sources, and no third.** Neither is invented, and the difference between them is the
+ * difference between a highlight and a row that admits it has no position:
  *
- * What it cannot produce is the LINE RANGE, so every report from here is positionless and lands in
- * the `unknown` state: alive, in this document, has not said where. Nothing is highlighted in the
- * body for it, which is exactly right — a highlight needs a position, and there is none. The line
- * range is filed in loops/handoff/pivot-frontend.md; the day it arrives, `lines` is set here and
- * the body highlight that is already built starts drawing.
+ *   `AgentActivity.documentFocus`  the agent said, through the `report_document_focus` MCP tool,
+ *                                  which lines of which document it is in. This is a POSITION: it
+ *                                  carries a range, the verb the agent used, and the document
+ *                                  version it was measured against, so the body can draw it.
+ *   `AgentActivity.latestFile`     the last file the agent touched happens to BE this document.
+ *                                  That places the agent in the document and nowhere within it, so
+ *                                  the report is positionless and lands in the `unknown` state:
+ *                                  alive, in this document, has not said where. Nothing is drawn
+ *                                  over the text for it, which is exactly right.
+ *
+ * A focus claim wins when both are present, because one of them names lines and the other cannot.
+ * Its `reportedAt` is the claim's OWN timestamp and never `activity.updatedAt`: that field is
+ * bumped by every activity update an agent makes, so an agent that claimed lines 12–19 ten minutes
+ * ago and has been running shell commands since would otherwise be drawn over those lines as
+ * "working now". A claim carrying no timestamp of its own is left without one, which makes it
+ * `unknown` rather than fresh.
+ *
+ * The version a claim was made against is carried through untouched. `presenceState` refuses to
+ * draw a claim whose version is not the document's — but note that the DESIGN DOCUMENTS page has
+ * no document version to give it yet (`/api/design-docs` publishes text, sections and a
+ * declaration, and no version), so today that check is exercised by this module's tests and by any
+ * caller that knows the version, not by the page.
  *
  * A previous version of this page filled the gap with `mockPresence.ts`. That file is deleted: a
  * page that looks inhabited and is not hides the fact that nothing is wired.
@@ -205,17 +270,26 @@ export function documentIdOfPath(path: string): string | undefined {
 export function reportsFromAgents(agents: AgentView[], documentId: string): PresenceReport[] {
   const reports: PresenceReport[] = [];
   for (const agent of agents) {
+    const claim = focusOn(agent, documentId);
     const path = agent.activity?.latestFile;
-    if (!path || documentIdOfPath(path) !== documentId) continue;
-    const parsed = agent.activity?.updatedAt ? Date.parse(agent.activity.updatedAt) : undefined;
+    const byLatestFile = path !== undefined && documentIdOfPath(path) === documentId;
+    // Neither source places this agent here. Not in this document, so not in this list.
+    if (!claim && !byLatestFile) continue;
+
     reports.push({
       agentId: agent.id,
       agentName: agent.name,
       role: agent.role,
       costUsd: agent.costUsd,
-      kind: agent.activity?.tool,
+      // The verb the agent claimed, when it claimed one. `activity.tool` is the fallback and a
+      // weaker thing — the name of a tool it ran, not a statement about this document.
+      kind: claim?.kind ?? agent.activity?.tool,
       activity: agent.statusDetail ?? agent.activity?.command,
-      reportedAt: parsed === undefined || Number.isNaN(parsed) ? undefined : parsed,
+      ...(claim ? { lines: claim.lines } : {}),
+      ...(claim?.documentVersion !== undefined ? { documentVersion: claim.documentVersion } : {}),
+      // A positioned claim is only as fresh as the claim; a positionless one is as fresh as the
+      // activity that placed the agent in the document, which is what `updatedAt` timestamps.
+      reportedAt: claim ? claim.reportedAt : parsedTime(agent.activity?.updatedAt),
       // The session is what makes presence live. An agent that finished or failed is in the
       // document's history, not in the document.
       sessionRunning: agent.status !== "complete" && agent.status !== "failed",

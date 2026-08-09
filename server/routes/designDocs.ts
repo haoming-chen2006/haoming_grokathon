@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync, rmSync
 import { join } from "path";
 import { parseDeclaration, type DeclarationResult } from "../services/designDoc";
 import { startWork } from "../services/startWork";
+import { dispatchWork } from "../services/dispatchWork";
 import { getProjectStore } from "../services/projectStore";
 import { draftDesignDocument } from "../services/designDocDraft";
 
@@ -400,6 +401,47 @@ designDocRoutes.post("/:docId/start", async (c) => {
       repositoryPath: body?.repositoryPath,
     });
     return c.json(started, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+  }
+});
+
+/**
+ * Start the work the document describes: brief every agent and set it going.
+ *
+ * Separate from `/start`, which creates the project and its empty boxes, because the two answer
+ * different questions and the user is asked which they want. Starting a project is reversible and
+ * costs nothing; dispatching spends money on every agent it starts, so it is never the same click.
+ *
+ * `hire: true` fills any empty area with one agent first. That is the "set it up for me" path; with
+ * it off, empty areas are reported back by name and left alone, which is what somebody who wants to
+ * pick each agent's capability themselves needs.
+ */
+designDocRoutes.post("/:docId/dispatch", async (c) => {
+  const id = c.req.param("docId");
+  const doc = listDocuments().find((d) => d.id === id);
+  if (!doc) return c.json({ error: `No design document with id ${id}` }, 404);
+
+  const projectId = projectFollowing(id);
+  if (!projectId) {
+    return c.json(
+      {
+        error: `No project follows "${doc.title}" yet. Start the project first — that is what creates the areas an agent can be put in.`,
+        code: "NO_PROJECT",
+      },
+      409,
+    );
+  }
+
+  let body: { hire?: boolean } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // No body means do not hire: the safer of the two, since hiring is what starts spending.
+  }
+
+  try {
+    return c.json(dispatchWork({ projectId, documentId: id, hire: body?.hire === true }));
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
   }

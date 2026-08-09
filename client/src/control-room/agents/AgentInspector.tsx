@@ -291,8 +291,72 @@ function DismissAgent({ agent, onDelete }: { agent: AgentView; onDelete: () => P
   );
 }
 
+/**
+ * The agent's instructions, editable here and not only at hire time.
+ *
+ * It was write-once: a one-line form, filled in before you had watched the agent do anything, and
+ * then fixed forever. Watching an agent misread its job and having no way to correct it except
+ * deleting and re-hiring is the version of this that shipped.
+ *
+ * The note about when it applies is not a hedge. The text composes into `rules`, handed over at
+ * `session/new`, so a running agent keeps the instructions it started with — saying "saved" and
+ * nothing else would have the user watch it go on ignoring the words on its own card.
+ */
+function Description({ agent, onSave }: { agent: AgentView; onSave: (text: string) => Promise<void> }) {
+  const [draft, setDraft] = useState(agent.persona ?? "");
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Follow the record when a different agent is selected, or when the value changes underneath.
+  useEffect(() => {
+    setDraft(agent.persona ?? "");
+    setSaved(false);
+  }, [agent.id, agent.persona]);
+
+  const dirty = draft.trim() !== (agent.persona ?? "").trim();
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <textarea
+        data-testid="inspector-description"
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setSaved(false);
+        }}
+        rows={4}
+        placeholder="Nothing yet. Say what this agent is for and it will read it when it next starts."
+        aria-label={`What ${agent.name} should do`}
+        className="resize-none rounded border border-border bg-surface px-2 py-1.5 text-[13px] leading-snug text-ink placeholder:text-ink-ghost"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          data-testid="inspector-description-save"
+          disabled={!dirty || busy}
+          title={dirty ? "Save these instructions" : "Nothing has changed"}
+          onClick={() => {
+            setBusy(true);
+            void onSave(draft)
+              .then(() => setSaved(true))
+              .finally(() => setBusy(false));
+          }}
+          className="rounded border border-border-strong bg-surface-active px-2 py-1 text-[12px] text-ink disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {saved ? (
+          <span data-testid="inspector-description-saved" className="text-[11px] leading-snug text-ink-faint">
+            Saved. It reads this the next time its session starts.
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function AgentInspector({ projectId, selectionId, onSelect }: WorkspacePageProps) {
-  const { agents, areas, vocabulary, deleteAgent } = useAgents(projectId);
+  const { agents, areas, vocabulary, deleteAgent, setPersona } = useAgents(projectId);
   const presets = useCapabilityPresets();
 
   // One selection slot serves two kinds of object on this page — an area id filters the board, an
@@ -339,6 +403,10 @@ export function AgentInspector({ projectId, selectionId, onSelect }: WorkspacePa
           </span>
         </span>
       </div>
+
+      <Rule />
+      <Label>What it should do</Label>
+      <Description agent={agent} onSave={(text) => setPersona(agent.id, text)} />
 
       <Rule />
       <Label>What it can use</Label>

@@ -10,8 +10,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DesignDocsRail, NEW_DOCUMENT } from "./DesignDocsRail";
 import { DocumentSurface } from "./DocumentSurface";
 import { documentSpend } from "./index";
-import { presenceState, type PresenceReport } from "./presence";
+import { presenceState, reportsFromAgents, type PresenceReport } from "./presence";
 import type { DesignDocView } from "./useDesignDocs";
+import type { AgentView } from "../agents/types";
 
 afterEach(cleanup);
 
@@ -251,6 +252,42 @@ describe("agents appear in the margin, as comments", () => {
     render(<DocumentSurface doc={PLAN} reports={[SCRIBE]} stateOf={stateOf} now={NOW} />);
     fireEvent.click(screen.getByTestId("block-3-presence"));
     expect(screen.getByTestId("comment-agent_scribe").className).toContain("ring-accent/40");
+  });
+
+  /**
+   * The whole path, end to end: what an agent reported through `report_document_focus`, carried on
+   * its record, turned into a report, drawn over the prose.
+   *
+   * The tests above hand `DocumentSurface` a `PresenceReport` built by hand, which proves the body
+   * can draw a range but not that anything real ever reaches it. This one starts from an
+   * `AgentView` shaped exactly as `GET /api/coding-agents` returns it.
+   */
+  test("a focus claim an agent actually reported is drawn over the passage it names", () => {
+    const scribe: AgentView = {
+      id: "agent_scribe",
+      name: "Scribe",
+      role: "writer",
+      status: "working",
+      activity: {
+        documentFocus: {
+          documentId: "chair_launch_plan",
+          from: 3,
+          to: 4,
+          kind: "writing",
+          reportedAt: new Date(NOW - 8_000).toISOString(),
+        },
+      },
+    };
+    const reports = reportsFromAgents([scribe], PLAN.id);
+    render(<DocumentSurface doc={PLAN} reports={reports} stateOf={stateOf} now={NOW} />);
+
+    expect(screen.getByTestId("block-3-presence")).toBeTruthy();
+    expect(screen.queryByTestId("block-13-presence")).toBeNull();
+    // The claim carries no area, so the passage is marked in neutral ink rather than in a hue it
+    // has not earned — and the margin says what is happening in words either way.
+    const marked = screen.getByTestId("block-3-presence");
+    expect(marked.innerHTML).toContain("border-border-strong");
+    expect(screen.getByTestId("comment-agent_scribe").textContent).toContain("lines 3–4");
   });
 
   test("Open agent hands the id back rather than navigating on its own", () => {

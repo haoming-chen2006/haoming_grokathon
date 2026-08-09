@@ -672,6 +672,110 @@ export function createProjectMcpServer(ctx: ProjectMcpContext): McpServer {
   );
 
 
+  // ─────────────────────────── presence in the design document
+  //
+  // The one tool that lets an agent say WHERE it is working, not just what it touched.
+  //
+  // Until this existed the design-document page could only infer presence from
+  // `AgentActivity.latestFile` — enough to say "this agent is in this document", never enough to
+  // say which lines — so every entry landed in the `unknown` state and the highlight machinery in
+  // `DocumentSurface.tsx` had nothing to draw. Reporting is deliberately the agent's own act: the
+  // server cannot observe which paragraph a model is thinking about, and a range inferred from a
+  // file write would be a guess drawn over a user's prose in colour.
+
+  server.registerTool(
+    "report_document_focus",
+    {
+      description:
+        "Say which lines of the design document you are working in, so the user can see you there. " +
+        "Call this BEFORE you read a section, and again the moment you start writing one — the " +
+        "range you report is drawn over the real text on the DESIGN DOCUMENTS page, beside your " +
+        "name. Report a new range whenever you move; a range you never update is a claim that goes " +
+        "stale under the person reading it. Pass documentVersion when you know it, so a range " +
+        "measured against text that has since changed is shown as unpositioned rather than drawn " +
+        "over the wrong lines.",
+      inputSchema: {
+        documentId: z
+          .string()
+          .describe("The design document you are in — the id this project follows"),
+        fromLine: z.number().int().describe("First line of the range, 1-based and inclusive"),
+        toLine: z
+          .number()
+          .int()
+          .describe("Last line of the range, inclusive. Equal to fromLine for a single line."),
+        kind: z
+          .enum(["reading", "writing"])
+          .optional()
+          .describe("What you are doing there. Omit rather than guess — it is shown as a verb."),
+        documentVersion: z
+          .number()
+          .int()
+          .optional()
+          .describe("The document version this range was measured against, if you know it"),
+      },
+    },
+    async ({ documentId, fromLine, toLine, kind, documentVersion }) =>
+      guard(() => {
+        // Both bounds are checked before anything is recorded. A stored range with `to` before
+        // `from` covers no lines at all, so it would be filed as presence and then silently draw
+        // nothing — the agent would believe it had reported its position and the user would see
+        // "position unknown" with no explanation anywhere.
+        if (fromLine < 1) {
+          throw new Error(
+            `fromLine must be at least 1 — document lines are 1-based, and ${fromLine} is not a line.`,
+          );
+        }
+        if (toLine < fromLine) {
+          throw new Error(
+            `toLine ${toLine} is before fromLine ${fromLine}. A range ends at or after it starts; ` +
+              "pass toLine equal to fromLine for a single line.",
+          );
+        }
+
+        // Which document this project follows is the only document-identity the store knows —
+        // `startWork` records it and `server/routes/designDocs.ts` matches on the same field. An
+        // unchecked id would be recorded happily and then match no document on the page, so the
+        // claim would vanish with nothing reporting where it went.
+        const project = store().getProject(ctx.projectId);
+        if (project.designDocId === undefined) {
+          throw new Error(
+            `Project ${ctx.projectId} follows no design document, so there is nothing to report focus in.`,
+          );
+        }
+        if (project.designDocId !== documentId) {
+          throw new Error(
+            `Unknown document ${documentId}: this project follows ${project.designDocId}.`,
+          );
+        }
+
+        registry().updateActivity(ctx.agentId, {
+          documentFocus: {
+            documentId,
+            from: fromLine,
+            to: toLine,
+            // Spread-in rather than assigned, so an argument the agent did not pass stays absent
+            // from the record instead of being stored as an explicit `undefined` that serialises
+            // to `null` — a claim asserting it has no verb, rather than one that never said.
+            ...(kind !== undefined ? { kind } : {}),
+            ...(documentVersion !== undefined ? { documentVersion } : {}),
+            // The server's clock, not the agent's. Presence freshness decides whether a highlight
+            // is drawn at all, and an agent that could set its own timestamp could keep a range
+            // looking live forever.
+            reportedAt: new Date().toISOString(),
+          },
+        });
+
+        return {
+          recorded: `${kind ?? "focus"} in ${documentId}, lines ${fromLine}–${toLine}`,
+          documentId,
+          fromLine,
+          toLine,
+          ...(kind !== undefined ? { kind } : {}),
+          ...(documentVersion !== undefined ? { documentVersion } : {}),
+        };
+      }),
+  );
+
   // Typed attachment helpers. Thin wrappers over create_artifact so an agent reaching for the
   // name the design uses finds a tool rather than having to know the generic form.
   for (const [tool, kind, label] of [
@@ -758,6 +862,7 @@ export const PROJECT_MCP_TOOLS = [
   "attach_artifact_to_requirement",
   "revise_design_suggestion",
   "request_direct_document_permission",
+  "report_document_focus",
   "attach_test_report",
   "attach_api_contract",
   "attach_screenshot",

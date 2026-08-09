@@ -342,6 +342,24 @@ export class AgentRegistry {
     return this.list(projectId).filter((a) => !!a.acpSessionId && a.status !== "working");
   }
 
+  /**
+   * What this agent is for, in the user's own words.
+   *
+   * The field is `persona` because that is what composes into the session's `rules` — see
+   * `rulesForAgent`. It could be set when an agent was created and never afterwards, which made it
+   * a decision you had to get right in a one-line form before you had watched the agent do
+   * anything. Blank clears it rather than storing an empty instruction.
+   */
+  setPersona(agentId: string, persona: string | undefined): CodingAgent {
+    const agent = this.get(agentId);
+    const text = persona?.trim();
+    if (!text) delete agent.persona;
+    else agent.persona = text;
+    agent.updatedAt = nowIso();
+    this.touched();
+    return agent;
+  }
+
   /** Hire this agent into an area, or release it with undefined. */
   setArea(agentId: string, areaId: string | undefined): CodingAgent {
     const agent = this.get(agentId);
