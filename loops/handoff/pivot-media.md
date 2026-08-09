@@ -176,6 +176,49 @@ Four refusals it makes rather than obliging:
 `application/json` is readable as well as `text/*`, which is what makes the timings sidecar useful
 rather than merely stored.
 
+---
+
+## Iteration 4 — a billed generation that fails to store is still a charge
+
+Found by auditing rather than by a failure. `generateImage` and `generateSpeech` return only after
+api.x.ai has answered, so **every line after them is money already spent.** Storing could still
+fail afterwards, and the ways it fails are not exotic: the returned image URL is expiring by design
+(§3.5) so a slow download can 404 on something we paid for; a proxied body can arrive as
+`text/html`; a disk can be full. Left alone, each of those produced an asset with no file **and no
+charge** — the spend vanished from the page completely.
+
+`client.ts` already holds this line for the cost sink ("a call that failed after being billed is
+still a charge, and a charge the ledger never sees is exactly the hole this engine exists to
+close"), but that sink is a no-op until 06 wires the ledger, so the `AssetCharge` is the only place
+a user can see it. Both generators now store inside `storeAndCharge`, which records the charge on
+either path. A charge with **no `fileId`** is the shape of "billed, nothing stored" —
+`AssetCharge.fileId` is optional precisely so that state can be recorded rather than implied — and
+the refusal says `already billed … Retrying spends again`, so an agent does not read the failure as
+"nothing happened".
+
+The failure path obeys MEDIA-6 as well: an unpriced lost generation is still `costUsd: null`, never
+a fabricated zero. There is a test for that specifically.
+
+### R-5 · `server/services/xai/**` — a *billed API failure* still loses its charge
+
+Writing the test above made the remaining gap concrete, so it is stated rather than half-fixed.
+`storeAndCharge` covers "the call succeeded and storing failed". It does **not** cover "the call
+itself failed after being billed" — a moderation block, per §5.2, arrives as `invalid_argument`, and
+`client.ts` emits a cost event for it before throwing. That event carries the only record of the
+spend, `XaiError` does not carry the event, so no `AssetCharge` can be written and the money is
+invisible again.
+
+Two things are needed and neither is guesswork this worktree should do alone:
+
+1. **Evidence.** Does api.x.ai actually bill a moderation refusal? §5.2 says "retrying spends money
+   to be refused again", which is suggestive and not proof. The next live `invalid_argument`
+   response should be recorded verbatim — if it carries `usage.cost_in_usd_ticks`, the answer is
+   yes and this becomes urgent.
+2. **A carrier.** `XaiError` would need to hold the `CostEvent` the client already built, so a tool
+   can write the charge from the catch block. That is a small extension to `xai/types.ts` and
+   `client.ts` — both in this row — but it should not be built before (1) settles whether there is
+   anything to record.
+
 ## Requests still open
 
 ### R-1 · `server/services/assetStore.ts` — `AssetStore` needs `recordCharge()`

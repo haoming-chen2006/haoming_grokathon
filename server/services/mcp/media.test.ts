@@ -360,6 +360,72 @@ describe("MEDIA-3: generate_image stores a real image and records what it cost",
     expect(data.error).toContain("text/html");
     expect(store.getAsset(created.assetId).files).toHaveLength(0);
   });
+
+  test("a generation billed and then lost still records what it cost", async () => {
+    // The money is gone the moment api.x.ai answers. Everything after that — downloading an
+    // expiring URL, decoding, writing to disk — can still fail, and when it did, the asset ended up
+    // with no file AND no charge: the spend vanished from the page entirely. `client.ts` holds this
+    // line for the cost sink; the AssetCharge is the only place a user can actually see it.
+    respondWith({ data: [{ url: "https://cdn.invalid/i.png" }] });
+    setMediaDownloader(async () => new Response("<html>gateway</html>", {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    }));
+
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    const { isError, data } = await call(client, "generate_image", {
+      assetId: created.assetId,
+      prompt: "a grey square",
+    });
+
+    expect(isError).toBe(true);
+    const asset = store.getAsset(created.assetId);
+    expect(asset.files).toHaveLength(0);
+
+    // Billed, nothing stored: one charge, at the real price, pointing at no file.
+    expect(asset.charges).toHaveLength(1);
+    const [charge] = asset.charges;
+    expect(charge.costUsd).toBeCloseTo(0.02, 10);
+    expect(charge.fileId).toBeUndefined();
+    expect(charge.costSource).toBe("estimated");
+
+    // And the agent is told, so it does not read a failure as "nothing happened" and try again.
+    expect(data.error).toContain("already billed");
+    expect(data.error).toContain("Retrying spends again");
+  });
+
+  test("narrate does the same — it has two files to lose, not one", async () => {
+    // "=" is base64 padding and nothing else: a non-empty field that decodes to zero bytes. So the
+    // endpoint answered, was paid, and handed over an empty audio file — the failure lands in the
+    // storing half, after the money is gone, which is the path under test.
+    respondWith({ ...TTS_OK, audio: "=" });
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "workflow", title: "W" });
+    const { isError } = await call(client, "narrate", { assetId: created.assetId, text: "Hello there." });
+
+    expect(isError).toBe(true);
+    const asset = store.getAsset(created.assetId);
+    expect(asset.files).toHaveLength(0);
+    expect(asset.charges).toHaveLength(1);
+    expect(asset.charges[0].fileId).toBeUndefined();
+    expect(asset.charges[0].units).toEqual({ kind: "characters", count: 12 });
+  });
+
+  test("the charge for a lost generation is still never a fabricated zero", async () => {
+    // The failure path must obey MEDIA-6 too: unpriced stays null, not 0.
+    respondWith({ data: [{ url: "https://cdn.invalid/i.png" }] });
+    setMediaDownloader(async () => new Response("nope", { status: 404 }));
+
+    const client = await connect();
+    const { data: created } = await call(client, "create_deliverable", { type: "document", title: "Brief" });
+    await call(client, "generate_image", { assetId: created.assetId, prompt: "a grey square" });
+
+    for (const charge of store.getAsset(created.assetId).charges) {
+      const priced = charge.costSource !== "unknown";
+      expect(priced ? charge.costUsd !== 0 : charge.costUsd === null).toBe(true);
+    }
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────── MEDIA-4

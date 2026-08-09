@@ -199,6 +199,50 @@ export function recordCharge(
   return row;
 }
 
+/**
+ * Store what a generation produced, and make sure the charge lands whether that works or not.
+ *
+ * **The money is already gone by the time this runs.** `generateImage` and `generateSpeech` return
+ * only after api.x.ai has answered, so every line after them is spending someone has already been
+ * billed for. Storing can still fail afterwards, and the ways it fails are not exotic: the returned
+ * image URL is expiring by design (§3.5), so a slow download can 404 on something we paid for; a
+ * proxied body can arrive as `text/html`; a disk can be full. Left alone, each of those produced an
+ * asset with no file **and no charge** — the spend simply vanished from the page.
+ *
+ * `client.ts` already holds this line for the cost sink: "a call that failed after being billed is
+ * still a charge, and a charge the ledger never sees is exactly the hole this engine exists to
+ * close." The sink is a no-op until 06 wires the ledger, so the `AssetCharge` is the only place a
+ * user can see this, and it has to be written on the failure path too.
+ *
+ * A charge with no `fileId` is the shape of "billed, nothing stored" — `AssetCharge.fileId` is
+ * optional precisely so that state can be recorded rather than implied. The refusal says so, so an
+ * agent knows the money is gone and that retrying spends it again.
+ */
+async function storeAndCharge<T>(
+  store: AssetStore,
+  assetId: string,
+  charge: Omit<AssetCharge, "id" | "assetId" | "at">,
+  store_: () => Promise<{ value: T; fileId: string }>,
+): Promise<{ value: T; charge: AssetCharge }> {
+  try {
+    const { value, fileId } = await store_();
+    return { value, charge: recordCharge(store, assetId, { ...charge, fileId }) };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    try {
+      recordCharge(store, assetId, charge);
+    } catch {
+      // The envelope itself is unwritable — deleted mid-call, or the disk is gone. The original
+      // failure is the one worth reporting; masking it with a second one helps nobody.
+      throw err;
+    }
+    throw new Error(
+      `${reason} — this generation was already billed, so the charge is recorded on ${assetId} ` +
+        `with no file against it. Retrying spends again.`,
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────── filenames
 
 const TEXT_MIME_BY_EXT: Readonly<Record<string, string>> = {
@@ -465,36 +509,41 @@ export function registerMediaTools(server: McpServer, ctx: MediaToolContext): vo
             context: { projectId: ctx.projectId, agentId: ctx.agentId },
           });
 
-          // Verified before it is stored: a zero-byte body or a text/html error page is not a
-          // picture, however successful the status line was.
-          const { bytes, mimeType } = await materialiseGenerated(generated.payload, "image", "image");
-
-          const file = await persistFile(
-            {
-              assetId,
-              role: "image",
-              mime: mimeType,
-              bytes,
-              producedByAgentId: ctx.agentId,
-              capability: capabilityPreset(capabilities).id,
-              model: generated.model,
-              prompt,
-            },
+          // Everything past this line is spending that has already happened, so it runs inside
+          // storeAndCharge: the charge lands whether the bytes reach disk or not.
+          const { value: summary, charge } = await storeAndCharge(
             store(),
-          );
-          const summary = attach(assetId, file, `Generated image: ${headline(prompt)}`);
-
-          // The charge goes on *after* the file exists, and carries its id. A charge without a file
-          // is money we cannot point at anything for.
-          const charge = recordCharge(store(), assetId, {
-            ...chargeFromCostEvent(generated.costEvent, {
+            assetId,
+            chargeFromCostEvent(generated.costEvent, {
               agentId: ctx.agentId,
               operation: "image_generation",
               modelId: generated.model,
               units: { kind: "images", count: 1 },
             }),
-            fileId: file.id,
-          });
+            async () => {
+              // Verified before it is stored: a zero-byte body or a text/html error page is not a
+              // picture, however successful the status line was.
+              const { bytes, mimeType } = await materialiseGenerated(generated.payload, "image", "image");
+
+              const file = await persistFile(
+                {
+                  assetId,
+                  role: "image",
+                  mime: mimeType,
+                  bytes,
+                  producedByAgentId: ctx.agentId,
+                  capability: capabilityPreset(capabilities).id,
+                  model: generated.model,
+                  prompt,
+                },
+                store(),
+              );
+              return {
+                value: attach(assetId, file, `Generated image: ${headline(prompt)}`),
+                fileId: file.id,
+              };
+            },
+          );
 
           return { ...summary, model: generated.model, prompt, charge };
         }),
@@ -531,69 +580,78 @@ export function registerMediaTools(server: McpServer, ctx: MediaToolContext): vo
             context: { projectId: ctx.projectId, agentId: ctx.agentId },
           });
 
-          const { bytes, mimeType } = await materialiseGenerated(
-            { b64: spoken.b64, mimeType: spoken.mimeType },
-            "audio",
-            "narration",
-          );
-
-          const audio = await persistFile(
-            {
-              assetId,
-              role: "narration",
-              mime: mimeType,
-              bytes,
-              // The endpoint reports the spoken length; recording it means the page can say how
-              // long the narration runs without decoding the file to find out.
-              ...(spoken.durationSec !== null ? { durationSec: spoken.durationSec } : {}),
-              producedByAgentId: ctx.agentId,
-              capability: capabilityPreset(capabilities).id,
-              model: spoken.modelId,
-              prompt: text,
-            },
+          // As with generate_image: past this point the characters are paid for, so storing runs
+          // inside storeAndCharge. Narration has two files to land rather than one, so there is
+          // more that can fail after the money is gone, not less.
+          const { value, charge } = await storeAndCharge(
             store(),
-          );
-          const summary = attach(assetId, audio, `Narration (${spoken.voice}): ${headline(text)}`);
-
-          // The timings are stored as a file of their own rather than folded into the audio file's
-          // record, because they are the thing that will later sync narration to a slide build and
-          // they cost exactly as much to reacquire as the audio does. Kept verbatim: the field
-          // names are unverified, and a reshaping that guesses wrong throws away what it cost to
-          // learn.
-          const timings = await persistFile(
-            {
-              assetId,
-              role: "timings",
-              mime: "application/json",
-              // Plain `json` again. This asked for `timings.json` while `persistFile` wrote its
-              // provenance sidecar to `<fileId>.json` — the same path a stored JSON file gets, so
-              // the sidecar overwrote the file it described. The sidecar is now `<fileId>.meta.json`
-              // (handoff R-3, landed), and the workaround would only make the extension a lie.
-              ext: "json",
-              bytes: new TextEncoder().encode(JSON.stringify(spoken.timings, null, 2)),
-              producedByAgentId: ctx.agentId,
-              model: spoken.modelId,
-            },
-            store(),
-          );
-          attach(assetId, timings, `Per-character timings for ${audio.id}`);
-
-          const charge = recordCharge(store(), assetId, {
-            ...chargeFromCostEvent(spoken.costEvent, {
+            assetId,
+            chargeFromCostEvent(spoken.costEvent, {
               agentId: ctx.agentId,
               operation: "tts",
               modelId: spoken.modelId,
               units: { kind: "characters", count: spoken.characters },
             }),
-            fileId: audio.id,
-          });
+            async () => {
+              const { bytes, mimeType } = await materialiseGenerated(
+                { b64: spoken.b64, mimeType: spoken.mimeType },
+                "audio",
+                "narration",
+              );
+
+              const audio = await persistFile(
+                {
+                  assetId,
+                  role: "narration",
+                  mime: mimeType,
+                  bytes,
+                  // The endpoint reports the spoken length; recording it means the page can say how
+                  // long the narration runs without decoding the file to find out.
+                  ...(spoken.durationSec !== null ? { durationSec: spoken.durationSec } : {}),
+                  producedByAgentId: ctx.agentId,
+                  capability: capabilityPreset(capabilities).id,
+                  model: spoken.modelId,
+                  prompt: text,
+                },
+                store(),
+              );
+              const summary = attach(assetId, audio, `Narration (${spoken.voice}): ${headline(text)}`);
+
+              // The timings are stored as a file of their own rather than folded into the audio
+              // file's record, because they are what will later sync narration to a slide build and
+              // they cost exactly as much to reacquire as the audio does. Kept verbatim: a
+              // reshaping that guesses wrong throws away what it cost to learn.
+              const timings = await persistFile(
+                {
+                  assetId,
+                  role: "timings",
+                  mime: "application/json",
+                  // Plain `json` again. This asked for `timings.json` while `persistFile` wrote its
+                  // provenance sidecar to `<fileId>.json` — the same path a stored JSON file gets,
+                  // so the sidecar overwrote the file it described. The sidecar is now
+                  // `<fileId>.meta.json` (handoff R-3, landed) and the workaround would only make
+                  // the extension a lie.
+                  ext: "json",
+                  bytes: new TextEncoder().encode(JSON.stringify(spoken.timings, null, 2)),
+                  producedByAgentId: ctx.agentId,
+                  model: spoken.modelId,
+                },
+                store(),
+              );
+              attach(assetId, timings, `Per-character timings for ${audio.id}`);
+
+              // The charge points at the audio: that is what the characters bought. The timings
+              // came with it and cost nothing extra.
+              return { value: { summary, timingsFileId: timings.id }, fileId: audio.id };
+            },
+          );
 
           return {
-            ...summary,
+            ...value.summary,
             voice: spoken.voice,
             characters: spoken.characters,
             durationSec: spoken.durationSec,
-            timingsFileId: timings.id,
+            timingsFileId: value.timingsFileId,
             characterTimingCount: spoken.characterTimings?.length ?? null,
             charge,
           };
