@@ -65,6 +65,10 @@ export default {
           DEFAULT: token('accent'),
           muted: token('accent-muted'),
         },
+
+        // The chrome blue. Separate from the accent because the accent tints an area — see the
+        // note on --link in index.css.
+        'link': token('link'),
       },
 
       // Status and area resolve to a DIFFERENT value per utility — a pill's fill, its label and

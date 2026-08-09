@@ -28,24 +28,51 @@ export interface ShellData {
   projects: ShellProject[];
   activeProject?: ShellProject;
   notifications: ShellNotification[];
+  spend: ShellSpend;
   loading: boolean;
 }
 
 /**
- * The running spend.
+ * The running spend — three states, because two of them are not the same absence.
  *
- * `usageAccounting`'s DEFAULT_RATES holds only gpt-4o, gpt-4o-mini and gpt-4.1 — no Grok model —
- * so an unknown model returns costUsd 0 with rateKey null, and there is no ledger, only running
- * totals. In wave 1 every figure the product could show is very likely a fabricated $0.00.
+ * `none`  nothing has been charged to this project at all. The toolbar draws "—".
+ * `unpriced` money was spent and nothing could price it. The toolbar draws "unknown".
+ * `priced` a figure, optionally against a budget — and `unpriced` counts the charges NOT in it, so
+ *          a partial total announces itself as a floor rather than passing as a total.
  *
- * So the toolbar renders **unknown**, and this type has no number in it at all. That is not a
- * missing feature; a fabricated cost figure is the same defect as a fabricated affordance, and
- * `AgentCard.tsx` omits every field the server did not supply for the same reason. It becomes a
- * real number in wave 2 when 06-tools-cost lands the ledger, with no change to the shell.
+ * This used to be a constant: the toolbar rendered "unknown" on every page whatever had happened,
+ * because DEFAULT_RATES held no Grok model and a plausible $0.00 is the same defect as a fabricated
+ * affordance. It holds `grok-4.5` now, xAI bills media per unit, and a $0.02 image was invisible
+ * one second after it was generated. The rule that produced the constant is intact — what changed
+ * is that there is now something real to show, so showing nothing became the dishonest option.
  */
-export type ShellSpend = { known: false } | { known: true; usd: number; budgetUsd?: number };
+export type ShellSpend =
+  | { state: "none" }
+  | { state: "unpriced"; charges: number }
+  | { state: "priced"; usd: number; unpriced: number; budgetUsd?: number };
 
-export const UNPRICED: ShellSpend = { known: false };
+/** What the toolbar shows before `GET /api/projects/:id/spend` has answered. */
+export const UNPRICED: ShellSpend = { state: "none" };
+
+interface SpendResponse {
+  charges?: unknown;
+  unpriced?: unknown;
+  pricedUsd?: unknown;
+  budgetUsd?: unknown;
+}
+
+/** Validate the spend body before rendering money from it. `as T` on a network value blanks pages. */
+export function readSpend(body: SpendResponse | undefined): ShellSpend {
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  if (!body || typeof body !== "object") return { state: "none" };
+  const charges = num(body.charges);
+  if (charges === 0) return { state: "none" };
+  const unpriced = num(body.unpriced);
+  const usd = num(body.pricedUsd);
+  if (unpriced >= charges) return { state: "unpriced", charges };
+  const budgetUsd = typeof body.budgetUsd === "number" && body.budgetUsd > 0 ? body.budgetUsd : undefined;
+  return { state: "priced", usd, unpriced, ...(budgetUsd !== undefined ? { budgetUsd } : {}) };
+}
 
 async function getJson<T>(url: string): Promise<T | undefined> {
   try {
@@ -58,7 +85,12 @@ async function getJson<T>(url: string): Promise<T | undefined> {
 }
 
 export function useShellData(): ShellData {
-  const [data, setData] = useState<ShellData>({ projects: [], notifications: [], loading: true });
+  const [data, setData] = useState<ShellData>({
+    projects: [],
+    notifications: [],
+    spend: UNPRICED,
+    loading: true,
+  });
 
   useEffect(() => {
     let live = true;
@@ -94,8 +126,18 @@ export function useShellData(): ShellData {
         projects: list,
         activeProject: active,
         notifications,
+        spend: UNPRICED,
         loading: false,
       });
+
+      // Spend is fetched second and per project, so the shell renders the moment the project list
+      // arrives rather than waiting on a figure. There is nothing to ask for with no project.
+      if (!active) return;
+      const spend = await getJson<SpendResponse>(
+        `/api/projects/${encodeURIComponent(active.id)}/spend`,
+      );
+      if (!live) return;
+      setData((d) => ({ ...d, spend: readSpend(spend) }));
     })();
 
     return () => {

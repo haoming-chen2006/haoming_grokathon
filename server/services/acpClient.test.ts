@@ -19,7 +19,14 @@ function makeConn(onEvent?: (e: AcpEvent) => void, agentId = "test-agent") {
 
 describe("ACP launch arguments — verified against grok-build CLI parser", () => {
   test("matches the command required by the design document", () => {
-    expect([...ACP_ARGS]).toEqual(["--no-auto-update", "agent", "--always-approve", "stdio"]);
+    expect([...ACP_ARGS]).toEqual([
+      "--no-auto-update",
+      "--sandbox",
+      "workspace",
+      "agent",
+      "--always-approve",
+      "stdio",
+    ]);
   });
 
   test("agent options sit after `agent` and before the mode name", () => {

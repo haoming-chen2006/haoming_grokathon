@@ -15,17 +15,56 @@ export const JSONRPC_METHOD_NOT_FOUND = -32601;
 export const ACP_PROTOCOL_VERSION = 1;
 
 /**
+ * The sandbox profile every agent process runs under — **the area boundary (A-00).**
+ *
+ * The board header on every page promises "an agent can only change things inside its own area".
+ * Until this flag was passed, nothing enforced that. `server/services/boundary.ts` compared paths
+ * against an area root, but nothing called it: no PreToolUse hook was installed, and
+ * `--always-approve` below auto-approves every tool call. The promise was a caption.
+ *
+ * `--sandbox` is grok's own answer and it is a much stronger one than the check we wrote:
+ * `docs/user-guide/18-sandbox.md` applies it to the whole process at startup through Seatbelt on
+ * macOS and Landlock on Linux, so it covers `bash`, `rg`, subagents and any child process — not
+ * only the file tools a hook can see. It is irreversible once applied and it is saved with the
+ * session, so a resumed session comes back under the same confinement.
+ *
+ * `workspace` is the profile: read anywhere, write only to the process CWD plus `~/.grok` and the
+ * temp directories. The CWD an agent gets is its worktree (see `getAcpSessionManager`), so
+ * "writable" and "this agent's area" are the same directory by construction. `strict` additionally
+ * confines *reads* to the CWD, which would stop an agent reading the design document that briefs it
+ * — the document lives in the project store, not in the worktree — so it is the wrong trade here.
+ *
+ * Overridable by `GROK_SANDBOX`, which is grok's own environment variable for this and takes the
+ * same profile names, including a custom one from `.grok/sandbox.toml`. Setting it to `off` turns
+ * the boundary off; that is a deliberate act with a name, which is what it was missing.
+ */
+export const SANDBOX_PROFILE = process.env.GROK_SANDBOX || "workspace";
+
+/**
  * Launch arguments for Grok Build in ACP mode.
  *
  * Verified against the CLI parser in grok-build:
  *   `--no-auto-update` is a top-level flag on PagerArgs (app/cli.rs:729-730, hidden from --help)
+ *   `--sandbox <PROFILE>` is a top-level flag too — it is absent from `grok agent --help` and must
+ *     precede the subcommand. Confirmed by handshaking `initialize` against
+ *     `grok --no-auto-update --sandbox workspace agent --always-approve stdio`, which returns the
+ *     usual agentCapabilities and writes a `ProfileApplied … "enforced":true` line to
+ *     `~/.grok/sandbox-events.jsonl`.
  *   `agent` -> AgentArgs (cli.rs:254) -> AgentCmd::stdio (cli.rs:331)
  *
  * `--always-approve` is required for unattended operation: without it, tool calls block on
  * interactive permission prompts (docs/user-guide/15-agent-mode.md:9-17). Agent options must
- * appear after `agent` and before the mode name (agent-mode.md:57).
+ * appear after `agent` and before the mode name (agent-mode.md:57). It approves *permission*
+ * prompts; it cannot approve past the kernel, which is why the sandbox and not a permission rule is
+ * what the boundary is built on.
  */
-export const ACP_ARGS = ["--no-auto-update", "agent", "--always-approve", "stdio"] as const;
+export const ACP_ARGS = [
+  "--no-auto-update",
+  ...(SANDBOX_PROFILE === "off" ? [] : ["--sandbox", SANDBOX_PROFILE]),
+  "agent",
+  "--always-approve",
+  "stdio",
+] as const;
 
 export type AcpSessionUpdateKind =
   | "agent_message_chunk"

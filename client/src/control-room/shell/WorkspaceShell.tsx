@@ -23,7 +23,7 @@ import { PAGES, TOOLS_PANEL } from "./pages";
 import { INSPECTOR, NAVIGATOR, RAIL, layout, useRegion } from "./regions";
 import { useWorkspaceRoute } from "./router";
 import { useTheme } from "./theme";
-import { UNPRICED, useShellData, type ShellNotification, type ShellSpend } from "./useShellData";
+import { useShellData, type ShellNotification, type ShellSpend } from "./useShellData";
 
 /** Section label: mono, small, tracked, quiet. Both wireframes use it for every region heading. */
 function SectionLabel({ children }: { children: string }) {
@@ -33,45 +33,63 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 /**
- * The running spend.
+ * The running spend, as all four mockups draw it: a mono `PROJECT SPEND`, the figure, and a 96px
+ * meter against the budget.
  *
- * Renders "unknown", never $0.00. usageAccounting's DEFAULT_RATES holds no Grok model, so in wave 1
- * an unpriced turn is the normal case and a plausible-looking zero would be a fabricated figure —
- * the same defect as a fabricated affordance.
+ * Three outcomes, because two of them are different absences and only one is a number:
  *
- * The label comes from design-document.html, which prefixes the figure with a mono `PROJECT SPEND`
- * where assets-page.html leaves it bare. Labelled won: a bare "$18.40 / $50.00" floating in a
- * toolbar has to be decoded, and it is the one number §3.1 puts on every page precisely because a
- * 60-second generated experience costs ~$5.52 in media alone. It also makes the unpriced case
- * readable — "PROJECT SPEND unknown" says what is unknown, where a bare "unknown" does not.
+ *   —        nothing has been charged to this project. Not $0.00, which reads as "we counted".
+ *   unknown  money was spent and nothing could price it.
+ *   $x / $y  a real figure. When part of the total is unpriced it says so in the title, because a
+ *            partial sum shown as a total under-reports a bill that runs while nobody watches.
+ *
+ * assets-page.html leaves the figure bare and design-document.html labels it; labelled won. It is
+ * the one number §3.1 puts on every page precisely because a 60-second generated experience costs
+ * ~$5.52 in media alone, and "PROJECT SPEND unknown" says what is unknown where a bare "unknown"
+ * does not.
  */
 function Spend({ spend }: { spend: ShellSpend }) {
+  const partial =
+    spend.state === "priced" && spend.unpriced > 0
+      ? ` ${spend.unpriced} charge${spend.unpriced === 1 ? "" : "s"} could not be priced, so this is a floor rather than the total.`
+      : "";
   return (
-    <div data-testid="toolbar-spend" className="flex items-baseline gap-2">
+    <div data-testid="toolbar-spend" className="flex items-baseline gap-[7px]">
       <span className="font-mono text-[9px] uppercase tracking-[0.07em] text-ink-ghost">
         Project spend
       </span>
-      {spend.known ? (
+      {spend.state === "priced" ? (
         <>
-          <span className="font-mono text-[11px] text-ink-muted">
+          <span
+            className="font-mono text-[11px] text-ink-muted"
+            title={`Charged so far.${partial}`}
+          >
             ${spend.usd.toFixed(2)}
             {spend.budgetUsd ? ` / $${spend.budgetUsd.toFixed(2)}` : ""}
+            {partial ? "+" : ""}
           </span>
           {spend.budgetUsd ? (
             <span className="h-[7px] w-24 self-center overflow-hidden rounded border border-border-strong">
               <span
-                className="block h-full bg-accent"
+                className="block h-full bg-link"
                 style={{ width: `${Math.min(100, (spend.usd / spend.budgetUsd) * 100)}%` }}
               />
             </span>
           ) : null}
         </>
-      ) : (
+      ) : spend.state === "unpriced" ? (
         <span
           className="font-mono text-[11px] text-ink-faint"
-          title="No rate is known for the models this workspace drives, so the total cannot be priced yet."
+          title={`${spend.charges} charge${spend.charges === 1 ? " was" : "s were"} recorded and no rate could price ${spend.charges === 1 ? "it" : "them"}, so the total is not known.`}
         >
           unknown
+        </span>
+      ) : (
+        <span
+          className="font-mono text-[11px] text-ink-ghost"
+          title="Nothing has been charged to this project yet."
+        >
+          —
         </span>
       )}
     </div>
@@ -166,30 +184,39 @@ function ResizeHandle({
 }
 
 /**
- * The page list.
+ * The page strip — a horizontal row under the toolbar, above the three regions.
  *
- * Three headline pages above a divider, two secondary below it. The divider costs one border and
- * is how a first-time user knows where to look; secondary means the product is coherent without
- * those pages, not that they are half-built.
+ * **All four mockups draw it this way and none of them puts the pages in the navigator.** It used
+ * to live in the navigator on the strength of one line in the published contract
+ * (`PageDescriptor.navigator` renders "beneath the page selector"), which is a statement about
+ * ordering within a region and was read as a statement about which region. The cost of the wrong
+ * reading was structural rather than cosmetic: the navigator is the page's own list — assets,
+ * documents, people — and putting a second, global list above it meant every page opened with two
+ * lists stacked on top of each other, one of which never changed.
  *
- * Both wireframes give headline pages a bordered pill at the full type size and secondary pages
- * plain quieter text one step down, with a rule between. That treatment is adopted; its
- * *placement* is §3.1's — in the navigator, not in a horizontal strip — because the published
- * contract already says `PageDescriptor.navigator` renders "beneath the page selector".
+ * The treatment is the mockups': three headline pages as bordered pills carrying a small square,
+ * a rule, then two secondary pages as quieter text, then Tools pushed to the far end. Secondary
+ * means the product is coherent without those pages, not that they are half-built — and a
+ * secondary page that IS selected takes the pill too (users-page.html), because "you are here"
+ * outranks rank.
  */
-function PageSelector({
+function PageStrip({
   active,
   onPick,
+  toolsOpen,
+  onTools,
 }: {
   active: string;
   onPick: (page: PageDescriptor) => void;
+  toolsOpen: boolean;
+  onTools: () => void;
 }) {
   const headline = PAGES.filter((p) => p.rank === "headline");
   const secondary = PAGES.filter((p) => p.rank === "secondary");
 
-  const row = (page: PageDescriptor) => {
+  const tab = (page: PageDescriptor) => {
     const isActive = page.id === active;
-    const base = "flex w-full items-center gap-2 rounded-md px-3 text-left";
+    const selected = "border border-link bg-link/[0.14] text-ink";
     return (
       <button
         key={page.id}
@@ -197,29 +224,88 @@ function PageSelector({
         data-testid={`page-${page.id}`}
         aria-current={isActive ? "page" : undefined}
         onClick={() => onPick(page)}
+        title={`Go to ${page.label}`}
         className={
           page.rank === "headline"
-            ? `${base} border py-[7px] text-[15px] ${
-                isActive
-                  ? "border-accent bg-accent/10 text-ink"
-                  : "border-border text-ink-muted hover:bg-surface-hover"
+            ? `flex items-center gap-2 rounded-[7px] px-4 py-[7px] text-[15px] ${
+                isActive ? selected : "border border-border-strong text-ink-muted hover:bg-surface-hover"
               }`
-            : `${base} py-1.5 text-[14px] ${
-                isActive ? "text-ink" : "text-ink-faint hover:bg-surface-hover"
-              }`
+            : isActive
+              ? `rounded-[7px] px-3.5 py-[7px] text-[14px] ${selected}`
+              : "rounded-[7px] px-3 py-[7px] text-[14px] text-ink-faint hover:bg-surface-hover"
         }
       >
+        {/* The mockups mark a headline page with a small square; a secondary page carries none. */}
+        {page.rank === "headline" ? (
+          <span
+            aria-hidden="true"
+            className={`h-[14px] w-[14px] rounded-[3px] border ${
+              isActive ? "border-ink/60" : "border-border-strong"
+            }`}
+          />
+        ) : null}
         {page.label}
       </button>
     );
   };
 
   return (
-    <nav data-testid="page-selector" aria-label="Pages" className="flex flex-col gap-1.5">
-      {headline.map(row)}
-      <div data-testid="navigator-divider" className="my-1.5 h-px bg-border" />
-      {secondary.map(row)}
+    <nav
+      data-testid="page-selector"
+      aria-label="Pages"
+      className="flex shrink-0 items-center gap-2 border-b border-border px-3.5 py-2"
+    >
+      {headline.map(tab)}
+      <span aria-hidden="true" data-testid="page-strip-divider" className="mx-1.5 h-[22px] w-px bg-border-strong" />
+      {secondary.map(tab)}
+      <div className="flex-1" />
+      <button
+        type="button"
+        data-testid="tools-open"
+        onClick={onTools}
+        aria-expanded={toolsOpen}
+        title="Prompts and skills, over whatever page you are on"
+        className="flex items-center gap-2 rounded-[7px] border border-border-strong px-3.5 py-[7px] text-[14px] text-ink-muted hover:bg-surface-hover"
+      >
+        Tools
+        <span aria-hidden="true" className="font-mono text-[10px] text-ink-ghost">⌘T</span>
+      </button>
     </nav>
+  );
+}
+
+/**
+ * The two small squares the toolbar opens with in every mockup.
+ *
+ * Drawn there as decoration; built here as the region toggles, because that is the only thing two
+ * squares at the left of a three-region window can honestly mean, and the regions were otherwise
+ * collapsible only by double-clicking a 1px rule nobody finds.
+ */
+function RegionToggles({
+  navigator,
+  inspector,
+}: {
+  navigator: { collapsed: boolean; toggle(): void };
+  inspector: { collapsed: boolean; toggle(): void };
+}) {
+  const square = (side: "navigator" | "inspector", region: { collapsed: boolean; toggle(): void }) => (
+    <button
+      key={side}
+      type="button"
+      data-testid={`toggle-${side}`}
+      onClick={region.toggle}
+      aria-pressed={!region.collapsed}
+      title={`${region.collapsed ? "Show" : "Hide"} the ${side}`}
+      className={`h-[13px] w-[13px] rounded-[3px] border ${
+        region.collapsed ? "border-border-strong" : "border-border-strong bg-ink-ghost"
+      }`}
+    />
+  );
+  return (
+    <div className="flex gap-[5px]">
+      {square("navigator", navigator)}
+      {square("inspector", inspector)}
+    </div>
   );
 }
 
@@ -483,50 +569,49 @@ export function WorkspaceShell() {
         data-testid="toolbar"
         className="flex h-11 shrink-0 items-center gap-3.5 border-b border-border px-3.5 text-[15px]"
       >
-        <span className="text-ink-muted">grok-workspace</span>
-        <span aria-hidden="true" className="text-ink-ghost">·</span>
-        <span data-testid="toolbar-project" className="min-w-0 truncate text-ink">
-          {project ? project.name : data.loading ? "" : "No project yet"}
-        </span>
+        <RegionToggles navigator={navigator} inspector={inspector} />
         {/*
-          The switcher both wireframes draw as a ▾ beside the project name. It was not built, and
-          the shell always selected the oldest project on the machine — so a workspace with
-          twenty-three projects could reach exactly one of them, and creating a new one looked like
-          it had failed. Selection lives in the URL, so this is a link, not state.
+          The project, as a bordered pill with a ▾ — the shape all four mockups draw, and a real
+          switcher underneath it. The shell used to select the oldest project on the machine with
+          no way to change that, so a workspace with twenty-three projects could reach exactly one
+          of them and creating a new one looked like it had failed. Selection lives in the URL, so
+          this is a link, not state. With one project there is nothing to switch to, so the pill
+          carries no ▾ and no control that does nothing.
         */}
-        {data.projects.length > 1 ? (
-          <select
-            data-testid="project-switcher"
-            aria-label="Switch project"
-            value={project?.id ?? ""}
-            onChange={(e) => {
-              const url = new URL(location.href);
-              url.searchParams.set("project", e.target.value);
-              location.assign(url.toString());
-            }}
-            className="max-w-[13rem] rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-ink-faint"
-          >
-            {data.projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        ) : null}
+        <div
+          data-testid="toolbar-project"
+          className="relative flex min-w-0 items-center gap-2 rounded-[7px] border border-border-strong px-2.5 py-[5px]"
+        >
+          <span className="min-w-0 truncate text-ink">
+            {project ? project.name : data.loading ? "" : "No project yet"}
+          </span>
+          {data.projects.length > 1 ? (
+            <>
+              <span aria-hidden="true" className="text-[12px] text-ink-faint">▾</span>
+              <select
+                data-testid="project-switcher"
+                aria-label="Switch project"
+                value={project?.id ?? ""}
+                onChange={(e) => {
+                  const url = new URL(location.href);
+                  url.searchParams.set("project", e.target.value);
+                  location.assign(url.toString());
+                }}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              >
+                {data.projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : null}
+        </div>
         <div className="flex-1" />
-        <Spend spend={UNPRICED} />
+        <Spend spend={data.spend} />
         <span aria-hidden="true" className="h-4 w-px bg-border" />
         <Help />
-        <button
-          type="button"
-          data-testid="tools-open"
-          onClick={() => openTools("prompts")}
-          aria-expanded={route.tools !== undefined}
-          className="flex items-center gap-2 rounded-md border border-border px-3 py-1 text-[14px] text-ink-muted hover:bg-surface-hover"
-        >
-          Tools
-          <span aria-hidden="true" className="font-mono text-[10px] text-ink-ghost">⌘T</span>
-        </button>
         <button
           type="button"
           data-testid="theme-toggle"
@@ -538,6 +623,13 @@ export function WorkspaceShell() {
         </button>
       </header>
 
+      <PageStrip
+        active={page.id}
+        onPick={(p) => go(p.id)}
+        toolsOpen={route.tools !== undefined}
+        onTools={() => openTools("prompts")}
+      />
+
       <Notifications items={data.notifications} />
 
       <div className="flex min-h-0 flex-1">
@@ -548,19 +640,25 @@ export function WorkspaceShell() {
             data-testid="navigator"
             aria-label="Navigator"
             style={{ width: widths.navigator }}
-            className="flex shrink-0 flex-col gap-2.5 overflow-y-auto px-3 py-3.5"
+            className="flex shrink-0 flex-col gap-2 overflow-y-auto px-2.5 py-3"
           >
-            <PageSelector active={page.id} onPick={(p) => go(p.id)} />
-            <div className="h-px bg-border" />
-            <SectionLabel>{page.label}</SectionLabel>
+            {/*
+              The page's own list and nothing above it. Every mockup's navigator opens with that
+              page's search box — "Search agents", "Search design documents", "Search people" — so
+              a heading naming the page you just clicked is a row of chrome between the user and
+              the first control. The label survives only where there is no list to head.
+            */}
             {page.navigator ? (
               // Rendered as an element, not called — see Slot. A navigator with hooks called inline
               // would put them on the shell's hook list and blank the page on the next switch.
               <Slot component={page.navigator} page={page} what={`${page.label}'s list`} props={pageProps} />
             ) : (
-              <p className="text-[13px] text-ink-faint">
-                This page's list arrives with {page.builtBy ?? "its branch"}.
-              </p>
+              <>
+                <SectionLabel>{page.label}</SectionLabel>
+                <p className="text-[13px] text-ink-faint">
+                  This page's list arrives with {page.builtBy ?? "its branch"}.
+                </p>
+              </>
             )}
           </aside>
         )}

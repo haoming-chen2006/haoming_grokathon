@@ -13,18 +13,19 @@ import {
   canonical,
   capabilityLabel,
   capabilityPreset,
-  isInsideRoot,
   mediaToolsForCapability,
   mediaToolsWithheldByCapability,
 } from "./boundary";
+import { ACP_ARGS, SANDBOX_PROFILE } from "./acpClient";
 import { PROJECT_MCP_TOOLS } from "./projectMcpServer";
 
 /**
- * AGENTS-001, second clause: a symlink inside the root pointing outside it is resolved before any
- * comparison.
+ * AGENTS-001, second clause: a symlink is resolved before an area root is ever stored or compared.
  *
- * Each escape probe here asserts the naive string comparison *first*, so the test records what the
- * guard is actually preventing. A boundary you cannot make fail proves nothing when it passes.
+ * The path *comparison* this file used to hold is gone — the boundary is `--sandbox`, asserted at
+ * the bottom of this file. What survives is `canonical`, which `workArea.ts` uses to store one
+ * directory under one name, and the reasons it has to: on macOS `/var` is a symlink to
+ * `/private/var`, so one area has two spellings unless something resolves them.
  */
 
 let root: string;
@@ -58,26 +59,18 @@ describe("canonical", () => {
   });
 });
 
-describe("isInsideRoot", () => {
-  test("the root itself and a file within it are inside", () => {
-    writeFileSync(join(root, "brief.md"), "x");
-    expect(isInsideRoot(root, root)).toBe(true);
-    expect(isInsideRoot(root, join(root, "brief.md"))).toBe(true);
-    expect(isInsideRoot(root, join(root, "nested", "not-created-yet.md"))).toBe(true);
-  });
-
-  test("a symlink inside the root pointing outside it is refused", () => {
+describe("canonical resolves the two ways one area gets two names", () => {
+  test("a symlink inside the root resolves to where it actually points", () => {
     symlinkSync(outside, join(root, "escape"));
     const target = join(root, "escape", "stolen.txt");
 
-    // The escape probe: as strings this path is inside the root, which is why the naive guard
-    // approved `<managed-repo>/link -> /etc` and git then operated on /etc.
+    // The escape probe: as strings this path is inside the root. It is not — the link leaves it,
+    // which is why `<managed-repo>/link -> /etc` once had git operating on /etc.
     expect(target.startsWith(root + sep)).toBe(true);
-
-    expect(isInsideRoot(root, target)).toBe(false);
+    expect(canonical(target).startsWith(canonical(root) + sep)).toBe(false);
   });
 
-  test("a symlinked area root does not falsely refuse a path reported under its real name", () => {
+  test("a symlinked root and a path under its real name resolve to the same place", () => {
     const real = mkdtempSync(join(tmpdir(), "openui-area-real-"));
     const link = join(root, "by-another-name");
     symlinkSync(real, link);
@@ -86,29 +79,59 @@ describe("isInsideRoot", () => {
 
       // The false-refusal probe: as strings these have nothing in common.
       expect(viaRealName.startsWith(link + sep)).toBe(false);
-
-      expect(isInsideRoot(link, viaRealName)).toBe(true);
+      expect(canonical(viaRealName).startsWith(canonical(link) + sep)).toBe(true);
     } finally {
       rmSync(real, { recursive: true, force: true });
     }
   });
 
-  test("a sibling directory whose name extends the root is outside it", () => {
+  test("canonicalising does not merge a sibling whose name extends the root", () => {
     const sibling = `${root}-other`;
     mkdirSync(sibling, { recursive: true });
+    writeFileSync(join(root, "brief.md"), "x");
     try {
-      // The trailing-separator probe: without `+ sep` this string comparison approves the sibling.
-      expect(`${sibling}/file.md`.startsWith(root)).toBe(true);
-
-      expect(isInsideRoot(root, join(sibling, "file.md"))).toBe(false);
+      expect(canonical(join(sibling, "file.md")).startsWith(canonical(root) + sep)).toBe(false);
+      expect(canonical(join(root, "brief.md")).startsWith(canonical(root) + sep)).toBe(true);
     } finally {
       rmSync(sibling, { recursive: true, force: true });
     }
   });
+});
 
-  test("an absolute path elsewhere on the machine is outside", () => {
-    expect(isInsideRoot(root, "/etc/passwd")).toBe(false);
-    expect(isInsideRoot(root, join(outside, "anything.md"))).toBe(false);
+// ------------------------------------------------- A-00: the boundary is grok's, not ours
+
+describe("the area boundary is --sandbox", () => {
+  test("every agent process is launched under a sandbox profile", () => {
+    // The rule the board header prints was enforced by nothing until this flag was passed: no
+    // PreToolUse hook was ever installed, and --always-approve approves every tool call.
+    expect(SANDBOX_PROFILE).not.toBe("off");
+    expect([...ACP_ARGS]).toContain("--sandbox");
+    expect([...ACP_ARGS]).toContain(SANDBOX_PROFILE);
+  });
+
+  test("--sandbox precedes the subcommand, because it is a top-level flag", () => {
+    // It is absent from `grok agent --help`; placed after `agent` the process fails to start.
+    const args = [...ACP_ARGS];
+    expect(args.indexOf("--sandbox")).toBeLessThan(args.indexOf("agent"));
+    expect(args.indexOf(SANDBOX_PROFILE)).toBe(args.indexOf("--sandbox") + 1);
+  });
+
+  test("this file no longer exports a path comparison of its own", async () => {
+    // A-00: we wrote one, it was never called, and the flag does the job better. Re-adding it would
+    // be the second implementation of a boundary the kernel already enforces.
+    const boundary = await import("./boundary");
+    expect(Object.keys(boundary)).not.toContain("isInsideRoot");
+  });
+
+  test("why --tools was rejected for capability is recorded, not merely decided", () => {
+    const src = readFileSync(join(import.meta.dir, "boundary.ts"), "utf8");
+    expect(src, "the --tools finding was removed from boundary.ts").toContain(
+      "Built-in tools to allow",
+    );
+    expect(src, "the register-and-refuse reason was removed").toContain("MCPTool(media__generate_image)");
+    expect(src, "the A-0 subtraction argument was removed").toContain(
+      "cannot implement a rule that forbids",
+    );
   });
 });
 

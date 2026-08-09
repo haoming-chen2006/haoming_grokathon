@@ -1,13 +1,27 @@
 /**
- * The area boundary — the one place that decides whether a path is inside a work area.
+ * The area boundary, and the capability table.
  *
- * Isolation used to be a git worktree: a cwd handed to the agent and nothing more. A worktree made
- * an out-of-bounds edit *recoverable*; it never *prevented* one. This module is the prevention, and
- * everything that compares a path against an area root goes through it so there is exactly one
- * implementation to get right.
+ * **The boundary is `--sandbox`, not this file (A-00).** This module used to export
+ * `isInsideRoot(root, candidate)`, a canonicalising path comparison written to answer "may this
+ * agent write here?". It was a careful piece of code with four escape probes behind it, and it was
+ * never called: no PreToolUse hook was ever installed, and `acpClient.ts` launches every agent with
+ * `--always-approve`. The rule the board header prints on every page — an agent can only change
+ * things inside its own area — was enforced by nothing at all.
+ *
+ * `grok --sandbox <profile>` is the flag that already existed. `docs/user-guide/18-sandbox.md`:
+ * the profile is applied to the whole process at startup through Seatbelt on macOS and Landlock on
+ * Linux, is irreversible once applied, and is saved with the session so a resume comes back under
+ * the same confinement. It covers what a tool-call hook structurally cannot — `bash`, `rg`,
+ * subagents, and anything a child process does — and it is enforced by the kernel rather than by
+ * our agreement with the model. `acpClient.ts`'s `SANDBOX_PROFILE` is where it is passed; the CWD an
+ * agent is given is its worktree, so the writable set and the agent's area are the same directory.
+ *
+ * What remains here is `canonical()`, which `workArea.ts` uses to store an area root under one
+ * name, and the capability table below, which is a different subject: which *tools exist*, not
+ * which paths are writable.
  */
 import { realpathSync } from "fs";
-import { basename, dirname, join, resolve, sep } from "path";
+import { basename, dirname, join, resolve } from "path";
 
 /**
  * Resolve a path to its canonical form, following symlinks.
@@ -220,15 +234,32 @@ export function capabilityLabel(capabilities: AgentCapabilities): string {
 }
 
 /**
- * Is `candidate` the area root itself, or inside it?
+ * Why `--tools` cannot replace the table above (A-00).
  *
- * Canonicalises both halves before comparing — that is the whole point of the function, and the
- * reason no caller is allowed to do this comparison itself. The trailing separator matters: without
- * it `/area-other/file` starts with `/area` as a string and a sibling area would be judged inside
- * this one.
+ * A-00 requires that a surface which builds its own mechanism first records the flag it considered
+ * and why the flag was insufficient. For the path boundary the flag won and this file lost — see
+ * the header. For capability it does not, for three separate reasons, and the third is the one that
+ * settles it:
+ *
+ *   1. `--tools <TOOLS>` is documented as "Built-in tools to allow (comma-separated)". It names
+ *      grok's own tools — Bash, Read, Edit, Grep, WebSearch. `generate_image` and `narrate` are
+ *      not built-ins; they are tools our own MCP server registers. There is no spelling of them
+ *      `--tools` accepts.
+ *   2. The permission system *can* name them, as `--deny 'MCPTool(media__generate_image)'`
+ *      (docs/user-guide/22-permissions-and-safety.md, "MCP Rules"). But that advertises the tool
+ *      and then refuses the call, which is precisely the register-and-refuse shape
+ *      `mediaToolsForCapability` exists to avoid: a listed tool that always fails invites a retry,
+ *      and a retry loop from an agent with media capability is what costs real money here.
+ *   3. `--tools` is an allowlist over the built-in surface, so using it for capability would mean
+ *      expressing a tier as a *subtraction* from a whole agent. A-0 says capability adds and never
+ *      subtracts. A flag whose only mode is subtraction cannot implement a rule that forbids
+ *      subtracting, whatever it is pointed at.
+ *
+ * The two mechanisms are complementary rather than competing: `--sandbox` decides where an agent
+ * may write, our registration decides which priced endpoints exist for it to call. Neither can do
+ * the other's job.
  */
-export function isInsideRoot(root: string, candidate: string): boolean {
-  const canonicalRoot = canonical(root);
-  const canonicalCandidate = canonical(candidate);
-  return canonicalCandidate === canonicalRoot || canonicalCandidate.startsWith(canonicalRoot + sep);
-}
+export const TOOLS_FLAG_NOTE =
+  "grok's --tools flag allowlists built-in tools, so it cannot name our MCP media tools; and it " +
+  "expresses capability as a subtraction from a whole agent, which A-0 forbids. Capability stays " +
+  "a registration decision. The path boundary is grok's --sandbox.";

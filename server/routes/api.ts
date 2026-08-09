@@ -5,7 +5,7 @@ import { loadState, saveState, savePositions, getDataDir, loadCanvases, saveCanv
 import { signalSessionReady, getQueueProgress } from "../services/sessionStartQueue";
 import { getTokensForSession, getContextTokens, invalidateContextCache, getTotalTokensForNode } from "../services/costCache";
 import { getGrokDetection } from "../services/grokDetect";
-import { ACP_ARGS } from "../services/acpClient";
+import { ACP_ARGS, SANDBOX_PROFILE } from "../services/acpClient";
 import { projectRoutes } from "./projects";
 import { repositoryRoutes } from "./repository";
 import { agentRoutes } from "./agents";
@@ -154,6 +154,10 @@ apiRoutes.get("/grok/status", (c) => {
     error: detection.error,
     setupMessage: detection.setupMessage,
     acpCommand: detection.installed ? `${detection.binaryPath} ${ACP_ARGS.join(" ")}` : null,
+    // The area boundary, reported rather than assumed. The board header promises an agent can only
+    // change things inside its own area; this is the profile that makes that true, and a workspace
+    // started with GROK_SANDBOX=off says so instead of quietly dropping the promise.
+    sandboxProfile: SANDBOX_PROFILE,
   });
 });
 

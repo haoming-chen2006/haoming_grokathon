@@ -114,7 +114,7 @@ const colour = (theme: Map<string, string>, name: string): Rgb => {
 /** loops/07-shell.md §3.3.3, published verbatim as R-1.4. This is the contract, not a summary. */
 const GROUND = ["canvas", "surface", "surface-hover", "surface-active", "border", "border-strong"];
 const INK = ["ink", "ink-muted", "ink-faint", "ink-ghost"];
-const ACCENT = ["accent", "accent-muted"];
+const ACCENT = ["accent", "accent-muted", "link"];
 const STATUSES = ["working", "waiting", "needs-review", "complete", "idle", "failed"];
 const AREAS = [1, 2, 3, 4, 5, 6];
 
@@ -297,6 +297,17 @@ describe("the ink ramp is readable on both grounds", () => {
       for (const ground of ["canvas", "surface"]) {
         expect(contrast(colour(theme, "accent"), colour(theme, ground))).toBeGreaterThanOrEqual(4.5);
       }
+    }
+  });
+
+  test("the link colour is readable on both grounds, and is not the accent", () => {
+    for (const [, theme] of THEMES) {
+      for (const ground of ["canvas", "surface"]) {
+        expect(contrast(colour(theme, "link"), colour(theme, ground))).toBeGreaterThanOrEqual(4.5);
+      }
+      // Two published colours doing two jobs. If they converge, the selected page pill becomes
+      // indistinguishable from an area tint, which is the confusion the second token exists to fix.
+      expect(deltaE(colour(theme, "link"), colour(theme, "accent"))).toBeGreaterThan(20);
     }
   });
 });

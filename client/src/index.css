@@ -66,6 +66,17 @@
   --accent-muted: 139 113 214;
 
   /*
+   * link — #8fb0ff. A second published colour, not a shade of the accent.
+   *
+   * `design/mockups/README.md` lists both, and the four page designs use them for different jobs:
+   * the accent tints an AREA, so it competes with the five other area hues, while every piece of
+   * chrome that says "you are here" or "this is the running figure" — the selected page pill, the
+   * spend bar, a link in the inspector — is drawn in this blue. Drawing the chrome in the accent
+   * made the current page look like a seventh area.
+   */
+  --link: 143 176 255;
+
+  /*
    * status — the designs' hues: working #22C55E, waiting #FBBF24, attention #F97316,
    * stopped #EF4444, accent #A78BFA. Each ink is the design's colour; each bg and border is that
    * colour mixed down against --surface, so a badge reads as a tint of one hue rather than an
@@ -150,6 +161,9 @@
   /* accent */
   --accent: 125 75 198;
   --accent-muted: 108 62 178;
+
+  /* link — chosen, not derived: #8fb0ff is 1.9:1 on this ground and unreadable. */
+  --link: 32 82 190;
 
   /*
    * status — the same six hues in the same six roles, but every value is chosen rather than

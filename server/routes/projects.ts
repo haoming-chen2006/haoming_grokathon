@@ -11,6 +11,7 @@ import { getControlRoomBus } from "../services/controlRoomEvents";
 import { CompletionGateError, IncompleteSubmissionError } from "../services/codeReview";
 import { getAcpSessionManager } from "../services/acpSessionManager";
 import { getAgentRegistry } from "../services/agentRegistry";
+import { getAssetStore } from "../services/assetStore";
 import { seedDefaultTeam, resolveAgentForRole } from "../services/agentTeam";
 import type { CodingAgent } from "../types/agent";
 import { detectTestCommand, runTests } from "../services/testRunner";
@@ -22,6 +23,7 @@ import { getPromptLibrary, rulesForAgent } from "../services/promptLibrary";
 import { existsSync } from "fs";
 import { createAgentWorktree, mergeAgentBranch } from "../services/repository";
 import { buildTaskBriefing } from "../services/taskBriefing";
+import { startBlank } from "../services/startWork";
 
 export const projectRoutes = new Hono();
 
@@ -125,6 +127,39 @@ projectRoutes.post("/", async (c) => {
     return c.json({ ...project, agents, teamError }, 201);
   } catch (err) {
     return fail(c, err);
+  }
+});
+
+/**
+ * POST /api/projects/blank — a project with a name and nothing else.
+ *
+ * Registered before `/:id` so the literal segment is not swallowed by the parameter.
+ *
+ * Separate from `POST /` rather than making `repositoryPath` optional there, because the two have
+ * different contracts: `POST /` takes a repository the caller already has and seeds a default team,
+ * while this one stands up a managed workspace and seeds nothing. Collapsing them would mean one
+ * endpoint whose behaviour flips on the absence of a field.
+ */
+projectRoutes.post("/blank", async (c) => {
+  let body: { name?: string; goal?: string; repositoryPath?: string; budgetUsd?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Expected a JSON body with a `name` field" }, 400);
+  }
+  if (!body?.name?.trim()) return c.json({ error: "name is required" }, 400);
+  try {
+    return c.json(
+      startBlank({
+        name: body.name,
+        goal: body.goal,
+        repositoryPath: body.repositoryPath,
+        budgetUsd: body.budgetUsd,
+      }),
+      201,
+    );
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
   }
 });
 
@@ -251,6 +286,65 @@ projectRoutes.patch("/:id/requirements/:reqId", async (c) => {
 projectRoutes.get("/:id/progress", (c) => {
   try {
     return c.json(getProjectStore().getProgress(c.req.param("id")));
+  } catch (err) {
+    return fail(c, err);
+  }
+});
+
+/**
+ * What this project has spent — the one figure the toolbar shows on every page.
+ *
+ * Two ledgers, because the product has two ways to spend and they are recorded in different places:
+ * an agent's token spend accumulates on its registry record, and a metered media charge is written
+ * onto the asset it bought. Summing only the first is what made a $0.02 image invisible in the
+ * toolbar the moment after it was generated.
+ *
+ * Three states, never two. `charges: 0` means nothing has been spent and the toolbar draws "—";
+ * `pricedUsd` with `unpriced > 0` means part of the total could not be priced and the figure is a
+ * floor, not a total; `unpriced === charges` means nothing could be priced at all and the toolbar
+ * says "unknown". A project that has spent money nobody could price must not render as $0.00.
+ */
+projectRoutes.get("/:id/spend", (c) => {
+  try {
+    const projectId = c.req.param("id");
+    const project = getProjectStore().getProject(projectId);
+
+    let pricedUsd = 0;
+    let charges = 0;
+    let unpriced = 0;
+
+    // Token spend, per agent. `costUsd` is the registry's running total and is only ever advanced
+    // by a turn that could be priced, so an agent at 0 with tokens recorded is an unpriced agent.
+    for (const agent of getAgentRegistry().list(projectId)) {
+      if (agent.costUsd > 0) {
+        pricedUsd += agent.costUsd;
+        charges += 1;
+      } else if (agent.tokensUsed > 0) {
+        charges += 1;
+        unpriced += 1;
+      }
+    }
+
+    // Metered media charges, per asset. These carry their own tier: `billed` came from xAI,
+    // `estimated` from a published rate, `unknown` from neither — and only the last is unpriced.
+    for (const asset of getAssetStore().listAssets(projectId, { includeDeleted: true })) {
+      for (const charge of asset.charges) {
+        charges += 1;
+        if (typeof charge.costUsd === "number" && charge.costSource !== "unknown") {
+          pricedUsd += charge.costUsd;
+        } else {
+          unpriced += 1;
+        }
+      }
+    }
+
+    return c.json({
+      charges,
+      unpriced,
+      // Rounded to the cent the toolbar renders, not to the six decimals the ledger keeps.
+      pricedUsd: Number(pricedUsd.toFixed(4)),
+      budgetUsd: project.budgetUsd,
+    });
   } catch (err) {
     return fail(c, err);
   }

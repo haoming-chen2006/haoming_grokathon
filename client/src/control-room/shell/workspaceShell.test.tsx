@@ -9,10 +9,13 @@ import { NAVIGATOR } from "./regions";
 const PROJECT = { id: "proj_1", name: "Aeris Chairs — Q3 sales push" };
 
 /** The endpoints the shell reads, all of which exist on the merge base. */
-function stubServer(overrides: { projects?: unknown; grok?: unknown } = {}) {
+function stubServer(overrides: { projects?: unknown; grok?: unknown; spend?: unknown } = {}) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
-    const body = url.includes("/api/projects")
+    // Checked before /api/projects, which it is a path under.
+    const body = url.includes("/spend")
+      ? (overrides.spend ?? { charges: 0, unpriced: 0, pricedUsd: 0 })
+      : url.includes("/api/projects")
       ? (overrides.projects ?? [PROJECT])
       : url.includes("/api/grok/status")
         ? (overrides.grok ?? { installed: true })
@@ -144,8 +147,8 @@ describe("the three regions", () => {
   });
 });
 
-describe("the navigator names the places", () => {
-  test("three headline pages sit above the divider and two secondary ones below it", async () => {
+describe("the page strip names the places", () => {
+  test("three headline pages, a rule, two secondary ones, then Tools", async () => {
     await mount();
     const selector = screen.getByTestId("page-selector");
     const order = [...selector.children].map((el) => el.getAttribute("data-testid") ?? "");
@@ -153,10 +156,22 @@ describe("the navigator names the places", () => {
       "page-agents",
       "page-assets",
       "page-designdocs",
-      "navigator-divider",
+      "page-strip-divider",
       "page-users",
       "page-x",
+      // The spacer that pushes Tools to the far end, as every mockup draws it.
+      "",
+      "tools-open",
     ]);
+  });
+
+  test("the strip is chrome, above the regions and outside the navigator", async () => {
+    // All four mockups draw a horizontal row under the toolbar. It used to sit inside the
+    // navigator, which meant every page opened with a global list stacked on top of its own.
+    await mount();
+    const strip = screen.getByTestId("page-selector");
+    expect(screen.getByTestId("navigator").contains(strip)).toBe(false);
+    expect(screen.getByTestId("main").contains(strip)).toBe(false);
   });
 
   test("every page label is plain language, and none is an id", async () => {
@@ -170,7 +185,7 @@ describe("the navigator names the places", () => {
   test("nothing else in the shell navigates between pages", async () => {
     await mount();
     // Today's shell has a six-tab strip inside MAIN as well as a left rail. MAIN holds no page
-    // switcher at all: the navigator is the only surface that changes which page you are on.
+    // switcher at all: the strip is the only surface that changes which page you are on.
     const main = screen.getByTestId("main");
     for (const page of PAGES) {
       expect(main.querySelector(`[data-testid="page-${page.id}"]`)).toBeNull();
@@ -335,20 +350,54 @@ describe("one notification surface, not six", () => {
 });
 
 describe("the toolbar", () => {
-  test("names the product and the project", async () => {
+  test("opens with the region toggles and the project, as every mockup draws it", async () => {
     await mount();
-    expect(screen.getByTestId("toolbar").textContent).toContain("grok-workspace");
-    expect(screen.getByTestId("toolbar-project").textContent).toBe(PROJECT.name);
+    expect(screen.getByTestId("toolbar-project").textContent).toContain(PROJECT.name);
+    // The two squares are the toggles. Drawn as decoration; a control that hides a region is the
+    // only thing they can honestly be, and the rules are otherwise 1px targets.
+    expect(screen.getByTestId("toggle-navigator")).toBeDefined();
+    expect(screen.getByTestId("toggle-inspector")).toBeDefined();
+    // Tools moved to the page strip, where all four mockups put it.
+    expect(screen.getByTestId("toolbar").querySelector('[data-testid="tools-open"]')).toBeNull();
   });
 
-  test("labels the spend and renders it as unknown rather than a fabricated $0.00", async () => {
+  test("hiding a region from the toolbar leaves its rail, not a hole", async () => {
+    await mount();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("toggle-inspector"));
+    });
+    expect(screen.queryByTestId("inspector")).toBeNull();
+    expect(screen.getByTestId("inspector-rail")).toBeDefined();
+  });
+
+  test("no charges renders an em dash, never a fabricated $0.00", async () => {
     await mount();
     const spend = screen.getByTestId("toolbar-spend");
-    // Both wireframes put the figure here; design-document.html labels it and assets-page.html
-    // does not. Labelled won, and the label is what makes the unpriced case readable.
+    // design-document.html labels the figure and assets-page.html does not. Labelled won, and the
+    // label is what makes the two absences readable.
     expect(spend.textContent).toContain("Project spend");
-    expect(spend.textContent).toContain("unknown");
+    expect(spend.textContent).toContain("—");
     expect(spend.textContent).not.toContain("$0.00");
+  });
+
+  test("charges nothing could price render as unknown, never as a total", async () => {
+    stubServer({ spend: { charges: 3, unpriced: 3, pricedUsd: 0 } });
+    await mount();
+    await waitFor(() =>
+      expect(screen.getByTestId("toolbar-spend").textContent).toContain("unknown"),
+    );
+    expect(screen.getByTestId("toolbar-spend").textContent).not.toContain("$0.00");
+  });
+
+  test("a priced total renders against its budget, and says when it is only a floor", async () => {
+    stubServer({ spend: { charges: 4, unpriced: 1, pricedUsd: 21, budgetUsd: 50 } });
+    await mount();
+    const spend = screen.getByTestId("toolbar-spend");
+    await waitFor(() => expect(spend.textContent).toContain("$21.00 / $50.00"));
+    // The + is the visible half of it; the title says how many charges are missing, because a
+    // partial sum shown as a total under-reports a bill nobody is watching.
+    expect(spend.textContent).toContain("+");
+    expect(spend.querySelector("[title]")?.getAttribute("title")).toContain("could not be priced");
   });
 
   test("the theme control switches the document class with no reload, both ways", async () => {
