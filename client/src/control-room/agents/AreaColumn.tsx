@@ -112,7 +112,6 @@ export function AreaColumn({
             {area.statusPresentation?.label ?? "Nobody assigned"} — no agent is hired into this area
             yet, so nothing here is being worked on.
           </p>
-          {onStartAgent ? <StartAgentHere area={area} busy={busy} onStart={onStartAgent} /> : null}
         </>
       ) : (
         <div className="flex flex-wrap gap-3">
@@ -141,6 +140,13 @@ export function AreaColumn({
           })}
         </div>
       )}
+
+      {/*
+        Hiring lives outside the empty/populated branch. It was inside the empty one, so an area
+        with one agent could never get a second — and a board where every box is filled had no way
+        to add anybody at all. An area holds a team, not a person.
+      */}
+      {onStartAgent ? <StartAgentHere area={area} busy={busy} onStart={onStartAgent} /> : null}
     </section>
   );
 }
