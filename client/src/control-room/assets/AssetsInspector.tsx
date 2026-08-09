@@ -73,8 +73,17 @@ export function AssetsInspector({ projectId, selectionId }: WorkspacePageProps) 
       <div className="h-px bg-border" />
 
       <Section title="Provenance">
+        {/*
+          Three cases, and the middle one was missing here as it was on the card. An asset the
+          registry can name is named; one produced by an agent it can no longer name says that; and
+          only an asset with NO producing agent is an upload. Falling through to "You (uploaded)"
+          whenever the NAME was absent credited every generated deliverable to the person reading
+          the page — which is what the first real image did on the day it was made.
+        */}
         {asset.producedByAgentName ? (
           <Row label="Made by" value={asset.producedByAgentName} />
+        ) : asset.producedByAgentId ? (
+          <Row label="Made by" value="An agent this workspace no longer has a record of" />
         ) : (
           <Row label="Made by" value="You (uploaded)" />
         )}

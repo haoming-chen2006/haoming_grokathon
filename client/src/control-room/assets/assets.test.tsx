@@ -6,8 +6,9 @@
  * the records below live in this file only. The empty suites are what stop it coming back.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AssetRow, rowSubtitle } from "./AssetRow";
+import { AssetsInspector } from "./AssetsInspector";
 import { ROW_LIMIT, matchingAssets, recentAssets } from "./AssetsNavigator";
 import { ASSET_CHIPS, chipAdmits, type AssetType, type AssetView } from "./types";
 import { formatCost } from "./useAssets";
@@ -180,5 +181,53 @@ describe("RECENT is the store's own updatedAt, newest first", () => {
 
   test("an empty shelf has nothing recent, rather than a placeholder row", () => {
     expect(recentAssets([])).toEqual([]);
+  });
+});
+
+describe("a deliverable is credited to whoever actually made it", () => {
+  /**
+   * The first real generated image rendered as "Uploaded by you".
+   *
+   * Nothing resolved `producedByAgentId` into a name, so every generated asset fell through the
+   * has-a-name branch straight into the upload branch, and the page credited a person who did not
+   * make it. That is a fabricated value wearing an attribution — the class of defect this page
+   * deleted a mock module over — and it needed a third branch, not a better fallback.
+   */
+  const stub = (assets: AssetView[]) => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(assets), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+  };
+
+  const named = asset("first_real_image", {
+    producedByAgentId: "agent_1",
+    producedByAgentName: "Firstlight",
+  });
+  const unnamed = asset("orphaned", { producedByAgentId: "agent_gone" });
+  const uploaded = asset("brought_in", { origin: "uploaded" });
+
+  const madeBy = async (a: AssetView) => {
+    stub([a]);
+    render(<AssetsInspector projectId="p1" selectionId={a.id} onSelect={noop} />);
+    await waitFor(() => expect(screen.getByTestId("assets-inspector")).toBeDefined());
+    return screen.getByTestId("assets-inspector").textContent ?? "";
+  };
+
+  test("an agent the registry can name is named", async () => {
+    expect(await madeBy(named)).toContain("Firstlight");
+  });
+
+  test("an agent made it, so it is never described as an upload", async () => {
+    // The middle case: the id is there and the name is not. "You uploaded this" would be wrong in
+    // exactly the direction nobody checks.
+    const text = await madeBy(unnamed);
+    expect(text).not.toContain("uploaded");
+    expect(text).toContain("no longer has a record of");
+  });
+
+  test("only an asset with no producing agent at all is an upload", async () => {
+    expect(await madeBy(uploaded)).toContain("uploaded");
   });
 });
